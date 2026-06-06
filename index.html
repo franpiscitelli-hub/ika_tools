@@ -751,46 +751,47 @@ async function importEntries(entries) {
 // BRIDGE — postMessage da iframe Tampermonkey
 // ═══════════════════════════════════════════════
 function initPostMessageBridge() {
+  let received = 0;
+
   window.addEventListener('message', async (e) => {
     const msg = e.data;
     if (!msg) return;
+    console.log('[PWA] message ricevuto:', JSON.stringify(msg).slice(0, 100));
 
-    // Messaggio dati dal Tampermonkey
     if (msg.type === 'ik_data' && msg.entry) {
+      received++;
+      console.log('[PWA] importo entry #' + received, msg.entry.url);
       await importEntries([msg.entry]);
       return;
     }
-
-    // Array di entry (batch)
     if (Array.isArray(msg)) {
       await importEntries(msg);
     }
   });
 
-  // Segnala al Tampermonkey che la PWA è pronta
-  // Inviamo "ik_ready" alla finestra padre (l'iframe è dentro Ikariam)
-  try {
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage('ik_ready', '*');
-      console.log('[PWA] Segnalato ik_ready al parent');
-    }
-  } catch {}
-
-  // Invia ik_ready ogni 3s per i primi 30s
-  // (nel caso il Tampermonkey carichi dopo la PWA)
-  let attempts = 0;
-  const pingInterval = setInterval(() => {
-    attempts++;
+  // Segnala "pronto" al Tampermonkey che aspetta 'ik_ready'
+  function sendReady() {
     try {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage('ik_ready', '*');
+        console.log('[PWA] ik_ready → parent');
       }
-    } catch {}
-    if (attempts >= 10) clearInterval(pingInterval);
+    } catch (e) {
+      console.warn('[PWA] sendReady error:', e.message);
+    }
+  }
+
+  sendReady();
+  let attempts = 0;
+  const ping = setInterval(() => {
+    attempts++;
+    sendReady();
+    if (attempts >= 10) clearInterval(ping);
   }, 3000);
 
   document.getElementById('conn-status').innerHTML =
-    '✅ Bridge <code style="color:var(--gold-dim)">postMessage</code> attivo — in ascolto...';
+    '✅ Bridge <code style="color:var(--gold-dim)">postMessage</code> attivo';
+  setStatus('live', 'In ascolto');
   console.log('[PWA] postMessage bridge attivo');
 }
 
