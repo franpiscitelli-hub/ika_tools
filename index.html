@@ -568,11 +568,18 @@
   <div class="ornament">✦ ✦ ✦</div>
 
   <div class="card">
+    <div class="card-title">📨 Messaggi ricevuti (live)</div>
+    <div id="msg-log" style="max-height:150px;overflow-y:auto;font-size:11px;color:var(--text-muted)">
+      <div style="color:var(--text-muted);font-size:12px">In attesa di messaggi...</div>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="card-title">📥 Import manuale</div>
     <p style="font-size:13px;color:var(--text-dim);margin-bottom:10px">
       Se hai file JSON scaricati manualmente, importali qui.
     </p>
-    <input type="file" id="file-import" accept=".json" multiple
+    <input type="file" id="file-import" accept="*/*" multiple
       style="display:none" onchange="importFiles(this)">
     <button class="btn" onclick="document.getElementById('file-import').click()">
       📂 Scegli file JSON
@@ -792,6 +799,20 @@ function initPostMessageBridge() {
   document.getElementById('conn-status').innerHTML =
     '✅ Bridge <code style="color:var(--gold-dim)">postMessage</code> attivo';
   setStatus('live', 'In ascolto');
+
+  // Log visibile per debug
+  const logEl = document.getElementById('msg-log');
+  if (logEl) {
+    const orig = window.addEventListener.bind(window);
+    // Aggiungi un secondo listener solo per il log UI
+    window.addEventListener('message', (e) => {
+      const line = document.createElement('div');
+      line.style.cssText = 'font-size:11px;color:var(--text-dim);border-bottom:1px solid rgba(107,74,30,0.2);padding:3px 0;word-break:break-all';
+      line.textContent = new Date().toLocaleTimeString() + ' → ' + JSON.stringify(e.data).slice(0, 120);
+      logEl.prepend(line);
+      if (logEl.children.length > 20) logEl.lastChild.remove();
+    });
+  }
   console.log('[PWA] postMessage bridge attivo');
 }
 
@@ -829,18 +850,42 @@ async function pollNow() {
 // ═══════════════════════════════════════════════
 async function importFiles(input) {
   const files = Array.from(input.files);
+  if (files.length === 0) { showToast('⚠️ Nessun file selezionato'); return; }
   let total = 0;
   for (const file of files) {
     try {
+      console.log('[PWA] Importo file:', file.name, file.size, 'bytes');
       const text = await file.text();
-      const json = JSON.parse(text);
-      // Supporta sia array di entry sia singola entry sia batch
-      const entries = Array.isArray(json) ? json : [json];
-      total += await importEntries(entries);
-    } catch { showToast(`❌ Errore: ${file.name}`); }
+      console.log('[PWA] Testo letto, lunghezza:', text.length);
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch(e) {
+        console.error('[PWA] JSON parse error:', e.message, 'primi 200 chars:', text.slice(0,200));
+        showToast(`❌ JSON non valido: ${file.name}`);
+        continue;
+      }
+      // Supporta array di entry, singola entry, o batch con _meta
+      let entries;
+      if (Array.isArray(json)) {
+        entries = json;
+      } else if (json._meta && json.data) {
+        // Singola entry con _meta (formato vecchio Tampermonkey)
+        entries = [{ url: json._meta.url, date: json._meta.date, server: json._meta.server, data: json.data }];
+      } else {
+        entries = [json];
+      }
+      console.log('[PWA] Entry trovate:', entries.length);
+      const count = await importEntries(entries);
+      total += count;
+      showToast(`📂 ${file.name}: ${count} record`);
+    } catch(e) {
+      console.error('[PWA] Errore file', file.name, e);
+      showToast(`❌ Errore: ${file.name}`);
+    }
   }
   input.value = '';
-  if (total > 0) showToast(`📂 Importati ${total} da file`);
+  if (total > 0) showToast(`✅ Totale importati: ${total}`);
 }
 
 // ═══════════════════════════════════════════════
