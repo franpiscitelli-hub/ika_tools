@@ -748,25 +748,50 @@ async function importEntries(entries) {
 }
 
 // ═══════════════════════════════════════════════
-// BRIDGE — BroadcastChannel (tempo reale)
+// BRIDGE — postMessage da iframe Tampermonkey
 // ═══════════════════════════════════════════════
-function initBroadcastChannel() {
+function initPostMessageBridge() {
+  window.addEventListener('message', async (e) => {
+    const msg = e.data;
+    if (!msg) return;
+
+    // Messaggio dati dal Tampermonkey
+    if (msg.type === 'ik_data' && msg.entry) {
+      await importEntries([msg.entry]);
+      return;
+    }
+
+    // Array di entry (batch)
+    if (Array.isArray(msg)) {
+      await importEntries(msg);
+    }
+  });
+
+  // Segnala al Tampermonkey che la PWA è pronta
+  // Inviamo "ik_ready" alla finestra padre (l'iframe è dentro Ikariam)
   try {
-    const ch = new BroadcastChannel('ik_bridge');
-    ch.onmessage = async (e) => {
-      const msg = e.data;
-      if (!msg) return;
-      // Il Tampermonkey manda singole entry o array
-      const entries = Array.isArray(msg) ? msg : [msg];
-      await importEntries(entries);
-    };
-    document.getElementById('conn-status').innerHTML =
-      '✅ BroadcastChannel <code style="color:var(--gold-dim)">ik_bridge</code> attivo';
-    console.log('[PWA] BroadcastChannel aperto su ik_bridge');
-  } catch (e) {
-    document.getElementById('conn-status').textContent =
-      '⚠️ BroadcastChannel non supportato — uso solo polling';
-  }
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage('ik_ready', '*');
+      console.log('[PWA] Segnalato ik_ready al parent');
+    }
+  } catch {}
+
+  // Invia ik_ready ogni 3s per i primi 30s
+  // (nel caso il Tampermonkey carichi dopo la PWA)
+  let attempts = 0;
+  const pingInterval = setInterval(() => {
+    attempts++;
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage('ik_ready', '*');
+      }
+    } catch {}
+    if (attempts >= 10) clearInterval(pingInterval);
+  }, 3000);
+
+  document.getElementById('conn-status').innerHTML =
+    '✅ Bridge <code style="color:var(--gold-dim)">postMessage</code> attivo — in ascolto...';
+  console.log('[PWA] postMessage bridge attivo');
 }
 
 // ═══════════════════════════════════════════════
@@ -1170,13 +1195,10 @@ async function clearDB() {
 async function init() {
   await openDB();
   initMap();
-  initBroadcastChannel();
+  initPostMessageBridge();
   initPolling();
   await refreshUI();
-
-  // Primo poll immediato all'avvio
   await pollNow();
-
   setStatus('', 'In ascolto...');
   console.log('[IkPWA] Avviata — DB pronto');
 }
