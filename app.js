@@ -1,22 +1,30 @@
 // ═══════════════════════════════════════════════
-// app.js — UI fullscreen + intercettazione JSON
+// app.js — UI principale + intercettazione JSON
+// v3.1.0
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
 
-  function log(...a) { console.log('[IkApp]', ...a); }
-
   // ── STATO ───────────────────────────────────
-  let panelOpen  = false;
-  let activeTab  = 'timers';
+  let panelOpen    = false;
+  let activeTab    = 'map';
   let sessionCount = 0;
-  let mapIslands = [];
-  let mapView    = { x: 0, y: 0, scale: 2 };
-  let mapDrag    = null;
+  let mapIslands   = [];
+  let mapPlayers   = new Map(); // playerId → player
+  let mapCities    = [];        // { islandCoords, playerId, ... }
+  let myPlayerId   = null;
+  let searchFilter = '';
+  let allyFilter   = '';
+  let refFilter    = '';        // riferimento alleanza/player
+  let mapView      = { x: 20, y: 1, scale: 5 };
+  let mapDrag      = null;
   let mapCanvas, mapCtx;
   let timerInterval = null;
+  let popupIsland   = null;
 
-  // ── INTERCETTAZIONE XHR ──────────────────────
+  function log(...a) { console.log('[IkApp]', ...a); }
+
+  // ── INTERCETTAZIONE ─────────────────────────
   const rawOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (m, url) {
     this._url = url; return rawOpen.apply(this, arguments);
@@ -28,8 +36,6 @@
     });
     return rawSend.apply(this, arguments);
   };
-
-  // ── INTERCETTAZIONE FETCH ────────────────────
   const origFetch = window.fetch;
   window.fetch = async function (...args) {
     const res = await origFetch.apply(this, args);
@@ -38,25 +44,21 @@
     return res;
   };
 
-  // ── ON DATA ─────────────────────────────────
   const lastSeen = {};
   async function onData(url, rawText) {
     if (!rawText || rawText.length < 10) return;
     const t = rawText.trim();
     if (!t.startsWith('{') && !t.startsWith('[')) return;
-    const key = (() => { try { return new URL(url).pathname; } catch { return url; } })();
+    const key = (() => { try { return new URL(url).pathname + new URL(url).search.slice(0,40); } catch { return url; } })();
     if ((Date.now() - (lastSeen[key] || 0)) < 2000) return;
     lastSeen[key] = Date.now();
-
     let parsed;
     try { parsed = JSON.parse(rawText); } catch { return; }
-
     sessionCount++;
     updateBadge();
-
     if (window.IkParsers) {
       const result = await window.IkParsers.parse(url, parsed);
-      log(`#${sessionCount} [${result.type}] parsed:${result.parsed}`);
+      log(`#${sessionCount} [${result.type}]`);
     }
     if (panelOpen) refreshActiveTab();
   }
@@ -78,177 +80,186 @@
     overlay.onclick = toggle;
     document.body.appendChild(overlay);
 
-    // Pannello fullscreen
+    // Pannello
     const panel = document.createElement('div');
     panel.id = 'ikp-panel';
     panel.innerHTML = `
       <div id="ikp-header">
-        <div id="ikp-title">⚓ IKARIAM<span>COMPANION v3.0</span></div>
+        <div id="ikp-title">⚓ IKARIAM COMPANION<span>v3.1.0</span></div>
         <button id="ikp-close-btn" onclick="window.IkApp.toggle()">✕</button>
       </div>
-
       <div id="ikp-statusbar">
-        <div class="ikp-stat-pill">📥 <b id="ikp-s-captured">0</b> catturati</div>
-        <div class="ikp-stat-pill">🗄 <b id="ikp-s-total">0</b> record</div>
-        <div class="ikp-stat-pill">🏝 <b id="ikp-s-islands">0</b> isole</div>
-        <div class="ikp-stat-pill">⏰ <b id="ikp-s-timers">0</b> timer</div>
+        <div class="ikp-stat-pill">📥 <b id="ikp-s-cap">0</b> catturati</div>
+        <div class="ikp-stat-pill">🗄 <b id="ikp-s-tot">0</b> record</div>
+        <div class="ikp-stat-pill">🏝 <b id="ikp-s-isl">0</b> isole</div>
+        <div class="ikp-stat-pill">👤 <b id="ikp-s-pl">0</b> players</div>
+        <div class="ikp-stat-pill">⏰ <b id="ikp-s-tim">0</b> timer</div>
       </div>
-
       <div id="ikp-tabs">
-        <div class="ikp-tab active" data-tab="timers">⏰ Timer</div>
+        <div class="ikp-tab active" data-tab="map">🗺 Mappa</div>
+        <div class="ikp-tab" data-tab="timers">⏰ Timer</div>
         <div class="ikp-tab" data-tab="resources">💰 Risorse</div>
-        <div class="ikp-tab" data-tab="islands">🏝 Isole</div>
-        <div class="ikp-tab" data-tab="map">🗺 Mappa</div>
+        <div class="ikp-tab" data-tab="changes">🔔 Cambi</div>
         <div class="ikp-tab" data-tab="db">🗄 Dati</div>
         <div class="ikp-tab" data-tab="settings">⚙</div>
       </div>
-
       <div id="ikp-body">
 
-        <!-- ── TIMER ── -->
-        <div class="ikp-section active" id="ikp-tab-timers">
+        <!-- ══ MAPPA ══ -->
+        <div class="ikp-section active" id="ikp-tab-map">
+          <div class="ikp-map-filters">
+            <input class="ikp-filter-input" id="ikp-f-search"
+              placeholder="🔍 Cerca player o isola..."
+              oninput="window.IkApp.applyFilters()">
+            <input class="ikp-filter-input" id="ikp-f-ally"
+              placeholder="⚔ Alleanza (tag)..."
+              oninput="window.IkApp.applyFilters()">
+            <input class="ikp-filter-input" id="ikp-f-ref"
+              placeholder="⭐ Riferimento player/ally..."
+              oninput="window.IkApp.applyFilters()">
+            <button class="ikp-btn small outline" onclick="window.IkApp.clearFilters()">✕ Reset</button>
+          </div>
+          <div id="ikp-map-wrap">
+            <canvas id="ikp-map-canvas" height="460"></canvas>
+          </div>
+          <div class="ikp-map-legend">
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-island)"></div> Isola vuota</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-cities)"></div> Con player</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-me)"></div> Mio</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-search)"></div> Ricercato</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-target)"></div> Riferimento</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-ally)"></div> Alleanza</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <button class="ikp-btn small" onclick="window.IkApp.mapReset()">⌂ Reset</button>
+            <button class="ikp-btn small" onclick="window.IkApp.mapZoom(1.4)">＋ Zoom</button>
+            <button class="ikp-btn small" onclick="window.IkApp.mapZoom(0.7)">－ Zoom</button>
+            <button class="ikp-btn small outline" onclick="window.IkApp.goToMe()">📍 Vai a me</button>
+          </div>
+        </div>
+
+        <!-- ══ TIMER ══ -->
+        <div class="ikp-section" id="ikp-tab-timers">
           <div class="ikp-card">
             <div class="ikp-card-title">⏰ Timer attivi</div>
             <div id="ikp-timer-list">
-              <div class="ikp-empty">
-                <div class="ikp-empty-icon">⏳</div>
-                <p>Nessun timer attivo.<br>I timer appaiono automaticamente<br>quando giochi.</p>
-              </div>
+              <div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>
             </div>
           </div>
         </div>
 
-        <!-- ── RISORSE ── -->
+        <!-- ══ RISORSE ══ -->
         <div class="ikp-section" id="ikp-tab-resources">
           <div id="ikp-cities-list">
-            <div class="ikp-empty">
-              <div class="ikp-empty-icon">🏛</div>
-              <p>Nessuna città rilevata.<br>Apri una città nel gioco.</p>
-            </div>
+            <div class="ikp-empty"><div class="ikp-empty-icon">🏛</div><p>Nessuna città rilevata.<br>Apri una città nel gioco.</p></div>
           </div>
         </div>
 
-        <!-- ── ISOLE ── -->
-        <div class="ikp-section" id="ikp-tab-islands">
+        <!-- ══ CAMBI STATO ══ -->
+        <div class="ikp-section" id="ikp-tab-changes">
           <div class="ikp-card">
-            <div class="ikp-card-title">🏝 Isole (<span id="ikp-isl-count">0</span>)</div>
-            <input class="ikp-input" id="ikp-isl-search"
-              placeholder="Cerca per nome o coordinate..."
-              style="margin-bottom:10px"
-              oninput="window.IkApp.refreshIslands()">
-            <div id="ikp-isl-list" style="max-height:55vh;overflow-y:auto">
-              <div class="ikp-empty">
-                <div class="ikp-empty-icon">🗺</div>
-                <p>Nessuna isola nel DB.<br>Visita <b>ikalogs.ru</b> con Tampermonkey attivo.</p>
-              </div>
+            <div class="ikp-card-title">
+              🔔 Cambi di stato giocatori
+              <button class="ikp-btn small danger" onclick="window.IkApp.clearChanges()">🗑 Svuota</button>
+            </div>
+            <div id="ikp-changes-list">
+              <div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio rilevato.<br>Aggiorna i dati di Ikalogs.</p></div>
             </div>
           </div>
         </div>
 
-        <!-- ── MAPPA ── -->
-        <div class="ikp-section" id="ikp-tab-map">
-          <div class="ikp-card" style="padding:10px">
-            <div class="ikp-map-controls">
-              <input class="ikp-input" id="ikp-map-search"
-                placeholder="Cerca isola..."
-                style="flex:1;min-width:0"
-                oninput="window.IkApp.drawMap()">
-              <button class="ikp-btn" onclick="window.IkApp.mapReset()">⌂</button>
-              <button class="ikp-btn" onclick="window.IkApp.mapZoom(1.3)">＋</button>
-              <button class="ikp-btn" onclick="window.IkApp.mapZoom(0.77)">－</button>
-            </div>
-            <canvas id="ikp-map-canvas" height="420"></canvas>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:11px;color:var(--text-muted)">
-              <span>🔵 Neutra</span><span>🟡 Trovata</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── DB ── -->
+        <!-- ══ DATABASE ══ -->
         <div class="ikp-section" id="ikp-tab-db">
           <div class="ikp-card">
             <div class="ikp-card-title">
-              📋 Ultimi JSON ricevuti
-              <button class="ikp-btn danger" onclick="window.IkApp.clearDB()">🗑 Svuota</button>
+              📋 Ultimi JSON
+              <button class="ikp-btn small danger" onclick="window.IkApp.clearDB()">🗑 Svuota DB</button>
             </div>
             <div id="ikp-db-list"></div>
           </div>
         </div>
 
-        <!-- ── SETTINGS ── -->
+        <!-- ══ SETTINGS ══ -->
         <div class="ikp-section" id="ikp-tab-settings">
           <div class="ikp-card">
-            <div class="ikp-card-title">🔔 Notifiche</div>
-            <p style="font-size:13px;color:var(--text-dim);margin-bottom:10px">
-              Abilita le notifiche per ricevere avvisi fuori dal gioco.
+            <div class="ikp-card-title">👤 Il mio Player ID</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+              Inserisci il tuo Player ID per evidenziare le tue isole sulla mappa.
             </p>
-            <button class="ikp-btn success" onclick="window.IkApp.askNotifPerm()">
-              🔔 Abilita notifiche
-            </button>
+            <div style="display:flex;gap:8px">
+              <input class="ikp-input" id="ikp-my-pid" type="number" placeholder="Es: 683999" style="flex:1">
+              <button class="ikp-btn" onclick="window.IkApp.saveMyId()">💾 Salva</button>
+            </div>
+            <div id="ikp-my-pid-info" style="font-size:12px;color:var(--text-muted);margin-top:6px"></div>
+          </div>
+          <div class="ikp-card">
+            <div class="ikp-card-title">🔔 Notifiche</div>
+            <button class="ikp-btn success" onclick="window.IkApp.askNotifPerm()">🔔 Abilita notifiche</button>
             <span id="ikp-notif-status" style="font-size:12px;color:var(--text-muted);margin-left:10px"></span>
           </div>
-
           <div class="ikp-card">
             <div class="ikp-card-title">📥 Import file JSON</div>
-            <p style="font-size:13px;color:var(--text-dim);margin-bottom:10px">
-              Importa file JSON catturati manualmente.
-            </p>
             <input type="file" id="ikp-file-in" accept="*/*" multiple style="display:none"
               onchange="window.IkApp.importFiles(this)">
-            <button class="ikp-btn" onclick="document.getElementById('ikp-file-in').click()">
-              📂 Scegli file
-            </button>
+            <button class="ikp-btn" onclick="document.getElementById('ikp-file-in').click()">📂 Scegli file</button>
           </div>
-
           <div class="ikp-card">
             <div class="ikp-card-title">💾 Storage</div>
-            <div id="ikp-storage-info" style="font-size:13px;color:var(--text-dim)">
-              Calcolo in corso...
-            </div>
-            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-              <button class="ikp-btn" onclick="window.IkApp.pruneOld()">🧹 Pulizia vecchi dati</button>
-            </div>
-          </div>
-
-          <div class="ikp-card">
-            <div class="ikp-card-title">ℹ️ Info</div>
-            <div style="font-size:12px;color:var(--text-muted);line-height:1.8">
-              <div>Script: <b style="color:var(--gold)">v3.0.0</b></div>
-              <div>DB: <b style="color:var(--gold)">IndexedDB locale</b></div>
-              <div>Bridge: <b style="color:var(--gold)">XHR + fetch hook</b></div>
-            </div>
+            <div id="ikp-storage-info" style="font-size:13px;color:var(--text-dim)">Calcolo...</div>
+            <button class="ikp-btn outline" style="margin-top:10px" onclick="window.IkApp.pruneOld()">🧹 Pulizia 30+ giorni</button>
           </div>
         </div>
 
-      </div><!-- /ikp-body -->
+      </div><!-- /body -->
     `;
     document.body.appendChild(panel);
 
-    // Tab click
-    panel.querySelectorAll('.ikp-tab').forEach(t => {
-      t.onclick = () => switchTab(t.dataset.tab);
-    });
+    // Popup isola
+    const popup = document.createElement('div');
+    popup.id = 'ikp-island-popup';
+    popup.innerHTML = `<button id="ikp-popup-close" onclick="window.IkApp.closePopup()">✕</button><div id="ikp-popup-content"></div>`;
+    document.body.appendChild(popup);
 
-    // Mappa
-    mapCanvas = document.getElementById('ikp-map-canvas');
-    mapCtx    = mapCanvas.getContext('2d');
-    resizeCanvas();
-    mapCanvas.addEventListener('touchstart',  e => { mapDrag={x:e.touches[0].clientX,y:e.touches[0].clientY,vx:mapView.x,vy:mapView.y}; }, {passive:true});
-    mapCanvas.addEventListener('touchmove',   e => { if(!mapDrag)return; mapView.x=mapDrag.vx-(e.touches[0].clientX-mapDrag.x); mapView.y=mapDrag.vy-(e.touches[0].clientY-mapDrag.y); drawMap(); }, {passive:true});
-    mapCanvas.addEventListener('touchend',    () => mapDrag=null);
-    mapCanvas.addEventListener('mousedown',   e => { mapDrag={x:e.clientX,y:e.clientY,vx:mapView.x,vy:mapView.y}; });
-    mapCanvas.addEventListener('mousemove',   e => { if(!mapDrag)return; mapView.x=mapDrag.vx-(e.clientX-mapDrag.x); mapView.y=mapDrag.vy-(e.clientY-mapDrag.y); drawMap(); });
-    mapCanvas.addEventListener('mouseup',     () => mapDrag=null);
+    // Tooltip mappa
+    const tt = document.createElement('div');
+    tt.id = 'ikp-map-tooltip';
+    document.body.appendChild(tt);
 
     // Toast
     const toastEl = document.createElement('div');
     toastEl.id = 'ikp-toast';
     document.body.appendChild(toastEl);
 
-    log('UI costruita');
+    // Tab click
+    panel.querySelectorAll('.ikp-tab').forEach(t => {
+      t.onclick = () => switchTab(t.dataset.tab);
+    });
+
+    // Init mappa
+    mapCanvas = document.getElementById('ikp-map-canvas');
+    mapCtx    = mapCanvas.getContext('2d');
+    resizeCanvas();
+    mapCanvas.addEventListener('touchstart',  onTouchStart, { passive: true });
+    mapCanvas.addEventListener('touchmove',   onTouchMove,  { passive: true });
+    mapCanvas.addEventListener('touchend',    onTouchEnd);
+    mapCanvas.addEventListener('mousedown',   onMouseDown);
+    mapCanvas.addEventListener('mousemove',   onMouseMove);
+    mapCanvas.addEventListener('mouseup',     () => mapDrag = null);
+    mapCanvas.addEventListener('mouseleave',  () => { mapDrag = null; hideTooltip(); });
+    mapCanvas.addEventListener('click',       onMapClick);
+    mapCanvas.addEventListener('wheel',       e => { mapZoom(e.deltaY < 0 ? 1.15 : 0.87); }, { passive: true });
+
+    // Carica myPlayerId salvato
+    myPlayerId = Number(localStorage.getItem('ik_my_pid')) || null;
+    if (myPlayerId) {
+      const el = document.getElementById('ikp-my-pid');
+      if (el) el.value = myPlayerId;
+    }
+
+    log('UI pronta');
   }
 
-  // ── TOGGLE PANNELLO ──────────────────────────
+  // ── TOGGLE ───────────────────────────────────
   function toggle() {
     panelOpen = !panelOpen;
     document.getElementById('ikp-panel').classList.toggle('open', panelOpen);
@@ -258,8 +269,10 @@
       updateStatusBar();
       startTimerTick();
       updateStorageInfo();
+      loadMapData();
     } else {
       stopTimerTick();
+      closePopup();
     }
   }
 
@@ -268,16 +281,18 @@
     activeTab = name;
     document.querySelectorAll('.ikp-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
     document.querySelectorAll('.ikp-section').forEach(s => s.classList.toggle('active', s.id === `ikp-tab-${name}`));
+    closePopup();
     refreshActiveTab();
   }
 
   function refreshActiveTab() {
     switch (activeTab) {
+      case 'map':       resizeCanvas(); drawMap(); break;
       case 'timers':    renderTimers();    break;
       case 'resources': renderResources(); break;
-      case 'islands':   refreshIslands();  break;
-      case 'map':       resizeCanvas(); mapIslands=[]; drawMap(); break;
+      case 'changes':   renderChanges();   break;
       case 'db':        renderDB();        break;
+      case 'settings':  loadSettingsUI();  break;
     }
   }
 
@@ -285,237 +300,471 @@
   async function updateStatusBar() {
     if (!window.IkDB) return;
     try {
-      const [total, islands] = await Promise.all([
+      const [tot, isl, pl] = await Promise.all([
         window.IkDB.count('entries'),
         window.IkDB.count('islands'),
+        window.IkDB.count('players'),
       ]);
-      const timers = window.IkNotifier?.getActive().length || 0;
-      setText('ikp-s-captured', sessionCount);
-      setText('ikp-s-total',    total);
-      setText('ikp-s-islands',  islands);
-      setText('ikp-s-timers',   timers);
+      const tim = window.IkNotifier?.getActive().length || 0;
+      setText('ikp-s-cap', sessionCount);
+      setText('ikp-s-tot', tot);
+      setText('ikp-s-isl', isl);
+      setText('ikp-s-pl',  pl);
+      setText('ikp-s-tim', tim);
     } catch {}
   }
 
-  // ── RENDER TIMER ─────────────────────────────
+  // ── MAPPA ─────────────────────────────────────
+  async function loadMapData() {
+    if (!window.IkDB) return;
+    [mapIslands, mapCities] = await Promise.all([
+      window.IkDB.getAll('islands'),
+      window.IkDB.getAll('cities'),
+    ]);
+    const players = await window.IkDB.getAll('players');
+    mapPlayers = new Map(players.map(p => [p.id, p]));
+    drawMap();
+  }
+
+  function resizeCanvas() {
+    if (!mapCanvas) return;
+    const wrap = document.getElementById('ikp-map-wrap');
+    mapCanvas.width  = wrap ? wrap.clientWidth : window.innerWidth;
+    mapCanvas.height = 460;
+  }
+
+  function mapReset() {
+    mapView = { x: 20, y: 1, scale: 5 };
+    drawMap();
+  }
+
+  function mapZoom(z) {
+    mapView.scale = Math.max(2, Math.min(60, mapView.scale * z));
+    drawMap();
+  }
+
+  function applyFilters() {
+    searchFilter = (document.getElementById('ikp-f-search')?.value || '').toLowerCase().trim();
+    allyFilter   = (document.getElementById('ikp-f-ally')?.value   || '').toLowerCase().trim();
+    refFilter    = (document.getElementById('ikp-f-ref')?.value     || '').toLowerCase().trim();
+    drawMap();
+  }
+
+  function clearFilters() {
+    ['ikp-f-search','ikp-f-ally','ikp-f-ref'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    searchFilter = allyFilter = refFilter = '';
+    drawMap();
+  }
+
+  // Cerca isola del proprio player per centrare la mappa
+  function goToMe() {
+    if (!myPlayerId) { toast('⚠️ Imposta il tuo Player ID in ⚙ Impostazioni'); return; }
+    const myCity = mapCities.find(c => c.playerId === myPlayerId);
+    if (!myCity) { toast('⚠️ Città non trovata nel DB'); return; }
+    mapView.x = myCity.islandX;
+    mapView.y = myCity.islandY;
+    drawMap();
+  }
+
+  // ── DRAW MAP ─────────────────────────────────
+  function drawMap() {
+    if (!mapCtx || !mapCanvas) return;
+    const W = mapCanvas.width, H = mapCanvas.height;
+    const s = mapView.scale;
+    const ctx = mapCtx;
+
+    // Sfondo mare
+    ctx.fillStyle = '#1a2535';
+    ctx.fillRect(0, 0, W, H);
+
+    // Griglia
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 0.5;
+    const gs = 10 * s;
+    const ox = (-mapView.x * s) % gs;
+    const oy = (-mapView.y * s) % gs;
+    for (let x = ox; x < W; x += gs) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = oy; y < H; y += gs) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    // Assi X=50, Y=50 (centro mappa)
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    const cx50 = worldToCanvas(50, 0), cy50 = worldToCanvas(0, 50);
+    ctx.beginPath(); ctx.moveTo(cx50.cx, 0); ctx.lineTo(cx50.cx, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, cy50.cy); ctx.lineTo(W, cy50.cy); ctx.stroke();
+
+    // Costruisci set di isole con player per lookup rapido
+    const islandPlayerMap = new Map(); // coords → [{playerId, playerName, allyName, state}]
+    for (const city of mapCities) {
+      const key = `${city.islandX}:${city.islandY}`;
+      if (!islandPlayerMap.has(key)) islandPlayerMap.set(key, []);
+      islandPlayerMap.get(key).push(city);
+    }
+
+    // Disegna isole
+    const r = Math.max(2, s * 0.28);
+    for (const isl of mapIslands) {
+      const { cx, cy } = worldToCanvas(isl.x, isl.y);
+      if (cx < -r || cx > W + r || cy < -r || cy > H + r) continue;
+
+      const cities = islandPlayerMap.get(isl.coords) || [];
+      const hasCities = cities.length > 0;
+
+      // Determina colore
+      let color = hasCities ? '#4a9eff' : '#2a5a8a'; // default: isola con/senza player
+      let radius = r;
+      let glow   = false;
+
+      if (hasCities) {
+        // Controllo: isola mia
+        const isMe = myPlayerId && cities.some(c => c.playerId === myPlayerId);
+        if (isMe) { color = '#00e676'; glow = true; radius = r * 1.5; }
+
+        // Filtro ricerca (player o isola)
+        const matchSearch = searchFilter && cities.some(c =>
+          c.playerName?.toLowerCase().includes(searchFilter) ||
+          isl.name?.toLowerCase().includes(searchFilter)
+        );
+        if (matchSearch) { color = '#ff1744'; glow = true; radius = r * 1.8; }
+
+        // Filtro alleanza
+        const matchAlly = allyFilter && cities.some(c =>
+          c.allyName?.toLowerCase().includes(allyFilter)
+        );
+        if (matchAlly && !matchSearch) { color = '#ab47bc'; glow = true; radius = r * 1.6; }
+
+        // Filtro riferimento
+        const matchRef = refFilter && cities.some(c =>
+          c.playerName?.toLowerCase().includes(refFilter) ||
+          c.allyName?.toLowerCase().includes(refFilter)
+        );
+        if (matchRef && !matchSearch && !matchAlly && !isMe) {
+          color = '#ffeb3b'; glow = true; radius = r * 1.6;
+        }
+      }
+
+      // Disegna
+      if (glow) {
+        ctx.shadowColor = color;
+        ctx.shadowBlur  = 8;
+      }
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Coordinate angolo
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '10px monospace';
+    const tl = canvasToWorld(0, 0);
+    ctx.fillText(`[${Math.round(tl.wx)}:${Math.round(tl.wy)}]`, 6, 14);
+
+    if (mapIslands.length === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Nessun dato — naviga la mappa di gioco', W / 2, H / 2);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  function worldToCanvas(wx, wy) {
+    return {
+      cx: (wx - mapView.x) * mapView.scale + mapCanvas.width  / 2,
+      cy: (wy - mapView.y) * mapView.scale + mapCanvas.height / 2,
+    };
+  }
+  function canvasToWorld(cx, cy) {
+    return {
+      wx: (cx - mapCanvas.width  / 2) / mapView.scale + mapView.x,
+      wy: (cy - mapCanvas.height / 2) / mapView.scale + mapView.y,
+    };
+  }
+
+  // Trova isola vicina a coordinate canvas
+  function findNearestIsland(cx, cy, maxDist = 16) {
+    const { wx, wy } = canvasToWorld(cx, cy);
+    let best = null, bestD = Infinity;
+    for (const isl of mapIslands) {
+      const d = Math.hypot(isl.x - wx, isl.y - wy);
+      if (d < bestD && d < maxDist / mapView.scale) { best = isl; bestD = d; }
+    }
+    return best;
+  }
+
+  // ── DRAG / TOUCH ──────────────────────────────
+  function onMouseDown(e) { mapDrag = { x: e.clientX, y: e.clientY, vx: mapView.x, vy: mapView.y }; }
+  function onMouseMove(e) {
+    if (mapDrag) {
+      mapView.x = mapDrag.vx - (e.clientX - mapDrag.x) / mapView.scale;
+      mapView.y = mapDrag.vy - (e.clientY - mapDrag.y) / mapView.scale;
+      drawMap();
+    } else {
+      const rect = mapCanvas.getBoundingClientRect();
+      const isl  = findNearestIsland(e.clientX - rect.left, e.clientY - rect.top);
+      if (isl) showTooltip(e.clientX, e.clientY, isl);
+      else      hideTooltip();
+    }
+  }
+
+  let touchStart = null, touchDist = 0;
+  function onTouchStart(e) {
+    if (e.touches.length === 1) {
+      touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, vx: mapView.x, vy: mapView.y };
+    } else if (e.touches.length === 2) {
+      touchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    }
+  }
+  function onTouchMove(e) {
+    if (e.touches.length === 1 && touchStart) {
+      mapView.x = touchStart.vx - (e.touches[0].clientX - touchStart.x) / mapView.scale;
+      mapView.y = touchStart.vy - (e.touches[0].clientY - touchStart.y) / mapView.scale;
+      drawMap();
+    } else if (e.touches.length === 2) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      if (touchDist) mapZoom(d / touchDist);
+      touchDist = d;
+    }
+  }
+  function onTouchEnd(e) {
+    touchStart = null;
+    // Tap singolo → apri popup
+    if (e.changedTouches.length === 1) {
+      const rect = mapCanvas.getBoundingClientRect();
+      const cx   = e.changedTouches[0].clientX - rect.left;
+      const cy   = e.changedTouches[0].clientY - rect.top;
+      const isl  = findNearestIsland(cx, cy, 24);
+      if (isl) showIslandPopup(isl);
+    }
+  }
+  function onMapClick(e) {
+    const rect = mapCanvas.getBoundingClientRect();
+    const isl  = findNearestIsland(e.clientX - rect.left, e.clientY - rect.top, 20);
+    if (isl) showIslandPopup(isl);
+  }
+
+  // ── TOOLTIP (desktop hover) ──────────────────
+  function showTooltip(sx, sy, isl) {
+    const tt = document.getElementById('ikp-map-tooltip');
+    if (!tt) return;
+    const cities = mapCities.filter(c => c.islandX === isl.x && c.islandY === isl.y);
+    tt.innerHTML = `
+      <div class="tt-title">${isl.name} [${isl.x}:${isl.y}]</div>
+      ${isl.tgName ? `<div class="tt-row"><span class="tt-label">Risorsa</span><span class="tt-value">${isl.tgName}</span></div>` : ''}
+      ${isl.wdName ? `<div class="tt-row"><span class="tt-label">Meraviglia</span><span class="tt-value">${isl.wdName}</span></div>` : ''}
+      <div class="tt-row"><span class="tt-label">Città</span><span class="tt-value">${cities.length}</span></div>
+      ${cities.slice(0,3).map(c => `<div class="tt-row"><span class="tt-label">${c.playerName||'?'}</span><span class="tt-value">${c.allyName||'—'}</span></div>`).join('')}
+      ${cities.length > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center">+${cities.length-3} altri</div>` : ''}
+    `;
+    tt.style.display = 'block';
+    tt.style.left    = (sx + 14) + 'px';
+    tt.style.top     = Math.max(60, sy - 20) + 'px';
+  }
+  function hideTooltip() {
+    const tt = document.getElementById('ikp-map-tooltip');
+    if (tt) tt.style.display = 'none';
+  }
+
+  // ── POPUP ISOLA (mobile tap) ─────────────────
+  function showIslandPopup(isl) {
+    popupIsland = isl;
+    const cities = mapCities.filter(c => c.islandX === isl.x && c.islandY === isl.y);
+    const el     = document.getElementById('ikp-popup-content');
+    const popup  = document.getElementById('ikp-island-popup');
+    if (!el || !popup) return;
+
+    const stateColors = { active:'#4caf50', inactive:'#ff9800', vacation:'#2196f3', banned:'#f44336' };
+
+    el.innerHTML = `
+      <div class="pop-title">🏝 ${isl.name}</div>
+      <div class="pop-sub">[${isl.x}:${isl.y}] ${isl.tgName ? '· ' + isl.tgName : ''} ${isl.wdName ? '· ' + isl.wdName : ''}</div>
+      ${cities.length === 0
+        ? '<p style="color:var(--text-muted);font-size:13px">Nessuna città su questa isola nel DB.</p>'
+        : cities.map(c => {
+            const pl = mapPlayers.get(c.playerId);
+            const sc = stateColors[pl?.state] || '#aaa';
+            return `<div class="pop-city">
+              <div class="pop-state" style="background:${sc}"></div>
+              <div>
+                <div class="pop-city-name">${c.name || '?'} <span style="font-size:11px;color:var(--text-muted)">Lv${c.level||'?'}</span></div>
+                <div class="pop-player">👤 ${c.playerName || '?'} ${pl ? '· ' + (pl.stateLabel || pl.state) : ''}</div>
+              </div>
+              ${c.allyName ? `<div class="pop-ally">${c.allyName}</div>` : ''}
+            </div>`;
+          }).join('')
+      }
+    `;
+    popup.classList.add('open');
+  }
+
+  function closePopup() {
+    const popup = document.getElementById('ikp-island-popup');
+    if (popup) popup.classList.remove('open');
+    popupIsland = null;
+    hideTooltip();
+  }
+
+  // ── TIMER ─────────────────────────────────────
   function renderTimers() {
     const list = document.getElementById('ikp-timer-list');
     if (!list || !window.IkNotifier) return;
     const active = window.IkNotifier.getActive();
-    if (active.length === 0) {
-      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>I timer appaiono automaticamente<br>quando giochi.</p></div>`;
+    if (!active.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer.</p></div>`;
       return;
     }
-    list.innerHTML = active.map(t => {
-      const icon = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', fleet:'⛵' }[t.type] || '⏰';
-      const urgent = t.msLeft < 5 * 60 * 1000;
-      return `<div class="ikp-timer">
-        <div class="ikp-timer-icon">${icon}</div>
+    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
+    list.innerHTML = active.map(t => `
+      <div class="ikp-timer">
+        <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
         <div class="ikp-timer-info">
           <div class="ikp-timer-label">${t.label}</div>
           <div class="ikp-timer-sub">${t.type}</div>
         </div>
-        <div class="ikp-timer-time ${urgent?'urgent':''}" data-id="${t.id}">
+        <div class="ikp-timer-time ${t.msLeft < 300000 ? 'urgent' : ''}" data-id="${t.id}">
           ${window.IkNotifier.formatTime(t.msLeft)}
         </div>
-      </div>`;
-    }).join('');
+      </div>`).join('');
   }
 
   function startTimerTick() {
     stopTimerTick();
     timerInterval = setInterval(() => {
       if (!panelOpen) return;
-      if (activeTab === 'timers') renderTimers();
-      // Aggiorna solo i countdown senza ri-renderizzare tutto
       document.querySelectorAll('.ikp-timer-time[data-id]').forEach(el => {
-        const active = window.IkNotifier?.getActive() || [];
-        const t = active.find(a => a.id === el.dataset.id);
-        if (t) {
-          el.textContent = window.IkNotifier.formatTime(t.msLeft);
-          el.classList.toggle('urgent', t.msLeft < 5*60*1000);
-        }
+        const t = window.IkNotifier?.getActive().find(a => a.id === el.dataset.id);
+        if (t) { el.textContent = window.IkNotifier.formatTime(t.msLeft); el.classList.toggle('urgent', t.msLeft < 300000); }
       });
+      updateStatusBar();
     }, 1000);
   }
+  function stopTimerTick() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 
-  function stopTimerTick() {
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-  }
-
-  // ── RENDER RESOURCES ─────────────────────────
+  // ── RISORSE ───────────────────────────────────
   async function renderResources() {
-    if (!window.IkDB) return;
     const el = document.getElementById('ikp-cities-list');
-    try {
-      const [cities, resources] = await Promise.all([
-        window.IkDB.getAll('cities'),
-        window.IkDB.getAll('resources'),
-      ]);
-      if (cities.length === 0) {
-        el.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏛</div><p>Nessuna città rilevata.<br>Apri una città nel gioco.</p></div>`;
-        return;
-      }
-      el.innerHTML = cities.map(city => {
-        const res = resources.find(r => r.cityId === city.id) || {};
-        return `<div class="ikp-card">
-          <div class="ikp-card-title">🏛 ${city.name} <span style="font-size:10px;color:var(--text-muted)">[${city.islandX}:${city.islandY}]</span></div>
-          <div class="ikp-res-grid">
-            ${resItem('🪵', 'Legno',    res.wood,    res.maxWood)}
-            ${resItem('🪨', 'Marmo',    res.marble,  res.maxMarbel)}
-            ${resItem('🍷', 'Vino',     res.wine,    null)}
-            ${resItem('💎', 'Cristallo',res.crystal, null)}
-            ${resItem('🔥', 'Zolfo',   res.sulfur,  null)}
-            ${resItem('🪙', 'Oro',      res.gold,    null)}
-          </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:8px">
-            👥 Pop: ${res.population||'?'} · Aggiornato: ${res.updated ? res.updated.slice(11,19) : '—'}
-          </div>
-        </div>`;
-      }).join('');
-    } catch (e) { el.innerHTML = `<div class="ikp-empty"><p>Errore: ${e.message}</p></div>`; }
+    if (!el || !window.IkDB) return;
+    const [cities, resources] = await Promise.all([window.IkDB.getAll('cities'), window.IkDB.getAll('resources')]);
+    const ownCities = cities.filter(c => c.ownerId === myPlayerId || !c.ownerId);
+    if (!ownCities.length) {
+      el.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏛</div><p>Nessuna città.</p></div>`;
+      return;
+    }
+    el.innerHTML = ownCities.map(city => {
+      const res = resources.find(r => r.cityId === city.id) || {};
+      return `<div class="ikp-card">
+        <div class="ikp-card-title">🏛 ${city.name} <span style="font-size:11px;font-weight:400">[${city.islandX}:${city.islandY}]</span></div>
+        <div class="ikp-res-grid">
+          ${ri('🪵','Legno',    res.wood,   res.maxRes)}
+          ${ri('🍷','Vino',     res.wine,   null)}
+          ${ri('🪨','Marmo',    res.marble, null)}
+          ${ri('💎','Cristallo',res.crystal,null)}
+          ${ri('🔥','Zolfo',   res.sulfur, null)}
+          ${ri('🪙','Oro',      res.gold,   null)}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px">
+          👥 ${res.citizens||0}/${res.population||0} · Aggiornato: ${res.updated?.slice(11,19)||'—'}
+        </div>
+      </div>`;
+    }).join('');
   }
-
-  function resItem(icon, label, val, max) {
-    const v = val !== undefined ? Number(val).toLocaleString() : '—';
-    const m = max ? ` / ${Number(max).toLocaleString()}` : '';
+  function ri(icon, label, val, max) {
+    const v = val != null ? Number(val).toLocaleString('it') : '—';
+    const m = max != null ? `<div class="ikp-res-max">/ ${Number(max).toLocaleString('it')}</div>` : '';
     return `<div class="ikp-res-item">
-      <div class="ikp-res-label">${icon} ${label}</div>
-      <div class="ikp-res-value">${v}${m}</div>
+      <div class="ikp-res-icon">${icon}</div>
+      <div class="ikp-res-label">${label}</div>
+      <div class="ikp-res-value">${v}</div>${m}
     </div>`;
   }
 
-  // ── RENDER ISLANDS ───────────────────────────
-  async function refreshIslands() {
-    if (!window.IkDB) return;
-    const q = (document.getElementById('ikp-isl-search')?.value || '').toLowerCase();
-    let all = await window.IkDB.getAll('islands');
-    if (q) all = all.filter(i => i.name?.toLowerCase().includes(q) || `${i.x}:${i.y}`.includes(q));
-    setText('ikp-isl-count', all.length);
-    const list = document.getElementById('ikp-isl-list');
-    if (!list) return;
-    if (all.length === 0) {
-      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🗺</div><p>Nessuna isola trovata.</p></div>`;
+  // ── CAMBI STATO ───────────────────────────────
+  async function renderChanges() {
+    const list = document.getElementById('ikp-changes-list');
+    if (!list || !window.IkDB) return;
+    const changes = await window.IkDB.getAll('state_changes');
+    if (!changes.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio rilevato.</p></div>`;
       return;
     }
-    list.innerHTML = all.slice(0, 300).map(i => `
-      <div class="ikp-island-row" onclick="window.IkApp.goToIsland(${i.x},${i.y})">
-        <div class="ikp-coords">[${i.x}:${i.y}]</div>
-        <div class="ikp-isl-name">${i.name}</div>
-        <div class="ikp-isl-res">${i.resource||''}</div>
-      </div>`).join('');
+    const stateCfg = {
+      active:   { label:'Attivo',   cls:'state-active'   },
+      inactive: { label:'Inattivo', cls:'state-inactive' },
+      vacation: { label:'Vacanza',  cls:'state-vacation' },
+      banned:   { label:'Bannato',  cls:'state-banned'   },
+    };
+    list.innerHTML = changes.slice().reverse().map(c => {
+      const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
+      const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
+      return `<div class="ikp-change-row">
+        <div class="ikp-change-player">👤 ${c.playerName} ${c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
+        <div class="ikp-change-states">
+          <span class="ikp-state-badge ${prev.cls}">${prev.label}</span>
+          →
+          <span class="ikp-state-badge ${next.cls}">${next.label}</span>
+        </div>
+        <div class="ikp-change-time">
+          📅 Prec: ${fmt(c.prevUpdate)} → Nuovo: ${fmt(c.newUpdate)}
+        </div>
+      </div>`;
+    }).join('');
+  }
+  function fmt(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString('it-IT', { dateStyle:'short', timeStyle:'short' }); } catch { return iso; }
   }
 
-  // ── MAPPA ────────────────────────────────────
-  function resizeCanvas() {
-    if (!mapCanvas) return;
-    mapCanvas.width = mapCanvas.offsetWidth || window.innerWidth - 28;
+  async function clearChanges() {
+    if (!confirm('Eliminare tutti i cambi di stato?')) return;
+    await window.IkDB.clear('state_changes');
+    renderChanges();
+    toast('🗑 Cambi stato eliminati');
   }
 
-  function mapReset() { mapView={x:0,y:0,scale:2}; drawMap(); }
-  function mapZoom(z) { mapView.scale = Math.max(1, mapView.scale*z); drawMap(); }
+  // ── DATABASE ──────────────────────────────────
+  async function renderDB() {
+    const el = document.getElementById('ikp-db-list');
+    if (!el || !window.IkDB) return;
+    const all = await window.IkDB.getAll('entries');
+    if (!all.length) { el.innerHTML = `<div class="ikp-empty"><p>Nessun dato.</p></div>`; return; }
+    el.innerHTML = all.slice(-50).reverse().map(e => {
+      let short = e.url || '';
+      try { const u = new URL(e.url); short = u.searchParams.get('action') || u.searchParams.get('view') || u.pathname.slice(-20); } catch {}
+      return `<div class="ikp-db-row">
+        <span class="ikp-tag ${e.type||'unknown'}">${e.type||'?'}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${short.slice(0,32)}</span>
+        <span style="color:var(--text-muted);font-size:11px;flex-shrink:0">${(e.date||'').slice(11,19)}</span>
+      </div>`;
+    }).join('');
+    updateStatusBar();
+  }
 
-  function goToIsland(x, y) {
-    switchTab('map');
-    mapView.x = x*mapView.scale - mapCanvas.width/2;
-    mapView.y = y*mapView.scale - mapCanvas.height/2;
+  // ── SETTINGS ─────────────────────────────────
+  function loadSettingsUI() {
+    const el = document.getElementById('ikp-my-pid');
+    if (el && myPlayerId) el.value = myPlayerId;
+    const st = document.getElementById('ikp-notif-status');
+    if (st) st.textContent = Notification.permission === 'granted' ? '✅ Abilitate' : Notification.permission === 'denied' ? '❌ Negate' : '⏳ Non impostate';
+    updateStorageInfo();
+  }
+
+  function saveMyId() {
+    const val = Number(document.getElementById('ikp-my-pid')?.value);
+    if (!val) { toast('⚠️ Inserisci un ID valido'); return; }
+    myPlayerId = val;
+    localStorage.setItem('ik_my_pid', val);
+    const info = document.getElementById('ikp-my-pid-info');
+    const player = mapPlayers.get(val);
+    if (info) info.textContent = player ? `✅ ${player.name}` : '✅ Salvato (player non ancora nel DB)';
+    toast('✅ Player ID salvato');
     drawMap();
   }
 
-  async function drawMap() {
-    if (!mapCtx || !mapCanvas) return;
-    const W=mapCanvas.width, H=mapCanvas.height, s=mapView.scale;
-    const ctx=mapCtx;
-
-    ctx.fillStyle='#080500'; ctx.fillRect(0,0,W,H);
-
-    // Griglia
-    ctx.strokeStyle='rgba(107,74,30,0.12)'; ctx.lineWidth=0.5;
-    const gs=10*s;
-    for(let x=(-mapView.x)%gs;x<W;x+=gs){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-    for(let y=(-mapView.y)%gs;y<H;y+=gs){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-
-    if (!mapIslands.length && window.IkDB) {
-      try { mapIslands = await window.IkDB.getAll('islands'); } catch {}
-    }
-
-    const q=(document.getElementById('ikp-map-search')?.value||'').toLowerCase();
-    for (const isl of mapIslands) {
-      const cx=isl.x*s-mapView.x, cy=isl.y*s-mapView.y;
-      if(cx<-10||cx>W+10||cy<-10||cy>H+10) continue;
-      const r=Math.max(2.5,s*0.3);
-      const hl=q&&(isl.name?.toLowerCase().includes(q)||`${isl.x}:${isl.y}`.includes(q));
-      ctx.beginPath(); ctx.arc(cx,cy,hl?r*2:r,0,Math.PI*2);
-      ctx.fillStyle=hl?'#e8b84b':'#2a6a9e'; ctx.fill();
-      if(s>5||hl){
-        ctx.fillStyle=hl?'#f5d07a':'rgba(240,221,176,0.6)';
-        ctx.font=`${Math.max(9,s*0.65)}px serif`;
-        ctx.fillText(isl.name,cx+r+3,cy+4);
-      }
-    }
-
-    if(!mapIslands.length){
-      ctx.fillStyle='rgba(107,74,30,0.7)'; ctx.font='13px serif';
-      ctx.textAlign='center';
-      ctx.fillText('Nessun dato — visita ikalogs.ru',W/2,H/2);
-      ctx.textAlign='left';
-    }
-  }
-
-  // ── RENDER DB ────────────────────────────────
-  async function renderDB() {
-    if (!window.IkDB) return;
-    const el = document.getElementById('ikp-db-list');
-    try {
-      const all = await window.IkDB.getAll('entries');
-      if (!all.length) { el.innerHTML='<div class="ikp-empty"><p>Nessun dato ancora.</p></div>'; return; }
-      el.innerHTML = all.slice(-40).reverse().map(e => {
-        let short = e.url||'';
-        try { const u=new URL(e.url); short=u.searchParams.get('action')||u.searchParams.get('view')||u.pathname.slice(-24); } catch {}
-        return `<div class="ikp-db-row">
-          <span class="ikp-tag ${e.type||'unknown'}">${e.type||'?'}</span>
-          <span style="flex:1;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${short.slice(0,30)}</span>
-          <span style="color:var(--text-muted);font-size:10px;flex-shrink:0">${(e.date||'').slice(11,19)}</span>
-        </div>`;
-      }).join('');
-    } catch {}
-    await updateStatusBar();
-  }
-
-  // ── CLEAR DB ─────────────────────────────────
-  async function clearDB() {
-    if (!confirm('Eliminare tutti i dati?')) return;
-    await Promise.all(['entries','islands','cities','resources','constructions','research','fleets'].map(s=>window.IkDB.clear(s)));
-    sessionCount=0; mapIslands=[];
-    updateBadge(); refreshActiveTab(); updateStatusBar();
-    toast('🗑 Database svuotato');
-  }
-
-  // ── IMPORT FILE ──────────────────────────────
-  async function importFiles(input) {
-    const files = Array.from(input.files);
-    if (!files.length) return;
-    let total = 0;
-    for (const file of files) {
-      try {
-        const text = await file.text();
-        const json = JSON.parse(text);
-        const entries = Array.isArray(json) ? json : [json];
-        for (const entry of entries) {
-          const data = entry.data || entry;
-          const url  = entry.url || entry._meta?.url || 'import';
-          if (window.IkParsers) await window.IkParsers.parse(url, data);
-          total++;
-        }
-      } catch(e) { toast(`❌ ${file.name}: ${e.message}`); }
-    }
-    input.value='';
-    mapIslands=[];
-    refreshActiveTab(); updateStatusBar();
-    toast(`✅ Importati ${total} record`);
-  }
-
-  // ── NOTIFICHE ────────────────────────────────
   async function askNotifPerm() {
     const ok = await window.IkNotifier?.requestPermission();
     const el = document.getElementById('ikp-notif-status');
@@ -523,83 +772,106 @@
     if (ok) toast('🔔 Notifiche abilitate!');
   }
 
-  // ── STORAGE INFO ─────────────────────────────
   async function updateStorageInfo() {
     const el = document.getElementById('ikp-storage-info');
     if (!el || !window.IkDB) return;
     const info = await window.IkDB.storageInfo();
-    if (info) {
-      el.innerHTML = `Usato: <b style="color:var(--gold)">${info.usedMB} MB</b> / ${info.quotaMB} MB (${info.pct}%)`;
-    } else {
-      el.textContent = 'Non disponibile su questo browser.';
-    }
+    el.innerHTML = info ? `Usato: <b>${info.usedMB} MB</b> / ${info.quotaMB} MB (${info.pct}%)` : 'Non disponibile';
   }
 
   async function pruneOld() {
     const n = await window.IkDB?.pruneEntries(30);
-    toast(`🧹 Eliminati ${n} record più vecchi di 30 giorni`);
+    toast(`🧹 Rimossi ${n} record`);
     renderDB(); updateStatusBar();
   }
 
-  // ── BADGE ────────────────────────────────────
+  // ── IMPORT FILE ───────────────────────────────
+  async function importFiles(input) {
+    const files = Array.from(input.files);
+    let total = 0;
+    for (const file of files) {
+      try {
+        const json = JSON.parse(await file.text());
+        const entries = Array.isArray(json) ? json : [json];
+        for (const e of entries) {
+          const data = e.data || e;
+          const url  = e.url || e._meta?.url || 'import';
+          if (window.IkParsers) await window.IkParsers.parse(url, data);
+          total++;
+        }
+      } catch(err) { toast(`❌ ${file.name}`); }
+    }
+    input.value = '';
+    await loadMapData();
+    refreshActiveTab(); updateStatusBar();
+    toast(`✅ Importati ${total} record`);
+  }
+
+  // ── CLEAR DB ─────────────────────────────────
+  async function clearDB() {
+    if (!confirm('Eliminare tutti i dati?')) return;
+    const stores = ['entries','islands','cities','resources','constructions','research','fleets','players','alliances','buildings','state_changes'];
+    await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
+    sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
+    updateBadge(); refreshActiveTab(); updateStatusBar();
+    toast('🗑 DB svuotato');
+  }
+
+  // ── CALLBACK DAI PARSER ───────────────────────
+  function onIslandsUpdated(n)  { if (panelOpen && activeTab === 'map') loadMapData(); updateStatusBar(); }
+  function onCitiesUpdated(id)  { if (panelOpen && activeTab === 'resources') renderResources(); }
+  function onResourcesUpdated() { if (panelOpen && activeTab === 'resources') renderResources(); }
+  function onResearchUpdated()  { if (panelOpen && activeTab === 'timers') renderTimers(); }
+  function onFleetsUpdated()    { if (panelOpen && activeTab === 'timers') renderTimers(); }
+  function onTimerAdded()       { if (panelOpen) updateStatusBar(); }
+  function onTimerExpired()     { if (panelOpen) { renderTimers(); updateStatusBar(); } }
+  function onStateChanges(list) {
+    if (panelOpen && activeTab === 'changes') renderChanges();
+    if (list.length > 0) {
+      const names = list.map(c => `${c.playerName}: ${c.prevState}→${c.newState}`).join(', ');
+      window.IkNotifier?.notify('🔔 Cambi di stato', names, { urgent: false });
+      toast(`🔔 ${list.length} cambi di stato rilevati`);
+    }
+  }
+
+  // ── UTILITY ──────────────────────────────────
   function updateBadge() {
     const b = document.getElementById('ikp-fab-badge');
     if (!b) return;
     b.textContent = sessionCount;
     b.style.display = sessionCount > 0 ? 'block' : 'none';
-    setText('ikp-s-captured', sessionCount);
+    setText('ikp-s-cap', sessionCount);
   }
 
-  // ── TOAST ────────────────────────────────────
   let toastT;
-  function toast(msg, duration=2800) {
+  function toast(msg, dur = 2800) {
     const el = document.getElementById('ikp-toast');
     if (!el) return;
-    el.textContent = msg;
-    el.classList.add('show');
+    el.textContent = msg; el.classList.add('show');
     clearTimeout(toastT);
-    toastT = setTimeout(() => el.classList.remove('show'), duration);
+    toastT = setTimeout(() => el.classList.remove('show'), dur);
   }
 
-  // ── UTILITY ──────────────────────────────────
-  function setText(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
-  }
-
-  // ── CALLBACK DAI PARSER ──────────────────────
-  function onIslandsUpdated(n)   { mapIslands=[]; if(panelOpen) updateStatusBar(); }
-  function onCitiesUpdated(n)    { if(panelOpen && activeTab==='resources') renderResources(); }
-  function onResourcesUpdated(id){ if(panelOpen && activeTab==='resources') renderResources(); }
-  function onResearchUpdated(d)  { if(panelOpen && activeTab==='timers') renderTimers(); }
-  function onFleetsUpdated(n)    { if(panelOpen && activeTab==='timers') renderTimers(); }
-  function onTimerAdded(t)       { if(panelOpen && activeTab==='timers') renderTimers(); updateStatusBar(); }
-  function onTimerExpired(id,type){ if(panelOpen) { renderTimers(); updateStatusBar(); } }
+  function setText(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
 
   // ── INIT ─────────────────────────────────────
   async function init() {
-    log('Init...');
+    log('Init v3.1.0...');
     await window.IkDB.open();
-    log('DB aperto');
-    // Carica sotto-parser da GitHub
     await window.IkParsers.loadSubParsers();
-    log('Parser caricati');
     await window.IkNotifier.restoreTimers();
-    log('Timer ripristinati');
     buildUI();
-    log('UI pronta — v3.0.0');
+    log('✅ Pronto');
   }
 
-  // Esponi globalmente
   window.IkApp = {
-    init, toggle,
-    toast, drawMap, mapReset, mapZoom,
-    refreshIslands, goToIsland,
-    clearDB, importFiles, pruneOld,
-    askNotifPerm,
+    init, toggle, toast, drawMap, mapReset, mapZoom,
+    applyFilters, clearFilters, goToMe,
+    closePopup, saveMyId, askNotifPerm, pruneOld,
+    clearDB, clearChanges, importFiles,
     onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
-    onResearchUpdated, onFleetsUpdated, onTimerAdded, onTimerExpired,
+    onResearchUpdated, onFleetsUpdated, onTimerAdded,
+    onTimerExpired, onStateChanges,
   };
-
-  log('Modulo caricato — in attesa di init()');
+  log('Modulo caricato');
 })();

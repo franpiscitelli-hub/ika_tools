@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   let db = null;
 
   function open() {
@@ -72,6 +72,13 @@
         if (!d.objectStoreNames.contains('alliances')) {
           const s = d.createObjectStore('alliances', { keyPath: 'id' });
           s.createIndex('name', 'name', { unique: false });
+        }
+
+        // Cambi di stato giocatori
+        if (!d.objectStoreNames.contains('state_changes')) {
+          const s = d.createObjectStore('state_changes', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('playerId',  'playerId',  { unique: false });
+          s.createIndex('newUpdate', 'newUpdate', { unique: false });
         }
 
         // Edifici per città

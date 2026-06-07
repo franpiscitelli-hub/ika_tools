@@ -1,120 +1,126 @@
 // ═══════════════════════════════════════════════
 // parser_ikalogs.js — Dati Ikalogs
-// Struttura: { body: { rows: [...] }, query, params }
-// Ogni row: island + city + player + ally
+// row: island + city + player + ally
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
 
-  // Stati giocatore
   const STATES = {
-    active:   { label: 'Attivo',    icon: '🟢', color: '#5a9e4a' },
-    inactive: { label: 'Inattivo',  icon: '🟡', color: '#e8b84b' },
-    vacation: { label: 'Vacanza',   icon: '🔵', color: '#2a6a9e' },
-    banned:   { label: 'Bannato',   icon: '🔴', color: '#9e3a2a' },
-    deleted:  { label: 'Eliminato', icon: '⚫', color: '#555' },
+    active:   { label:'Attivo',   icon:'🟢', color:'#4caf50' },
+    inactive: { label:'Inattivo', icon:'🟡', color:'#ff9800' },
+    vacation: { label:'Vacanza',  icon:'🔵', color:'#2196f3' },
+    banned:   { label:'Bannato',  icon:'🔴', color:'#f44336' },
+    deleted:  { label:'Eliminato',icon:'⚫', color:'#666' },
   };
 
   async function parse(url, data) {
-    if (!data) return 0;
+    const rows = data?.body?.rows || data?.rows || (Array.isArray(data) ? data : null);
+    if (!rows?.length) return 0;
 
-    // Supporta risposta diretta o wrappata
-    const rows = data.body?.rows || data.rows || (Array.isArray(data) ? data : null);
-    if (!rows || rows.length === 0) return 0;
-
-    let countIslands = 0, countCities = 0, countPlayers = 0;
-
-    // Raggruppa per isola per non fare put ridondanti
     const islandsMap  = new Map();
     const playersMap  = new Map();
     const alliancesMap = new Map();
+    const stateChanges = [];
+    let countCities = 0;
 
     for (const row of rows) {
-      // ── Isola ──────────────────────────────────
-      const x = Number(row.x);
-      const y = Number(row.y);
+      const x = Number(row.x), y = Number(row.y);
+
+      // ── Isola ──────────────────────────────
       if (x && y) {
         const coords = `${x}:${y}`;
         if (!islandsMap.has(coords)) {
           islandsMap.set(coords, {
-            coords,
+            coords, x, y,
             id:        Number(row.island_id),
             name:      row.island_name || `[${x}:${y}]`,
-            x, y,
             tradegood: Number(row.tradegood),
             wonder:    Number(row.wonder),
             woodLevel: Number(row.island_wood),
             tgLevel:   Number(row.island_tradegood),
             wdLevel:   Number(row.island_wonder),
-            nCities:   0, // aggiornato sotto
+            hasCities: true,
             cities:    [],
+            playerIds: [],
+            allyIds:   [],
             updated:   row.island_updated || new Date().toISOString(),
           });
         }
-      }
-
-      // ── Città ──────────────────────────────────
-      if (row.city_id) {
-        const cityId = Number(row.city_id);
-        const coords = `${x}:${y}`;
         const isl = islandsMap.get(coords);
-        if (isl) {
+
+        // Città su isola
+        if (row.city_id) {
           isl.cities.push({
-            id:       cityId,
+            id:       Number(row.city_id),
             name:     row.city_name,
             level:    Number(row.city_level),
             position: Number(row.city_pos),
             playerId: Number(row.player_id),
+            playerName: row.player_name,
+            allyName: row.ally_name,
+            state:    row.player_state,
           });
-          isl.nCities = isl.cities.length;
-        }
+          if (!isl.playerIds.includes(Number(row.player_id)))
+            isl.playerIds.push(Number(row.player_id));
+          if (row.ally_id && !isl.allyIds.includes(Number(row.ally_id)))
+            isl.allyIds.push(Number(row.ally_id));
 
-        // Salva anche in store cities
-        await window.IkDB.put('cities', {
-          id:       cityId,
-          name:     row.city_name || '?',
-          level:    Number(row.city_level),
-          position: Number(row.city_pos),
-          islandX:  x, islandY: y,
-          islandId: Number(row.island_id),
-          playerId: Number(row.player_id),
-          updated:  row.city_updated || new Date().toISOString(),
-        });
-        countCities++;
+          // Salva città
+          try {
+            await window.IkDB.put('cities', {
+              id:        Number(row.city_id),
+              name:      row.city_name || '?',
+              level:     Number(row.city_level),
+              position:  Number(row.city_pos),
+              islandX:   x, islandY: y,
+              islandId:  Number(row.island_id),
+              playerId:  Number(row.player_id),
+              playerName:row.player_name,
+              allyName:  row.ally_name,
+              updated:   row.city_updated || new Date().toISOString(),
+            });
+            countCities++;
+          } catch {}
+        }
       }
 
-      // ── Giocatore ──────────────────────────────
+      // ── Giocatore ──────────────────────────
       if (row.player_id && !playersMap.has(Number(row.player_id))) {
-        const playerId = Number(row.player_id);
-        const state    = row.player_state || 'active';
+        const pid   = Number(row.player_id);
+        const state = row.player_state || 'active';
 
-        // Controlla cambio stato precedente
+        // Controlla cambio stato
         try {
-          const prev = await window.IkDB.get('players', playerId);
+          const prev = await window.IkDB.get('players', pid);
           if (prev && prev.state !== state) {
-            window.IkNotifier?.notify(
-              '📊 Cambio stato giocatore',
-              `${row.player_name}: ${STATES[prev.state]?.label||prev.state} → ${STATES[state]?.label||state}`,
-              { id: `state_${playerId}`, urgent: state === 'active' && prev.state !== 'active' }
-            );
+            const now = new Date().toISOString();
+            stateChanges.push({
+              playerId:   pid,
+              playerName: row.player_name,
+              allyName:   row.ally_name || '—',
+              prevState:  prev.state,
+              newState:   state,
+              prevUpdate: prev.updated,
+              newUpdate:  now,
+            });
           }
         } catch {}
 
-        playersMap.set(playerId, {
-          id:      playerId,
-          name:    row.player_name || '?',
-          score:   Number(row.player_score),
+        playersMap.set(pid, {
+          id:        pid,
+          name:      row.player_name || '?',
+          score:     Number(row.player_score),
           state,
-          stateIcon:  STATES[state]?.icon  || '⚪',
-          stateColor: STATES[state]?.color || '#aaa',
-          allyId:  Number(row.ally_id) || null,
-          allyName:row.ally_name || null,
-          updated: row.player_updated || new Date().toISOString(),
+          stateLabel:STATES[state]?.label || state,
+          stateIcon: STATES[state]?.icon  || '⚪',
+          stateColor:STATES[state]?.color || '#aaa',
+          allyId:    Number(row.ally_id) || null,
+          allyName:  row.ally_name || null,
+          updated:   row.player_updated || new Date().toISOString(),
         });
-        countPlayers++;
       }
 
-      // ── Alleanza ───────────────────────────────
+      // ── Alleanza ───────────────────────────
       if (row.ally_id && !alliancesMap.has(Number(row.ally_id))) {
         alliancesMap.set(Number(row.ally_id), {
           id:      Number(row.ally_id),
@@ -124,28 +130,44 @@
       }
     }
 
-    // Salva isole
+    // Salva tutto nel DB
     for (const isl of islandsMap.values()) {
-      try { await window.IkDB.put('islands', isl); countIslands++; } catch {}
+      isl.nCities = isl.cities.length;
+      try { await window.IkDB.put('islands', isl); } catch {}
     }
-    // Salva giocatori
     for (const pl of playersMap.values()) {
       try { await window.IkDB.put('players', pl); } catch {}
     }
-    // Salva alleanze
     for (const al of alliancesMap.values()) {
       try { await window.IkDB.put('alliances', al); } catch {}
     }
 
-    console.log(`[parser_ikalogs] ${countIslands} isole, ${countCities} città, ${countPlayers} giocatori`);
-    window.IkApp?.onIslandsUpdated?.(countIslands);
-    return countIslands + countCities + countPlayers;
+    // Notifica cambi di stato
+    if (stateChanges.length > 0) {
+      await saveStateChanges(stateChanges);
+      window.IkApp?.onStateChanges?.(stateChanges);
+    }
+
+    const total = islandsMap.size + countCities + playersMap.size;
+    console.log(`[parser_ikalogs] ${islandsMap.size} isole, ${countCities} città, ${playersMap.size} players, ${stateChanges.length} cambi stato`);
+    window.IkApp?.onIslandsUpdated?.(islandsMap.size);
+    return total;
+  }
+
+  async function saveStateChanges(changes) {
+    for (const c of changes) {
+      try {
+        await window.IkDB.add('state_changes', {
+          ...c,
+          id: undefined, // autoincrement
+        });
+      } catch {}
+    }
   }
 
   window.IkParsers?.registerParser('ikalogs', {
     match: url => /ikalogs/i.test(url),
     parse,
   });
-
-  console.log('[parser_ikalogs] Caricato');
+  console.log('[parser_ikalogs] OK');
 })();
