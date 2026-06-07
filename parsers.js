@@ -17,7 +17,7 @@
 
   // Carica sotto-parser da GitHub
   async function loadSubParsers() {
-    const subParsers = ['parser_worldmap.js', 'parser_ikalogs.js', 'parser_globaldata.js'];
+    const subParsers = ['parser_worldmap.js', 'parser_ikalogs.js', 'parser_globaldata.js', 'parser_ranking.js'];
     for (const file of subParsers) {
       try {
         const res = await fetch(`${BASE}/${file}?v=${Date.now()}`);

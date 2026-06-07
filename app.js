@@ -99,6 +99,7 @@
         <div class="ikp-tab active" data-tab="map">🗺 Mappa</div>
         <div class="ikp-tab" data-tab="timers">⏰ Timer</div>
         <div class="ikp-tab" data-tab="resources">💰 Risorse</div>
+        <div class="ikp-tab" data-tab="ranking">🏆 Classifica</div>
         <div class="ikp-tab" data-tab="changes">🔔 Cambi</div>
         <div class="ikp-tab" data-tab="db">🗄 Dati</div>
         <div class="ikp-tab" data-tab="settings">⚙</div>
@@ -152,6 +153,20 @@
         <div class="ikp-section" id="ikp-tab-resources">
           <div id="ikp-cities-list">
             <div class="ikp-empty"><div class="ikp-empty-icon">🏛</div><p>Nessuna città rilevata.<br>Apri una città nel gioco.</p></div>
+          </div>
+        </div>
+
+        <!-- ══ CLASSIFICA ══ -->
+        <div class="ikp-section" id="ikp-tab-ranking">
+          <div class="ikp-card">
+            <div class="ikp-card-title">
+              🏆 <span id="ikp-rank-title">Classifica</span>
+              <span id="ikp-rank-range" style="font-size:11px;font-weight:400;color:var(--text-muted)"></span>
+            </div>
+            <div id="ikp-rank-list">
+              <div class="ikp-empty"><div class="ikp-empty-icon">🏆</div>
+              <p>Apri la classifica nel gioco.<br>I dati appariranno automaticamente.</p></div>
+            </div>
           </div>
         </div>
 
@@ -290,6 +305,7 @@
       case 'map':       resizeCanvas(); drawMap(); break;
       case 'timers':    renderTimers();    break;
       case 'resources': renderResources(); break;
+      case 'ranking':   renderRanking();   break;
       case 'changes':   renderChanges();   break;
       case 'db':        renderDB();        break;
       case 'settings':  loadSettingsUI();  break;
@@ -683,6 +699,74 @@
     </div>`;
   }
 
+  // ── CLASSIFICA ────────────────────────────────
+  // Ultimo snapshot ranking ricevuto
+  let lastRanking = null;
+
+  function renderRanking() {
+    const list  = document.getElementById('ikp-rank-list');
+    const title = document.getElementById('ikp-rank-title');
+    const range = document.getElementById('ikp-rank-range');
+    if (!list) return;
+
+    if (!lastRanking || !lastRanking.players.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏆</div>
+        <p>Apri la classifica nel gioco.<br>I dati appariranno automaticamente.</p></div>`;
+      return;
+    }
+
+    if (title) title.textContent = lastRanking.rankingType;
+    if (range) range.textContent = `Pos. ${lastRanking.range}`;
+
+    const stateIcon = { active:'🟢', inactive:'🟡', vacation:'🔵', banned:'🔴', deleted:'⚫' };
+    const stateCls  = { active:'state-active', inactive:'state-inactive', vacation:'state-vacation', banned:'state-banned' };
+
+    // Evidenzia cambi di stato recenti
+    const changedIds = new Set((lastRanking.changes || []).map(c => c.playerId));
+
+    list.innerHTML = `
+      <div style="display:grid;grid-template-columns:40px 1fr auto auto;gap:6px 10px;
+                  font-size:12px;font-weight:700;color:var(--text-muted);
+                  padding:6px 8px;border-bottom:2px solid var(--border);margin-bottom:4px">
+        <span>Pos.</span><span>Giocatore</span><span>Alleanza</span><span>Punti</span>
+      </div>
+      ${lastRanking.players.map(p => {
+        const changed = changedIds.has(p.pid);
+        const change  = (lastRanking.changes || []).find(c => c.playerId === p.pid);
+        const isMe    = myPlayerId && p.pid === myPlayerId;
+        return `<div style="display:grid;grid-template-columns:40px 1fr auto auto;
+                            gap:4px 10px;padding:7px 8px;align-items:center;
+                            border-bottom:1px solid var(--border);border-radius:4px;
+                            ${isMe ? 'background:rgba(139,94,60,0.08);' : ''}
+                            ${changed ? 'background:rgba(255,152,0,0.1);' : ''}">
+          <span style="font-weight:700;color:var(--accent);font-size:13px">${p.position}</span>
+          <div>
+            <div style="font-weight:600;color:var(--text);font-size:13px">
+              ${stateIcon[p.state]||'⚪'} ${p.name}
+              ${isMe ? '<span style="font-size:10px;background:#8b5e3c;color:#fff;padding:1px 5px;border-radius:8px;margin-left:4px">TU</span>' : ''}
+            </div>
+            ${p.honorTitle ? `<div style="font-size:10px;color:var(--text-muted);font-style:italic">${p.honorTitle}</div>` : ''}
+            ${changed && change ? `<div style="font-size:10px;color:#e65100;margin-top:2px">
+              ⚡ ${change.prevState} → ${change.newState}</div>` : ''}
+          </div>
+          <span style="font-size:12px;color:var(--text-dim);white-space:nowrap">${p.allyName||'—'}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--text);text-align:right;white-space:nowrap">
+            ${p.score > 1000000 ? (p.score/1000000).toFixed(2)+'M' : p.score.toLocaleString('it')}
+          </span>
+        </div>`;
+      }).join('')}
+    `;
+  }
+
+  function onRankingUpdated(data) {
+    lastRanking = data;
+    if (panelOpen && activeTab === 'ranking') renderRanking();
+    // Notifica badge se ci sono cambi di stato
+    if (data.changes && data.changes.length > 0) {
+      toast(`🏆 ${data.changes.length} cambi stato in classifica!`, 4000);
+    }
+  }
+
   // ── CAMBI STATO ───────────────────────────────
   async function renderChanges() {
     const list = document.getElementById('ikp-changes-list');
@@ -869,7 +953,7 @@
     applyFilters, clearFilters, goToMe,
     closePopup, saveMyId, askNotifPerm, pruneOld,
     clearDB, clearChanges, importFiles,
-    onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
+    onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };

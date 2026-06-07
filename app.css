@@ -491,3 +491,43 @@
 #ikp-panel p    { color: var(--text-dim); font-size: 13px; }
 #ikp-panel b    { font-weight: 700; }
 #ikp-panel span { /* non override nulla di globale */ }
+
+/* ── CLASSIFICA ─────────────────────────────── */
+#ikp-panel .ikp-rank-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto auto;
+  gap: 4px 10px;
+  padding: 7px 8px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+#ikp-panel .ikp-rank-row:hover { background: var(--bg-card2); }
+#ikp-panel .ikp-rank-row.is-me { background: rgba(139,94,60,0.08); }
+#ikp-panel .ikp-rank-row.changed { background: rgba(255,152,0,0.08); }
+#ikp-panel .ikp-rank-pos {
+  font-weight: 700; color: var(--accent); font-size: 14px;
+}
+#ikp-panel .ikp-rank-name { font-weight: 600; color: var(--text); }
+#ikp-panel .ikp-rank-honor { font-size: 10px; color: var(--text-muted); font-style: italic; }
+#ikp-panel .ikp-rank-change { font-size: 10px; color: var(--orange); margin-top: 2px; }
+#ikp-panel .ikp-rank-ally { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+#ikp-panel .ikp-rank-score {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  text-align: right; white-space: nowrap;
+}
+#ikp-panel .ikp-rank-header {
+  display: grid;
+  grid-template-columns: 40px 1fr auto auto;
+  gap: 6px 10px;
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  padding: 6px 8px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 4px;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+#ikp-panel .ikp-me-badge {
+  font-size: 10px; background: var(--accent); color: #fff;
+  padding: 1px 5px; border-radius: 8px; margin-left: 4px;
+}
