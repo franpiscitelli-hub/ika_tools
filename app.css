@@ -3,21 +3,21 @@
    ═══════════════════════════════════════════════ */
 
 :root {
-  --bg-deep:     #0e0905;
-  --bg-dark:     #1a0f07;
-  --bg-card:     #241508;
-  --bg-card2:    #2e1c0c;
-  --border:      #6b4a1e;
-  --border-gold: #c9952a;
-  --gold:        #e8b84b;
-  --gold-light:  #f5d07a;
-  --gold-dim:    #9a6e20;
-  --text:        #f0ddb0;
-  --text-dim:    #a08050;
-  --text-muted:  #6b5030;
-  --green:       #5a9e4a;
-  --red:         #9e3a2a;
-  --blue:        #2a6a9e;
+  --bg-deep:     #1c1008;
+  --bg-dark:     #261608;
+  --bg-card:     #32200e;
+  --bg-card2:    #3d2812;
+  --border:      #8b6a3e;
+  --border-gold: #d4a53a;
+  --gold:        #f0c85a;
+  --gold-light:  #f8dc88;
+  --gold-dim:    #b88a30;
+  --text:        #faf0d0;
+  --text-dim:    #c8a870;
+  --text-muted:  #907050;
+  --green:       #6ab85a;
+  --red:         #c04a3a;
+  --blue:        #3a7abe;
   --radius:      6px;
 }
 
@@ -150,12 +150,12 @@
   z-index: 1;
   background: var(--bg-dark);
   border-bottom: 1px solid var(--border);
-  padding: 5px 16px;
+  padding: 6px 16px;
   display: flex;
   gap: 14px;
   flex-shrink: 0;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-dim);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -187,9 +187,9 @@
   padding: 10px 6px;
   text-align: center;
   font-family: serif;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: .5px;
-  color: var(--text-muted);
+  color: var(--text-dim);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all .2s;

@@ -581,6 +581,9 @@
     log('Init...');
     await window.IkDB.open();
     log('DB aperto');
+    // Carica sotto-parser da GitHub
+    await window.IkParsers.loadSubParsers();
+    log('Parser caricati');
     await window.IkNotifier.restoreTimers();
     log('Timer ripristinati');
     buildUI();

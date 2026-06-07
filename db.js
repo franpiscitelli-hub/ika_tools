@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let db = null;
 
   function open() {
@@ -58,6 +58,27 @@
         if (!d.objectStoreNames.contains('fleets')) {
           const s = d.createObjectStore('fleets', { keyPath: 'id' });
           s.createIndex('arrivalTime', 'arrivalTime', { unique: false });
+        }
+
+        // Giocatori (da Ikalogs)
+        if (!d.objectStoreNames.contains('players')) {
+          const s = d.createObjectStore('players', { keyPath: 'id' });
+          s.createIndex('name',  'name',  { unique: false });
+          s.createIndex('state', 'state', { unique: false });
+          s.createIndex('score', 'score', { unique: false });
+        }
+
+        // Alleanze
+        if (!d.objectStoreNames.contains('alliances')) {
+          const s = d.createObjectStore('alliances', { keyPath: 'id' });
+          s.createIndex('name', 'name', { unique: false });
+        }
+
+        // Edifici per città
+        if (!d.objectStoreNames.contains('buildings')) {
+          const s = d.createObjectStore('buildings', { keyPath: 'id' });
+          s.createIndex('cityId',   'cityId',   { unique: false });
+          s.createIndex('building', 'building', { unique: false });
         }
       };
 
