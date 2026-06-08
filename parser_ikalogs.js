@@ -1,25 +1,31 @@
 // ═══════════════════════════════════════════════
-// parser_ikalogs.js — Parser dati Ikalogs
+// parser_ikalogs.js v2 — Parser dati Ikalogs
 //
-// Struttura JSON:
-// data.body.cities_info = { X: { Y: [{city}] } }
-// data.body.islands     = [{ island_id, x, y, allies, ally_num }]
-// data.body.rows        = [...] (dati estesi, poche righe)
-//
-// Regola player_state:
-//   - Si importa SOLO se il player non esiste già nel DB
-//   - Se esiste, lo stato viene preso dalla classifica Ikariam
+// NOTA: il JSON ikalogs NON contiene player_id né city_id.
+// Chiavi usate:
+//   players:  player_name (stringa)
+//   cities:   "{island_id}_{city_name}" (stringa)
+//   islands:  "X:Y" (coords)
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
 
+  function log(...a) { console.log('[parser_ikalogs]', ...a); }
+
+  // Chiave player univoca: usa nome (no player_id disponibile)
+  function playerKey(name) { return `pl_${name}`; }
+
+  // Chiave città univoca: island_id + city_name
+  function cityKey(islandId, cityName) { return `${islandId}_${cityName}`; }
+
   async function parse(url, data) {
     const body = data?.body;
-    if (!body) return 0;
+    if (!body) { log('body mancante'); return 0; }
 
     let countIslands = 0, countCities = 0, countPlayers = 0;
+    const playersSeen = new Map(); // playerKey → record
 
-    // ── 1. cities_info → isole + città + players ──
+    // ── 1. cities_info ───────────────────────────
     const citiesInfo = body.cities_info || {};
     for (const xStr of Object.keys(citiesInfo)) {
       const col = citiesInfo[xStr];
@@ -27,25 +33,19 @@
         const cities = col[yStr];
         if (!Array.isArray(cities) || cities.length === 0) continue;
 
-        const x = Number(xStr);
-        const y = Number(yStr);
-
-        // Prima city per dati isola
-        const first = cities[0];
+        const x = Number(xStr), y = Number(yStr);
+        const first   = cities[0];
         const islandId = Number(first.island_id);
 
-        // Salva/aggiorna isola
-        // Non sovrascrive nome/tipo/risorsa se già presenti da worldmap
-        const existingIsland = await window.IkDB.get('islands', `${x}:${y}`).catch(() => null);
+        // Salva isola (merge con dati worldmap se già presenti)
+        const existing = await window.IkDB.get('islands', `${x}:${y}`);
         await window.IkDB.put('islands', {
-          // Mantieni dati worldmap se presenti
-          ...(existingIsland || {}),
-          coords:   `${x}:${y}`,
-          id:       islandId,
+          ...(existing || {}),
+          coords:    `${x}:${y}`,
+          id:        islandId,
           x, y,
           hasCities: true,
-          nCities:  cities.length,
-          // Aggiorna lista alleanze sull'isola
+          nCities:   cities.length,
           allyNames: [...new Set(cities.map(c => c.ally_name).filter(Boolean))],
           ikalogsUpdated: new Date().toISOString(),
         });
@@ -53,103 +53,103 @@
 
         // Salva città e players
         for (const city of cities) {
-          const playerId = city.player_id || null;
+          const pName = city.player_name || '?';
+          const pKey  = playerKey(pName);
+          const cKey  = cityKey(islandId, city.city_name);
 
-          // ── Città ────────────────────────────
+          // Città
           await window.IkDB.put('cities', {
-            // Chiave composta: usiamo island+nome se non c'è city_id
-            id:         city.city_id || `${islandId}_${city.city_name}`,
+            id:         cKey,
             name:       city.city_name   || '?',
             level:      Number(city.city_level) || 0,
             islandId,
             islandX:    x,
             islandY:    y,
-            playerId,
-            playerName: city.player_name || '?',
-            allyName:   city.ally_name   || null,
+            playerId:   pKey,       // riferimento al player
+            playerName: pName,
+            allyName:   city.ally_name || null,
             updated:    new Date().toISOString(),
           });
           countCities++;
 
-          // ── Player ───────────────────────────
-          if (playerId) {
-            const pid = Number(playerId);
-            const existing = await window.IkDB.get('players', pid).catch(() => null);
-
-            await window.IkDB.put('players', {
-              id:        pid,
-              name:      city.player_name  || '?',
-              score:     Number(city.player_score) || 0,
-              allyName:  city.ally_name    || null,
-              // Regola: importa stato solo se player non esiste già
-              // Se esiste, mantieni lo stato dalla classifica Ikariam
-              state:     existing ? existing.state : (city.player_state || 'active'),
-              stateSource: existing ? existing.stateSource || 'ikalogs' : 'ikalogs',
-              updated:   new Date().toISOString(),
+          // Player (deduplicato per sessione)
+          if (!playersSeen.has(pKey)) {
+            const prevPlayer = await window.IkDB.get('players', pKey);
+            playersSeen.set(pKey, {
+              id:          pKey,
+              name:        pName,
+              score:       Number(city.player_score) || 0,
+              allyName:    city.ally_name  || null,
+              allyId:      city.ally_id    || null,
+              // Regola stato: importa SOLO se player non esiste già nel DB
+              state:       prevPlayer ? prevPlayer.state : (city.player_state || 'active'),
+              stateSource: prevPlayer ? (prevPlayer.stateSource || 'ikalogs') : 'ikalogs',
+              updated:     new Date().toISOString(),
             });
-            countPlayers++;
           }
         }
       }
     }
 
-    // ── 2. islands array → alleanze per isola ──
-    // Contiene anche isole senza città (solo alleanze)
+    // Salva tutti i players
+    for (const [, player] of playersSeen) {
+      await window.IkDB.put('players', player);
+      countPlayers++;
+    }
+
+    // ── 2. islands array (lista completa con alleanze) ────
     const islandsArr = body.islands || [];
     for (const isl of islandsArr) {
       const x = Number(isl.x), y = Number(isl.y);
       if (!x && !y) continue;
-      const existing = await window.IkDB.get('islands', `${x}:${y}`).catch(() => null);
+      const existing = await window.IkDB.get('islands', `${x}:${y}`);
       if (existing) {
-        // Aggiunge info alleanze senza sovrascrivere tutto
-        existing.allies    = isl.allies    || existing.allies;
-        existing.ally_num  = isl.ally_num  || existing.ally_num;
+        existing.allies   = isl.allies   || existing.allies;
+        existing.ally_num = isl.ally_num || existing.ally_num;
         await window.IkDB.put('islands', existing);
       } else {
-        // Isola nuova (solo dalla lista islands)
+        // Isola senza città
         await window.IkDB.put('islands', {
-          coords:   `${x}:${y}`,
-          id:       Number(isl.island_id),
+          coords:    `${x}:${y}`,
+          id:        Number(isl.island_id),
           x, y,
-          allies:   isl.allies || null,
-          ally_num: isl.ally_num || 0,
-          hasCities:false,
-          nCities:  0,
+          allies:    isl.allies   || null,
+          ally_num:  isl.ally_num || 0,
+          hasCities: false,
+          nCities:   0,
           ikalogsUpdated: new Date().toISOString(),
         });
         countIslands++;
       }
     }
 
-    // ── 3. rows → dati estesi (poche righe, più dettagliati) ──
+    // ── 3. rows (dati dettagliati, poche righe) ──────────
     const rows = body.rows || [];
     for (const row of rows) {
-      // Aggiorna isola con dati dettagliati da rows
-      if (row.x && row.y) {
-        const existing = await window.IkDB.get('islands', `${row.x}:${row.y}`).catch(() => null);
-        if (existing) {
-          await window.IkDB.put('islands', {
-            ...existing,
-            name:      row.island_name   || existing.name,
-            tradegood: row.tradegood     != null ? Number(row.tradegood) : existing.tradegood,
-            wonder:    row.wonder        != null ? Number(row.wonder)    : existing.wonder,
-            woodLevel: row.island_wood   != null ? Number(row.island_wood) : existing.woodLevel,
-            tgLevel:   row.island_tradegood != null ? Number(row.island_tradegood) : existing.tgLevel,
-            wdLevel:   row.island_wonder != null ? Number(row.island_wonder) : existing.wdLevel,
-          });
-        }
+      const x = Number(row.x), y = Number(row.y);
+      if (!x && !y) continue;
+      const existing = await window.IkDB.get('islands', `${x}:${y}`);
+      if (existing) {
+        await window.IkDB.put('islands', {
+          ...existing,
+          name:      row.island_name      || existing.name,
+          tradegood: row.tradegood        != null ? Number(row.tradegood)         : existing.tradegood,
+          wonder:    row.wonder           != null ? Number(row.wonder)            : existing.wonder,
+          woodLevel: row.island_wood      != null ? Number(row.island_wood)       : existing.woodLevel,
+          tgLevel:   row.island_tradegood != null ? Number(row.island_tradegood)  : existing.tgLevel,
+          wdLevel:   row.island_wonder    != null ? Number(row.island_wonder)     : existing.wdLevel,
+        });
       }
     }
 
-    const total = countIslands + countCities + countPlayers;
-    console.log(`[parser_ikalogs] ${countIslands} isole, ${countCities} città, ${countPlayers} players`);
+    log(`${countIslands} isole, ${countCities} città, ${countPlayers} players`);
     window.IkApp?.onIslandsUpdated?.(countIslands);
-    return total;
+    return countIslands + countCities + countPlayers;
   }
 
   window.IkParsers?.registerParser('ikalogs', {
     match: url => /ikalogs/i.test(url),
     parse,
   });
-  console.log('[parser_ikalogs] OK');
+  log('OK');
 })();

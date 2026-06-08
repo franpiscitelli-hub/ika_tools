@@ -810,21 +810,86 @@
     toast('🗑 Cambi stato eliminati');
   }
 
-  // ── DATABASE ──────────────────────────────────
+  // ── DATABASE VIEWER ──────────────────────────
+  const DB_STORES = [
+    { key: 'entries',       label: '📋 JSON catturati',   icon: '📋' },
+    { key: 'islands',       label: '🏝 Isole',             icon: '🏝' },
+    { key: 'cities',        label: '🏛 Città',             icon: '🏛' },
+    { key: 'resources',     label: '💰 Risorse',           icon: '💰' },
+    { key: 'players',       label: '👤 Players',           icon: '👤' },
+    { key: 'constructions', label: '🏗 Costruzioni',       icon: '🏗' },
+    { key: 'buildings',     label: '🏠 Edifici',           icon: '🏠' },
+    { key: 'research',      label: '🔬 Ricerche',          icon: '🔬' },
+    { key: 'fleets',        label: '⛵ Flotte',            icon: '⛵' },
+    { key: 'alliances',     label: '⚔ Alleanze',          icon: '⚔' },
+    { key: 'state_changes', label: '🔔 Cambi stato',      icon: '🔔' },
+  ];
+
+  // Formatta valore per visualizzazione compatta
+  function fmtVal(v, depth = 0) {
+    if (v === null || v === undefined) return '<span style="color:#aaa">—</span>';
+    if (typeof v === 'boolean') return v ? '✅' : '❌';
+    if (typeof v === 'number') return v.toLocaleString('it');
+    if (typeof v === 'string') {
+      if (v.length > 40) return `<span title="${v.replace(/"/g,"'")}">${v.slice(0,38)}…</span>`;
+      return v;
+    }
+    if (Array.isArray(v)) return `[${v.length}]`;
+    if (typeof v === 'object') return `{${Object.keys(v).slice(0,3).join(', ')}${Object.keys(v).length > 3 ? '…' : ''}}`;
+    return String(v);
+  }
+
+  function renderRecord(rec, storeName) {
+    if (!rec) return '';
+    const skip = new Set(['data', 'raw', 'position', 'cities', 'rankings']);
+    const entries = Object.entries(rec).filter(([k]) => !skip.has(k));
+    return `<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;
+                        padding:8px 0;border-bottom:1px solid var(--border)">
+      ${entries.map(([k,v]) => `
+        <div style="display:flex;gap:4px;align-items:baseline">
+          <span style="color:var(--text-muted);white-space:nowrap">${k}:</span>
+          <span style="color:var(--text);font-weight:500">${fmtVal(v)}</span>
+        </div>`).join('')}
+    </div>`;
+  }
+
   async function renderDB() {
     const el = document.getElementById('ikp-db-list');
     if (!el || !window.IkDB) return;
-    const all = await window.IkDB.getAll('entries');
-    if (!all.length) { el.innerHTML = `<div class="ikp-empty"><p>Nessun dato.</p></div>`; return; }
-    el.innerHTML = all.slice(-50).reverse().map(e => {
-      let short = e.url || '';
-      try { const u = new URL(e.url); short = u.searchParams.get('action') || u.searchParams.get('view') || u.pathname.slice(-20); } catch {}
-      return `<div class="ikp-db-row">
-        <span class="ikp-tag ${e.type||'unknown'}">${e.type||'?'}</span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${short.slice(0,32)}</span>
-        <span style="color:var(--text-muted);font-size:11px;flex-shrink:0">${(e.date||'').slice(11,19)}</span>
-      </div>`;
-    }).join('');
+
+    // Conta tutti gli store
+    const counts = await window.IkDB.countAll();
+
+    let html = '';
+    for (const store of DB_STORES) {
+      const n = counts[store.key] || 0;
+      // Prendi ultimi 3 record
+      let last = [];
+      try { last = await window.IkDB.getLast(store.key, 3); } catch {}
+
+      html += `
+        <div class="ikp-card" style="margin-bottom:10px">
+          <div class="ikp-card-title" style="cursor:pointer"
+               onclick="this.nextElementSibling.style.display=
+                        this.nextElementSibling.style.display==='none'?'block':'none'">
+            ${store.icon} ${store.label}
+            <span style="margin-left:auto;background:var(--accent);color:#fff;
+                         padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">
+              ${n}
+            </span>
+          </div>
+          <div ${n === 0 ? 'style="display:none"' : ''}>
+            ${last.length === 0
+              ? '<p style="font-size:12px;color:var(--text-muted);padding:8px 0">Nessun dato</p>'
+              : last.map(r => renderRecord(r, store.key)).join('')
+            }
+            ${n > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:4px">
+              … altri ${n - 3} record</div>` : ''}
+          </div>
+        </div>`;
+    }
+
+    el.innerHTML = html || '<div class="ikp-empty"><p>DB vuoto</p></div>';
     updateStatusBar();
   }
 

@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════
-// db.js — IndexedDB manager
+// db.js — IndexedDB manager v4
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
   let db = null;
 
   function open() {
@@ -14,53 +14,53 @@
       const req = indexedDB.open(DB_NAME, DB_VERSION);
 
       req.onupgradeneeded = e => {
-        const d = e.target.result;
+        const d   = e.target.result;
+        const old = e.oldVersion;
 
-        // Tutti i JSON grezzi catturati
+        // entries — JSON grezzi catturati
         if (!d.objectStoreNames.contains('entries')) {
           const s = d.createObjectStore('entries', { keyPath: 'id', autoIncrement: true });
-          s.createIndex('type',   'type',   { unique: false });
-          s.createIndex('date',   'date',   { unique: false });
-          s.createIndex('server', 'server', { unique: false });
+          s.createIndex('type', 'type', { unique: false });
+          s.createIndex('date', 'date', { unique: false });
         }
 
-        // Isole (da Ikalogs)
+        // islands — keyPath: coords "X:Y"
         if (!d.objectStoreNames.contains('islands')) {
           const s = d.createObjectStore('islands', { keyPath: 'coords' });
           s.createIndex('name', 'name', { unique: false });
-          s.createIndex('resource', 'resource', { unique: false });
         }
 
-        // Città del giocatore
+        // cities — keyPath: id (numerico o stringa "islandId_cityName")
         if (!d.objectStoreNames.contains('cities')) {
           const s = d.createObjectStore('cities', { keyPath: 'id' });
-          s.createIndex('name', 'name', { unique: false });
+          s.createIndex('islandX', 'islandX', { unique: false });
+          s.createIndex('playerId', 'playerId', { unique: false });
         }
 
-        // Risorse per città
+        // resources — keyPath: cityId (numerico, MAI null)
         if (!d.objectStoreNames.contains('resources')) {
           d.createObjectStore('resources', { keyPath: 'cityId' });
         }
 
-        // Costruzioni in corso
+        // constructions — keyPath: id STRINGA (es "build_1621"), NON autoIncrement
         if (!d.objectStoreNames.contains('constructions')) {
-          const s = d.createObjectStore('constructions', { keyPath: 'id', autoIncrement: true });
+          const s = d.createObjectStore('constructions', { keyPath: 'id' });
           s.createIndex('cityId',  'cityId',  { unique: false });
           s.createIndex('endTime', 'endTime', { unique: false });
         }
 
-        // Ricerche in corso
+        // research — keyPath: id stringa
         if (!d.objectStoreNames.contains('research')) {
           d.createObjectStore('research', { keyPath: 'id' });
         }
 
-        // Movimenti flotte
+        // fleets — keyPath: id stringa
         if (!d.objectStoreNames.contains('fleets')) {
           const s = d.createObjectStore('fleets', { keyPath: 'id' });
           s.createIndex('arrivalTime', 'arrivalTime', { unique: false });
         }
 
-        // Giocatori (da Ikalogs)
+        // players — keyPath: id stringa (player_name se no player_id)
         if (!d.objectStoreNames.contains('players')) {
           const s = d.createObjectStore('players', { keyPath: 'id' });
           s.createIndex('name',  'name',  { unique: false });
@@ -68,20 +68,20 @@
           s.createIndex('score', 'score', { unique: false });
         }
 
-        // Alleanze
+        // alliances — keyPath: id stringa (ally_name)
         if (!d.objectStoreNames.contains('alliances')) {
           const s = d.createObjectStore('alliances', { keyPath: 'id' });
           s.createIndex('name', 'name', { unique: false });
         }
 
-        // Cambi di stato giocatori
+        // state_changes — autoIncrement, id numerico
         if (!d.objectStoreNames.contains('state_changes')) {
           const s = d.createObjectStore('state_changes', { keyPath: 'id', autoIncrement: true });
           s.createIndex('playerId',  'playerId',  { unique: false });
           s.createIndex('newUpdate', 'newUpdate', { unique: false });
         }
 
-        // Edifici per città
+        // buildings — keyPath: "cityId_groundId"
         if (!d.objectStoreNames.contains('buildings')) {
           const s = d.createObjectStore('buildings', { keyPath: 'id' });
           s.createIndex('cityId',   'cityId',   { unique: false });
@@ -116,7 +116,7 @@
     return new Promise((resolve, reject) => {
       const tx = db.transaction(store, 'readonly');
       const r  = tx.objectStore(store).get(key);
-      r.onsuccess = () => resolve(r.result);
+      r.onsuccess = () => resolve(r.result || null);
       r.onerror   = () => reject(r.error);
     });
   }
@@ -157,7 +157,25 @@
     });
   }
 
-  // Stima spazio usato
+  // Ultimi N record di uno store
+  function getLast(store, n = 3) {
+    return new Promise((resolve, reject) => {
+      const tx      = db.transaction(store, 'readonly');
+      const req     = tx.objectStore(store).openCursor(null, 'prev');
+      const results = [];
+      req.onsuccess = e => {
+        const cursor = e.target.result;
+        if (cursor && results.length < n) {
+          results.push(cursor.value);
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
   async function storageInfo() {
     if (!navigator.storage?.estimate) return null;
     const est = await navigator.storage.estimate();
@@ -168,16 +186,28 @@
     };
   }
 
-  // Pulizia entry vecchie (mantieni solo ultimi N giorni)
   async function pruneEntries(days = 30) {
     const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-    const all = await getAll('entries');
-    const old = all.filter(e => e.date < cutoff);
+    const all    = await getAll('entries');
+    const old    = all.filter(e => e.date < cutoff);
     for (const e of old) await deleteRecord('entries', e.id);
     return old.length;
   }
 
-  // Esponi globalmente
-  window.IkDB = { open, add, put, get, getAll, count, clear, deleteRecord, storageInfo, pruneEntries };
-  console.log('[IkDB] Modulo caricato');
+  // Conta tutti gli store
+  async function countAll() {
+    const stores = ['entries','islands','cities','resources','constructions',
+                    'research','fleets','players','alliances','state_changes','buildings'];
+    const result = {};
+    for (const s of stores) {
+      try { result[s] = await count(s); } catch { result[s] = 0; }
+    }
+    return result;
+  }
+
+  window.IkDB = {
+    open, add, put, get, getAll, count, clear,
+    deleteRecord, getLast, storageInfo, pruneEntries, countAll,
+  };
+  console.log('[IkDB] v4 caricato');
 })();
