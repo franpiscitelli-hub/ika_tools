@@ -185,12 +185,35 @@
 
         <!-- ══ DATABASE ══ -->
         <div class="ikp-section" id="ikp-tab-db">
-          <div class="ikp-card">
-            <div class="ikp-card-title">
-              📋 Ultimi JSON
-              <button class="ikp-btn small danger" onclick="window.IkApp.clearDB()">🗑 Svuota DB</button>
+
+          <!-- Stats compatte -->
+          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;
+               gap:8px;margin-bottom:12px"></div>
+
+          <!-- Ricerca -->
+          <div class="ikp-card" style="margin-bottom:10px">
+            <div class="ikp-card-title">🔍 Ricerca nel DB</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <select id="ikp-db-store" class="ikp-input" style="flex:1;min-width:140px"
+                      onchange="window.IkApp.dbSearch()">
+                <option value="islands">🏝 Isole</option>
+                <option value="cities">🏛 Città</option>
+                <option value="players">👤 Players</option>
+                <option value="resources">💰 Risorse</option>
+                <option value="constructions">🏗 Costruzioni</option>
+                <option value="buildings">🏠 Edifici</option>
+                <option value="state_changes">🔔 Cambi stato</option>
+                <option value="entries">📋 JSON raw</option>
+              </select>
+              <input class="ikp-input" id="ikp-db-q" placeholder="Cerca..."
+                     oninput="window.IkApp.dbSearch()" style="flex:2;min-width:140px">
             </div>
-            <div id="ikp-db-list"></div>
+            <div id="ikp-db-results"></div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="ikp-btn danger small" onclick="window.IkApp.clearDB()">🗑 Svuota DB</button>
+            <button class="ikp-btn outline small" onclick="window.IkApp.renderDB()">↻ Aggiorna</button>
           </div>
         </div>
 
@@ -811,6 +834,195 @@
   }
 
   // ── DATABASE VIEWER ──────────────────────────
+
+  // Configurazione colonne per ogni store
+  const STORE_COLS = {
+    islands: [
+      { k: 'coords',      label: 'Coord' },
+      { k: 'name',        label: 'Nome' },
+      { k: 'tgName',      label: 'Risorsa' },
+      { k: 'templeName',  label: 'Tempio' },
+      { k: 'templeLevel', label: 'Lv Tempio' },
+      { k: 'woodLevel',   label: 'Lv Legno' },
+      { k: 'nCities',     label: 'Polis' },
+    ],
+    cities: [
+      { k: 'id',          label: 'ID' },
+      { k: 'name',        label: 'Nome' },
+      { k: 'level',       label: 'Lv' },
+      { k: 'playerName',  label: 'Player' },
+      { k: 'allyName',    label: 'Ally' },
+      { k: 'islandX',     label: 'X' },
+      { k: 'islandY',     label: 'Y' },
+    ],
+    players: [
+      { k: 'id',          label: 'ID' },
+      { k: 'name',        label: 'Nome' },
+      { k: 'score',       label: 'Punti' },
+      { k: 'state',       label: 'Stato' },
+      { k: 'allyName',    label: 'Ally' },
+      { k: 'stateSource', label: 'Fonte' },
+    ],
+    resources: [
+      { k: 'cityId',      label: 'Città' },
+      { k: 'wood',        label: '🪵' },
+      { k: 'wine',        label: '🍷' },
+      { k: 'marble',      label: '🪨' },
+      { k: 'crystal',     label: '💎' },
+      { k: 'sulfur',      label: '🔥' },
+      { k: 'gold',        label: '🪙' },
+    ],
+    constructions: [
+      { k: 'id',          label: 'ID' },
+      { k: 'cityName',    label: 'Città' },
+      { k: 'count',       label: 'N' },
+      { k: 'endTime',     label: 'Fine' },
+    ],
+    buildings: [
+      { k: 'id',          label: 'ID' },
+      { k: 'name',        label: 'Edificio' },
+      { k: 'level',       label: 'Lv' },
+      { k: 'isBusy',      label: 'Occupato' },
+    ],
+    state_changes: [
+      { k: 'playerName',  label: 'Player' },
+      { k: 'allyName',    label: 'Ally' },
+      { k: 'prevState',   label: 'Da' },
+      { k: 'newState',    label: 'A' },
+      { k: 'newUpdate',   label: 'Data' },
+    ],
+    entries: [
+      { k: 'type',        label: 'Tipo' },
+      { k: 'url',         label: 'URL' },
+      { k: 'date',        label: 'Data' },
+    ],
+  };
+
+  const STORE_SEARCH = {
+    islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
+    cities:        r => `${r.name} ${r.playerName} ${r.allyName} ${r.islandX}:${r.islandY}`.toLowerCase(),
+    players:       r => `${r.name} ${r.allyName} ${r.state}`.toLowerCase(),
+    resources:     r => String(r.cityId),
+    constructions: r => `${r.cityName} ${r.id}`.toLowerCase(),
+    buildings:     r => `${r.name} ${r.id}`.toLowerCase(),
+    state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
+    entries:       r => `${r.type} ${r.url}`.toLowerCase(),
+  };
+
+  // Formatta valore per cella tabella
+  function fmtCell(v, key) {
+    if (v === null || v === undefined) return '<span style="color:#aaa">—</span>';
+    if (key === 'endTime') {
+      const d = new Date(v);
+      const left = v - Date.now();
+      if (left > 0) {
+        const h = Math.floor(left/3600000);
+        const m = Math.floor((left%3600000)/60000);
+        return `<span style="color:var(--accent)">${h}h ${m}m</span>`;
+      }
+      return `<span style="color:var(--text-muted)">${d.toLocaleTimeString('it')}</span>`;
+    }
+    if (key === 'newUpdate' || key === 'updated') {
+      try { return new Date(v).toLocaleString('it-IT', { dateStyle:'short', timeStyle:'short' }); } catch {}
+    }
+    if (key === 'score') return Number(v) > 1000000 ? (Number(v)/1000000).toFixed(2)+'M' : Number(v).toLocaleString('it');
+    if (key === 'state' || key === 'prevState' || key === 'newState') {
+      const cls = { active:'state-active', inactive:'state-inactive', vacation:'state-vacation', banned:'state-banned' };
+      const lbl = { active:'Attivo', inactive:'Inattivo', vacation:'Vacanza', banned:'Bannato' };
+      return `<span class="ikp-state-badge ${cls[v]||''}">${lbl[v]||v}</span>`;
+    }
+    if (key === 'isBusy') return v ? '🔴' : '🟢';
+    if (key === 'url') {
+      try { const u = new URL(v); return u.searchParams.get('action')||u.searchParams.get('view')||u.pathname.slice(-20); } catch {}
+    }
+    if (typeof v === 'boolean') return v ? '✅' : '❌';
+    if (typeof v === 'number') return v.toLocaleString('it');
+    if (typeof v === 'string' && v.length > 28) return `<span title="${v}">${v.slice(0,26)}…</span>`;
+    return String(v);
+  }
+
+  function renderTable(rows, cols) {
+    if (!rows.length) return '<p style="font-size:12px;color:var(--text-muted);padding:8px">Nessun risultato</p>';
+    return `
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:var(--bg-card2)">
+              ${cols.map(c => `<th style="padding:6px 8px;text-align:left;font-size:11px;
+                color:var(--text-muted);font-weight:700;text-transform:uppercase;
+                letter-spacing:.5px;border-bottom:2px solid var(--border);
+                white-space:nowrap">${c.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((r, i) => `
+              <tr style="${i%2===1?'background:var(--bg-card2)':''}">
+                ${cols.map(c => `<td style="padding:6px 8px;border-bottom:1px solid var(--border);
+                  vertical-align:middle;white-space:nowrap">${fmtCell(r[c.k], c.k)}</td>`).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  async function dbSearch() {
+    const store = document.getElementById('ikp-db-store')?.value || 'islands';
+    const q     = (document.getElementById('ikp-db-q')?.value || '').toLowerCase().trim();
+    const el    = document.getElementById('ikp-db-results');
+    if (!el || !window.IkDB) return;
+
+    el.innerHTML = '<div style="text-align:center;padding:12px;color:var(--text-muted)">⏳ Caricamento...</div>';
+
+    try {
+      let all = await window.IkDB.getAll(store);
+      const searchFn = STORE_SEARCH[store] || (r => JSON.stringify(r).toLowerCase());
+
+      // Filtra per query
+      if (q) all = all.filter(r => searchFn(r).includes(q));
+
+      // Mostra max 50 risultati
+      const shown = all.slice(0, 50);
+      const cols  = STORE_COLS[store] || [{ k: 'id', label: 'ID' }];
+
+      el.innerHTML = `
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+          ${all.length} risultati${all.length > 50 ? ' (mostrati 50)' : ''}
+          ${q ? ` per "<b style="color:var(--accent)">${q}</b>"` : ''}
+        </div>
+        ${renderTable(shown, cols)}`;
+    } catch(e) {
+      el.innerHTML = `<p style="color:var(--red);font-size:12px">Errore: ${e.message}</p>`;
+    }
+  }
+
+  async function renderDB() {
+    // Stats compatte in cima
+    const statsEl = document.getElementById('ikp-db-stats');
+    if (statsEl && window.IkDB) {
+      const counts = await window.IkDB.countAll();
+      const items = [
+        { icon: '🏝', label: 'Isole',    val: counts.islands },
+        { icon: '🏛', label: 'Città',    val: counts.cities },
+        { icon: '👤', label: 'Players',  val: counts.players },
+        { icon: '💰', label: 'Risorse',  val: counts.resources },
+        { icon: '🏗', label: 'Costruz.', val: counts.constructions },
+        { icon: '📋', label: 'JSON raw', val: counts.entries },
+      ];
+      statsEl.innerHTML = items.map(it => `
+        <div style="background:var(--bg-card);border:1px solid var(--border);
+             border-radius:var(--radius);padding:10px 8px;text-align:center">
+          <div style="font-size:18px">${it.icon}</div>
+          <div style="font-size:16px;font-weight:700;color:var(--accent)">${it.val}</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;
+               letter-spacing:.5px">${it.label}</div>
+        </div>`).join('');
+    }
+
+    // Avvia ricerca default (isole, nessun filtro)
+    await dbSearch();
+    updateStatusBar();
+  }
+
   const DB_STORES = [
     { key: 'entries',       label: '📋 JSON catturati',   icon: '📋' },
     { key: 'islands',       label: '🏝 Isole',             icon: '🏝' },
@@ -1019,6 +1231,7 @@
     closePopup, saveMyId, askNotifPerm, pruneOld,
     clearDB, clearChanges, importFiles,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
+    dbSearch,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };

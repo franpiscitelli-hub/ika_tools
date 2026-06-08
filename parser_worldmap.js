@@ -1,46 +1,76 @@
 // ═══════════════════════════════════════════════
-// parser_worldmap.js — Mappa mondo Ikariam
-// Cella: [island_id, name, type, tradegood, ?, wonder, n_cities, ...]
+// parser_worldmap.js v2
+// Struttura cella: [id, name, tradegood, temple,
+//   cluster_id, temple_level, wood_level, n_cities,
+//   0, pirate_ts, 0, 0]
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
 
-  const TYPES     = { 1:'Fertile',2:'Forestale',3:'Mineraria',4:'Vinicola',5:'Cristallina',6:'Sulfurea' };
-  const TRADEGOOD = { 1:'Vino',2:'Marmo',3:'Cristallo',4:'Zolfo' };
-  const WONDERS   = { 0:'',1:'Colosso',2:'Oracolo',3:'Faro',4:'Mausoleo',5:'Tempio',
-                      6:'Giardini',7:'Zeus',8:'Artemide',9:'Poseidone',10:'Atena',
-                      11:'Efesto',12:'Afrodite',13:'Ares',14:'Demetra' };
+  const TRADEGOOD = {
+    1: 'Vino', 2: 'Marmo', 3: 'Cristallo', 4: 'Zolfo',
+  };
+
+  const TEMPLE = {
+    1: 'Fucina di Efesto',
+    2: 'Boschetto di Ade',
+    3: 'Giardini di Demetra',
+    4: 'Tempio di Atena',
+    5: 'Tempio di Hermes',
+    6: 'Fortezza di Ares',
+    7: 'Tempio di Poseidone',
+    8: 'Colosso',
+  };
 
   async function parse(url, data) {
     if (!data?.data) return 0;
     const grid = data.data;
-    let count = 0;
+    let count  = 0;
+
     for (const xStr of Object.keys(grid)) {
       const col = grid[xStr];
       for (const yStr of Object.keys(col)) {
         const cell = col[yStr];
-        if (!Array.isArray(cell) || cell.length < 7) continue;
-        const x = Number(xStr), y = Number(yStr);
+        if (!Array.isArray(cell) || cell.length < 8) continue;
+
+        const x = Number(xStr);
+        const y = Number(yStr);
+
+        const tgNum  = Number(cell[2]);
+        const tmNum  = Number(cell[3]);
+        const tmLvl  = Number(cell[5]);
+        const pirTs  = cell[9] && cell[9] !== '0' ? Number(cell[9]) : null;
+
+        // Merge con dati Ikalogs se già presenti
+        const existing = await window.IkDB.get('islands', `${x}:${y}`);
+
         try {
           await window.IkDB.put('islands', {
-            coords:   `${x}:${y}`,
-            id:       Number(cell[0]),
-            name:     cell[1] || `[${x}:${y}]`,
+            ...(existing || {}),
+            coords:      `${x}:${y}`,
+            id:          Number(cell[0]),
+            name:        cell[1] || `[${x}:${y}]`,
             x, y,
-            type:     Number(cell[2]),
-            typeName: TYPES[cell[2]] || '',
-            tradegood:Number(cell[3]),
-            tgName:   TRADEGOOD[cell[3]] || '',
-            wonder:   Number(cell[5]),
-            wdName:   WONDERS[cell[5]] || '',
-            nCities:  Number(cell[6]),
-            hasCities:Number(cell[6]) > 0,
-            updated:  new Date().toISOString(),
+            tradegood:   tgNum,
+            tgName:      TRADEGOOD[tgNum] || '?',
+            temple:      tmNum,
+            templeName:  TEMPLE[tmNum]    || '?',
+            templeLevel: tmLvl,
+            clusterId:   Number(cell[4]),
+            woodLevel:   Number(cell[6]),
+            nCities:     Number(cell[7]),
+            hasCities:   Number(cell[7]) > 0,
+            pirateTs:    pirTs,
+            pirateDate:  pirTs ? new Date(pirTs * 1000).toISOString() : null,
+            worldmapUpdated: new Date().toISOString(),
           });
           count++;
-        } catch {}
+        } catch (e) {
+          console.error('[parser_worldmap] put error:', e.message);
+        }
       }
     }
+
     console.log(`[parser_worldmap] ${count} isole`);
     window.IkApp?.onIslandsUpdated?.(count);
     return count;
@@ -50,5 +80,5 @@
     match: url => /WorldMap.*getJSONArea|getJSONWorldMap/i.test(url),
     parse,
   });
-  console.log('[parser_worldmap] OK');
+  console.log('[parser_worldmap] v2 OK');
 })();
