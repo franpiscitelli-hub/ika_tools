@@ -10,12 +10,15 @@
   let activeTab    = 'map';
   let sessionCount = 0;
   let mapIslands   = [];
-  let mapPlayers   = new Map(); // playerId → player
-  let mapCities    = [];        // { islandCoords, playerId, ... }
+  let mapPlayers   = new Map(); // id → player
+  let mapCities    = [];
   let myPlayerId   = null;
-  let searchFilter = '';
-  let allyFilter   = '';
-  let refFilter    = '';        // riferimento alleanza/player
+  let myPlayerName = null;      // nome player corrente (da settings)
+  let searchFilter = '';        // verde: player/isola
+  let allyFilter   = '';        // verde: alleanza esatta
+  let stateFilter  = '';        // verde: stato (active/inactive/vacation/banned)
+  let noAllyFilter = false;     // verde: senza alleanza
+  let refFilter    = '';        // azzurro: riferimento player/ally
   let mapView      = { x: 20, y: 1, scale: 5 };
   let mapDrag      = null;
   let mapCanvas, mapCtx;
@@ -110,26 +113,39 @@
         <div class="ikp-section active" id="ikp-tab-map">
           <div class="ikp-map-filters">
             <input class="ikp-filter-input" id="ikp-f-search"
-              placeholder="🔍 Cerca player o isola..."
+              placeholder="🟢 Player o isola..."
               oninput="window.IkApp.applyFilters()">
             <input class="ikp-filter-input" id="ikp-f-ally"
-              placeholder="⚔ Alleanza (tag)..."
+              placeholder="🟢 Alleanza (tag esatto)..."
               oninput="window.IkApp.applyFilters()">
+            <select id="ikp-f-state" class="ikp-filter-input"
+              onchange="window.IkApp.applyFilters()">
+              <option value="">🟢 Stato player...</option>
+              <option value="active">Attivo</option>
+              <option value="inactive">Inattivo</option>
+              <option value="vacation">Vacanza</option>
+              <option value="banned">Bannato</option>
+            </select>
             <input class="ikp-filter-input" id="ikp-f-ref"
-              placeholder="⭐ Riferimento player/ally..."
+              placeholder="🔵 Riferimento player/ally..."
               oninput="window.IkApp.applyFilters()">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;
+                          color:var(--text-dim);padding:4px 8px;cursor:pointer">
+              <input type="checkbox" id="ikp-f-noally"
+                onchange="window.IkApp.applyFilters()"> Senza alleanza
+            </label>
             <button class="ikp-btn small outline" onclick="window.IkApp.clearFilters()">✕ Reset</button>
           </div>
           <div id="ikp-map-wrap">
             <canvas id="ikp-map-canvas" height="460"></canvas>
           </div>
           <div class="ikp-map-legend">
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-island)"></div> Isola vuota</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-cities)"></div> Con player</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-me)"></div> Mio</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-search)"></div> Ricercato</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-target)"></div> Riferimento</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:var(--map-ally)"></div> Alleanza</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#2a5a8a"></div> Isola vuota</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#4a9eff"></div> Con player</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00e676"></div> Mio</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(59,209,111,0.9)"></div> 🟢 Filtro</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(77,184,255,0.9)"></div> 🔵 Riferimento</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(255,77,77,0.9)"></div> 🔴 Entrambi</div>
           </div>
           <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
             <button class="ikp-btn small" onclick="window.IkApp.mapReset()">⌂ Reset</button>
@@ -220,13 +236,18 @@
         <!-- ══ SETTINGS ══ -->
         <div class="ikp-section" id="ikp-tab-settings">
           <div class="ikp-card">
-            <div class="ikp-card-title">👤 Il mio Player ID</div>
+            <div class="ikp-card-title">👤 Il mio profilo</div>
             <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-              Inserisci il tuo Player ID per evidenziare le tue isole sulla mappa.
+              Imposta il tuo nome player per evidenziare le tue isole sulla mappa (verde brillante).
             </p>
-            <div style="display:flex;gap:8px">
-              <input class="ikp-input" id="ikp-my-pid" type="number" placeholder="Es: 683999" style="flex:1">
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <input class="ikp-input" id="ikp-my-name" type="text"
+                placeholder="Il tuo nome esatto in gioco" style="flex:1">
               <button class="ikp-btn" onclick="window.IkApp.saveMyId()">💾 Salva</button>
+            </div>
+            <div style="display:flex;gap:8px">
+              <input class="ikp-input" id="ikp-my-pid" type="number"
+                placeholder="Avatar ID (opzionale)" style="flex:1">
             </div>
             <div id="ikp-my-pid-info" style="font-size:12px;color:var(--text-muted);margin-top:6px"></div>
           </div>
@@ -288,7 +309,8 @@
     mapCanvas.addEventListener('wheel',       e => { mapZoom(e.deltaY < 0 ? 1.15 : 0.87); }, { passive: true });
 
     // Carica myPlayerId salvato
-    myPlayerId = Number(localStorage.getItem('ik_my_pid')) || null;
+    myPlayerId   = Number(localStorage.getItem('ik_my_pid')) || null;
+    myPlayerName = localStorage.getItem('ik_my_name') || null;
     if (myPlayerId) {
       const el = document.getElementById('ikp-my-pid');
       if (el) el.value = myPlayerId;
@@ -356,12 +378,16 @@
   // ── MAPPA ─────────────────────────────────────
   async function loadMapData() {
     if (!window.IkDB) return;
-    [mapIslands, mapCities] = await Promise.all([
-      window.IkDB.getAll('islands'),
-      window.IkDB.getAll('cities'),
-    ]);
+    mapIslands = await window.IkDB.getAll('islands');
     const players = await window.IkDB.getAll('players');
-    mapPlayers = new Map(players.map(p => [p.id, p]));
+    // mapPlayers indicizzato per nome (usato da drawMap per nameToState)
+    mapPlayers = new Map();
+    for (const p of players) {
+      mapPlayers.set(p.id, p);
+      // Indice anche per nome minuscolo (per lookup veloce in drawMap)
+      if (p.name) mapPlayers.set((p.name).toLowerCase(), p);
+    }
+    console.log(`[loadMapData] ${mapIslands.length} isole, ${players.length} players`);
     drawMap();
   }
 
@@ -385,7 +411,9 @@
   function applyFilters() {
     searchFilter = (document.getElementById('ikp-f-search')?.value || '').toLowerCase().trim();
     allyFilter   = (document.getElementById('ikp-f-ally')?.value   || '').toLowerCase().trim();
-    refFilter    = (document.getElementById('ikp-f-ref')?.value     || '').toLowerCase().trim();
+    stateFilter  = (document.getElementById('ikp-f-state')?.value  || '').toLowerCase().trim();
+    noAllyFilter = document.getElementById('ikp-f-noally')?.checked || false;
+    refFilter    = (document.getElementById('ikp-f-ref')?.value    || '').toLowerCase().trim();
     drawMap();
   }
 
@@ -394,28 +422,41 @@
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
-    searchFilter = allyFilter = refFilter = '';
+    const stateEl = document.getElementById('ikp-f-state');
+    if (stateEl) stateEl.value = '';
+    const noallyEl = document.getElementById('ikp-f-noally');
+    if (noallyEl) noallyEl.checked = false;
+    searchFilter = allyFilter = refFilter = stateFilter = '';
+    noAllyFilter = false;
     drawMap();
   }
 
   // Cerca isola del proprio player per centrare la mappa
   function goToMe() {
-    if (!myPlayerId) { toast('⚠️ Imposta il tuo Player ID in ⚙ Impostazioni'); return; }
-    const myCity = mapCities.find(c => c.playerId === myPlayerId);
-    if (!myCity) { toast('⚠️ Città non trovata nel DB'); return; }
-    mapView.x = myCity.islandX;
-    mapView.y = myCity.islandY;
-    drawMap();
+    if (!myPlayerName) { toast('⚠️ Imposta il tuo nome player in ⚙ Impostazioni'); return; }
+    const needle = myPlayerName.toLowerCase();
+    const isl = mapIslands.find(i =>
+      (i.cities || []).some(c => (c.player_name||'').toLowerCase() === needle)
+    );
+    if (!isl) { toast('⚠️ Nessuna tua isola trovata — visita prima ikalogs.ru'); return; }
+    goToIsland(isl.x, isl.y);
   }
 
   // ── DRAW MAP ─────────────────────────────────
+  // Logica colori basata su map_filters.js (versione collaudata)
+  const COLOR_FILTER  = 'rgba(59,209,111,0.9)';
+  const COLOR_REF     = 'rgba(77,184,255,0.9)';
+  const COLOR_BOTH    = 'rgba(255,77,77,0.9)';
+  const COLOR_ME      = '#00e676';
+  const COLOR_CITY    = '#4a9eff';
+  const COLOR_EMPTY   = '#2a5a8a';
+
   function drawMap() {
     if (!mapCtx || !mapCanvas) return;
     const W = mapCanvas.width, H = mapCanvas.height;
     const s = mapView.scale;
     const ctx = mapCtx;
 
-    // Sfondo mare
     ctx.fillStyle = '#1a2535';
     ctx.fillRect(0, 0, W, H);
 
@@ -423,95 +464,86 @@
     ctx.strokeStyle = 'rgba(255,255,255,0.04)';
     ctx.lineWidth = 0.5;
     const gs = 10 * s;
-    const ox = (-mapView.x * s) % gs;
-    const oy = (-mapView.y * s) % gs;
-    for (let x = ox; x < W; x += gs) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = oy; y < H; y += gs) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    const ox = ((-mapView.x * s) % gs + gs) % gs;
+    const oy = ((-mapView.y * s) % gs + gs) % gs;
+    for (let x = ox; x < W; x += gs) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for (let y = oy; y < H; y += gs) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
-    // Assi X=50, Y=50 (centro mappa)
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    // Assi centro mappa
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
     ctx.lineWidth = 1;
-    const cx50 = worldToCanvas(50, 0), cy50 = worldToCanvas(0, 50);
-    ctx.beginPath(); ctx.moveTo(cx50.cx, 0); ctx.lineTo(cx50.cx, H); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, cy50.cy); ctx.lineTo(W, cy50.cy); ctx.stroke();
+    const c50 = worldToCanvas(50, 50);
+    ctx.beginPath(); ctx.moveTo(c50.cx, 0); ctx.lineTo(c50.cx, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, c50.cy); ctx.lineTo(W, c50.cy); ctx.stroke();
 
-    // Costruisci set di isole con player per lookup rapido
-    const islandPlayerMap = new Map(); // coords → [{playerId, playerName, allyName, state}]
-    for (const city of mapCities) {
-      const key = `${city.islandX}:${city.islandY}`;
-      if (!islandPlayerMap.has(key)) islandPlayerMap.set(key, []);
-      islandPlayerMap.get(key).push(city);
+    // nameToState: player_name → status (per filtro stato)
+    const nameToState = new Map();
+    for (const [, p] of mapPlayers) {
+      nameToState.set((p.name || '').toLowerCase(), p.status || p.state || 'active');
     }
 
-    // Disegna isole
     const r = Math.max(2, s * 0.28);
+
     for (const isl of mapIslands) {
       const { cx, cy } = worldToCanvas(isl.x, isl.y);
-      if (cx < -r || cx > W + r || cy < -r || cy > H + r) continue;
+      if (cx < -r*3 || cx > W+r*3 || cy < -r*3 || cy > H+r*3) continue;
 
-      const cities = islandPlayerMap.get(isl.coords) || [];
+      // cities[] salvato da parser_ikalogs (player_name, ally_name, city_name, city_level)
+      const cities    = isl.cities || [];
       const hasCities = cities.length > 0;
 
-      // Determina colore
-      let color = hasCities ? '#4a9eff' : '#2a5a8a'; // default: isola con/senza player
+      let matchFilter = false;
+      let matchRef    = false;
+      let isMe        = false;
+
+      for (const city of cities) {
+        const pname  = (city.player_name || '').toLowerCase();
+        const ally   = (city.ally_name  || '').toLowerCase();
+        const pstate = nameToState.get(pname) || 'active';
+
+        // Il mio player
+        if (myPlayerName && pname === myPlayerName.toLowerCase()) isMe = true;
+
+        // Filtro verde
+        if (searchFilter && (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter))) matchFilter = true;
+        if (allyFilter   && ally === allyFilter)   matchFilter = true;
+        if (stateFilter  && pstate === stateFilter) matchFilter = true;
+        if (noAllyFilter && !ally)                  matchFilter = true;
+
+        // Filtro azzurro (riferimento)
+        if (refFilter && (pname.includes(refFilter) || ally.includes(refFilter))) matchRef = true;
+      }
+
+      let color  = hasCities ? COLOR_CITY : COLOR_EMPTY;
       let radius = r;
       let glow   = false;
 
-      if (hasCities) {
-        // Controllo: isola mia
-        const isMe = myPlayerId && cities.some(c => c.playerId === myPlayerId);
-        if (isMe) { color = '#00e676'; glow = true; radius = r * 1.5; }
+      if (isMe)                        { color = COLOR_ME;     radius = r*1.6; glow = true; }
+      else if (matchFilter && matchRef){ color = COLOR_BOTH;   radius = r*1.8; glow = true; }
+      else if (matchFilter)            { color = COLOR_FILTER; radius = r*1.7; glow = true; }
+      else if (matchRef)               { color = COLOR_REF;    radius = r*1.5; glow = true; }
 
-        // Filtro ricerca (player o isola)
-        const matchSearch = searchFilter && cities.some(c =>
-          c.playerName?.toLowerCase().includes(searchFilter) ||
-          isl.name?.toLowerCase().includes(searchFilter)
-        );
-        if (matchSearch) { color = '#ff1744'; glow = true; radius = r * 1.8; }
-
-        // Filtro alleanza
-        const matchAlly = allyFilter && cities.some(c =>
-          c.allyName?.toLowerCase().includes(allyFilter)
-        );
-        if (matchAlly && !matchSearch) { color = '#ab47bc'; glow = true; radius = r * 1.6; }
-
-        // Filtro riferimento
-        const matchRef = refFilter && cities.some(c =>
-          c.playerName?.toLowerCase().includes(refFilter) ||
-          c.allyName?.toLowerCase().includes(refFilter)
-        );
-        if (matchRef && !matchSearch && !matchAlly && !isMe) {
-          color = '#ffeb3b'; glow = true; radius = r * 1.6;
-        }
-      }
-
-      // Disegna
-      if (glow) {
-        ctx.shadowColor = color;
-        ctx.shadowBlur  = 8;
-      }
+      if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
-      ctx.shadowBlur = 0;
+      if (glow) ctx.shadowBlur = 0;
     }
 
-    // Coordinate angolo
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '10px monospace';
     const tl = canvasToWorld(0, 0);
     ctx.fillText(`[${Math.round(tl.wx)}:${Math.round(tl.wy)}]`, 6, 14);
 
     if (mapIslands.length === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Nessun dato — naviga la mappa di gioco', W / 2, H / 2);
+      ctx.fillText('Naviga la mappa di gioco per caricare le isole', W/2, H/2);
       ctx.textAlign = 'left';
     }
   }
-
   function worldToCanvas(wx, wy) {
     return {
       cx: (wx - mapView.x) * mapView.scale + mapCanvas.width  / 2,
@@ -526,12 +558,13 @@
   }
 
   // Trova isola vicina a coordinate canvas
-  function findNearestIsland(cx, cy, maxDist = 16) {
+  function findNearestIsland(cx, cy, maxDist = 18) {
     const { wx, wy } = canvasToWorld(cx, cy);
     let best = null, bestD = Infinity;
+    const threshold = maxDist / mapView.scale;
     for (const isl of mapIslands) {
       const d = Math.hypot(isl.x - wx, isl.y - wy);
-      if (d < bestD && d < maxDist / mapView.scale) { best = isl; bestD = d; }
+      if (d < bestD && d < threshold) { best = isl; bestD = d; }
     }
     return best;
   }
@@ -591,14 +624,22 @@
   function showTooltip(sx, sy, isl) {
     const tt = document.getElementById('ikp-map-tooltip');
     if (!tt) return;
-    const cities = mapCities.filter(c => c.islandX === isl.x && c.islandY === isl.y);
+    const cities = isl.cities || [];
     tt.innerHTML = `
-      <div class="tt-title">${isl.name} [${isl.x}:${isl.y}]</div>
-      ${isl.tgName ? `<div class="tt-row"><span class="tt-label">Risorsa</span><span class="tt-value">${isl.tgName}</span></div>` : ''}
-      ${isl.wdName ? `<div class="tt-row"><span class="tt-label">Meraviglia</span><span class="tt-value">${isl.wdName}</span></div>` : ''}
-      <div class="tt-row"><span class="tt-label">Città</span><span class="tt-value">${cities.length}</span></div>
-      ${cities.slice(0,3).map(c => `<div class="tt-row"><span class="tt-label">${c.playerName||'?'}</span><span class="tt-value">${c.allyName||'—'}</span></div>`).join('')}
-      ${cities.length > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center">+${cities.length-3} altri</div>` : ''}
+      <div class="tt-title">${isl.name || `[${isl.x}:${isl.y}]`} [${isl.x}:${isl.y}]</div>
+      ${isl.tgName     ? `<div class="tt-row"><span class="tt-label">Risorsa</span><span class="tt-value">${isl.tgName}</span></div>` : ''}
+      ${isl.templeName ? `<div class="tt-row"><span class="tt-label">Tempio</span><span class="tt-value">${isl.templeName} Lv${isl.templeLevel||'?'}</span></div>` : ''}
+      ${isl.woodLevel  ? `<div class="tt-row"><span class="tt-label">Falegnameria</span><span class="tt-value">Lv${isl.woodLevel}</span></div>` : ''}
+      <div class="tt-row"><span class="tt-label">Polis</span><span class="tt-value">${cities.length}</span></div>
+      ${cities.slice(0,4).map(c => {
+        const pl = mapPlayers.get((c.player_name||'').toLowerCase());
+        const stIcon = { active:'🟢', inactive:'🟡', vacation:'🔵', banned:'🔴' }[pl?.status||pl?.state] || '⚪';
+        return `<div class="tt-row">
+          <span class="tt-label">${stIcon} ${c.player_name||'?'}</span>
+          <span class="tt-value">${c.ally_name||'—'}</span>
+        </div>`;
+      }).join('')}
+      ${cities.length > 4 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center">+${cities.length-4} altri</div>` : ''}
     `;
     tt.style.display = 'block';
     tt.style.left    = (sx + 14) + 'px';
@@ -612,28 +653,48 @@
   // ── POPUP ISOLA (mobile tap) ─────────────────
   function showIslandPopup(isl) {
     popupIsland = isl;
-    const cities = mapCities.filter(c => c.islandX === isl.x && c.islandY === isl.y);
+    // Usa direttamente isl.cities[] salvato da parser_ikalogs
+    const cities = isl.cities || [];
     const el     = document.getElementById('ikp-popup-content');
     const popup  = document.getElementById('ikp-island-popup');
     if (!el || !popup) return;
 
-    const stateColors = { active:'#4caf50', inactive:'#ff9800', vacation:'#2196f3', banned:'#f44336' };
+    const stateColors = {
+      active:'#4caf50', inactive:'#ff9800',
+      vacation:'#2196f3', banned:'#f44336', deleted:'#666',
+    };
+    const stateLabels = {
+      active:'Attivo', inactive:'Inattivo',
+      vacation:'Vacanza', banned:'Bannato', deleted:'Eliminato',
+    };
+
+    // Info isola
+    const info = [
+      isl.tgName    ? `🎁 ${isl.tgName}`    : null,
+      isl.templeName? `⛩ ${isl.templeName}` : null,
+      isl.woodLevel ? `🪵 Lv${isl.woodLevel}` : null,
+    ].filter(Boolean).join(' · ');
 
     el.innerHTML = `
-      <div class="pop-title">🏝 ${isl.name}</div>
-      <div class="pop-sub">[${isl.x}:${isl.y}] ${isl.tgName ? '· ' + isl.tgName : ''} ${isl.wdName ? '· ' + isl.wdName : ''}</div>
+      <div class="pop-title">🏝 ${isl.name || `[${isl.x}:${isl.y}]`}</div>
+      <div class="pop-sub">[${isl.x}:${isl.y}]${info ? ' · ' + info : ''}</div>
       ${cities.length === 0
-        ? '<p style="color:var(--text-muted);font-size:13px">Nessuna città su questa isola nel DB.</p>'
+        ? '<p style="color:var(--text-muted);font-size:13px;padding:8px 0">Nessuna città nel DB.<br>Visita ikalogs.ru per popolare i dati.</p>'
         : cities.map(c => {
-            const pl = mapPlayers.get(c.playerId);
-            const sc = stateColors[pl?.state] || '#aaa';
+            // Recupera stato dal DB players se disponibile
+            const pl  = mapPlayers.get((c.player_name||'').toLowerCase());
+            const st  = pl?.status || pl?.state || 'active';
+            const sc  = stateColors[st] || '#aaa';
+            const slb = stateLabels[st] || st;
             return `<div class="pop-city">
-              <div class="pop-state" style="background:${sc}"></div>
-              <div>
-                <div class="pop-city-name">${c.name || '?'} <span style="font-size:11px;color:var(--text-muted)">Lv${c.level||'?'}</span></div>
-                <div class="pop-player">👤 ${c.playerName || '?'} ${pl ? '· ' + (pl.stateLabel || pl.state) : ''}</div>
+              <div class="pop-state" style="background:${sc}" title="${slb}"></div>
+              <div style="flex:1">
+                <div class="pop-city-name">${c.city_name || '?'}
+                  <span style="font-size:11px;color:var(--text-muted)">Lv${c.city_level||'?'}</span>
+                </div>
+                <div class="pop-player">👤 ${c.player_name || '?'} · ${slb}</div>
               </div>
-              ${c.allyName ? `<div class="pop-ally">${c.allyName}</div>` : ''}
+              ${c.ally_name ? `<div class="pop-ally">${c.ally_name}</div>` : ''}
             </div>`;
           }).join('')
       }
@@ -738,43 +799,46 @@
       return;
     }
 
-    if (title) title.textContent = lastRanking.rankingType;
+    if (title) title.textContent = lastRanking.tipoLabel || lastRanking.rankingType || 'Classifica';
     if (range) range.textContent = `Pos. ${lastRanking.range}`;
 
     const stateIcon = { active:'🟢', inactive:'🟡', vacation:'🔵', banned:'🔴', deleted:'⚫' };
     const stateCls  = { active:'state-active', inactive:'state-inactive', vacation:'state-vacation', banned:'state-banned' };
 
-    // Evidenzia cambi di stato recenti
+    // Cambi di stato per questa sessione
     const changedIds = new Set((lastRanking.changes || []).map(c => c.playerId));
 
     list.innerHTML = `
       <div style="display:grid;grid-template-columns:40px 1fr auto auto;gap:6px 10px;
-                  font-size:12px;font-weight:700;color:var(--text-muted);
-                  padding:6px 8px;border-bottom:2px solid var(--border);margin-bottom:4px">
-        <span>Pos.</span><span>Giocatore</span><span>Alleanza</span><span>Punti</span>
+                  font-size:11px;font-weight:700;color:var(--text-muted);
+                  padding:6px 8px;border-bottom:2px solid var(--border);margin-bottom:4px;
+                  text-transform:uppercase;letter-spacing:.5px">
+        <span>Pos.</span><span>Giocatore</span><span>Ally</span><span>Punti</span>
       </div>
       ${lastRanking.players.map(p => {
-        const changed = changedIds.has(p.pid);
-        const change  = (lastRanking.changes || []).find(c => c.playerId === p.pid);
-        const isMe    = myPlayerId && p.pid === myPlayerId;
+        // Nuovo formato: p.avatarId, p.nome, p.alleanza, p.punteggio, p.status, p.position
+        const changed = changedIds.has(p.avatarId);
+        const change  = (lastRanking.changes || []).find(c => c.playerId === p.avatarId);
+        const isMe    = myPlayerName && (p.nome||'').toLowerCase() === myPlayerName.toLowerCase();
+        const score   = p.punteggio || 0;
         return `<div style="display:grid;grid-template-columns:40px 1fr auto auto;
                             gap:4px 10px;padding:7px 8px;align-items:center;
                             border-bottom:1px solid var(--border);border-radius:4px;
-                            ${isMe ? 'background:rgba(139,94,60,0.08);' : ''}
-                            ${changed ? 'background:rgba(255,152,0,0.1);' : ''}">
+                            ${isMe     ? 'background:rgba(0,230,118,0.08);'   : ''}
+                            ${changed  ? 'background:rgba(255,152,0,0.1);'    : ''}">
           <span style="font-weight:700;color:var(--accent);font-size:13px">${p.position}</span>
           <div>
             <div style="font-weight:600;color:var(--text);font-size:13px">
-              ${stateIcon[p.state]||'⚪'} ${p.name}
-              ${isMe ? '<span style="font-size:10px;background:#8b5e3c;color:#fff;padding:1px 5px;border-radius:8px;margin-left:4px">TU</span>' : ''}
+              ${stateIcon[p.status]||'⚪'} ${p.nome}
+              ${isMe ? '<span class="ikp-me-badge">TU</span>' : ''}
             </div>
             ${p.honorTitle ? `<div style="font-size:10px;color:var(--text-muted);font-style:italic">${p.honorTitle}</div>` : ''}
-            ${changed && change ? `<div style="font-size:10px;color:#e65100;margin-top:2px">
+            ${changed && change ? `<div style="font-size:10px;color:var(--orange);margin-top:2px">
               ⚡ ${change.prevState} → ${change.newState}</div>` : ''}
           </div>
-          <span style="font-size:12px;color:var(--text-dim);white-space:nowrap">${p.allyName||'—'}</span>
+          <span style="font-size:12px;color:var(--text-dim);white-space:nowrap">${p.alleanza||'—'}</span>
           <span style="font-size:12px;font-weight:600;color:var(--text);text-align:right;white-space:nowrap">
-            ${p.score > 1000000 ? (p.score/1000000).toFixed(2)+'M' : p.score.toLocaleString('it')}
+            ${score > 1000000 ? (score/1000000).toFixed(2)+'M' : score.toLocaleString('it')}
           </span>
         </div>`;
       }).join('')}
@@ -858,9 +922,8 @@
     players: [
       { k: 'id',          label: 'ID' },
       { k: 'name',        label: 'Nome' },
-      { k: 'score',       label: 'Punti' },
-      { k: 'state',       label: 'Stato' },
-      { k: 'allyName',    label: 'Ally' },
+      { k: 'ally',        label: 'Ally' },
+      { k: 'status',      label: 'Stato' },
       { k: 'stateSource', label: 'Fonte' },
     ],
     resources: [
@@ -901,7 +964,7 @@
   const STORE_SEARCH = {
     islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
     cities:        r => `${r.name} ${r.playerName} ${r.allyName} ${r.islandX}:${r.islandY}`.toLowerCase(),
-    players:       r => `${r.name} ${r.allyName} ${r.state}`.toLowerCase(),
+    players:       r => `${r.name} ${r.ally} ${r.status} ${r.stateSource}`.toLowerCase(),
     resources:     r => String(r.cityId),
     constructions: r => `${r.cityName} ${r.id}`.toLowerCase(),
     buildings:     r => `${r.name} ${r.id}`.toLowerCase(),
@@ -1107,6 +1170,8 @@
 
   // ── SETTINGS ─────────────────────────────────
   function loadSettingsUI() {
+    const nameEl = document.getElementById('ikp-my-name');
+    if (nameEl && myPlayerName) nameEl.value = myPlayerName;
     const el = document.getElementById('ikp-my-pid');
     if (el && myPlayerId) el.value = myPlayerId;
     const st = document.getElementById('ikp-notif-status');
@@ -1115,14 +1180,16 @@
   }
 
   function saveMyId() {
+    const nameVal = (document.getElementById('ikp-my-name')?.value || '').trim();
+    if (!nameVal) { toast('⚠️ Inserisci il tuo nome player'); return; }
+    myPlayerName = nameVal;
+    localStorage.setItem('ik_my_name', nameVal);
+    // Prova anche a trovare avatarId
     const val = Number(document.getElementById('ikp-my-pid')?.value);
-    if (!val) { toast('⚠️ Inserisci un ID valido'); return; }
-    myPlayerId = val;
-    localStorage.setItem('ik_my_pid', val);
+    if (val) { myPlayerId = val; localStorage.setItem('ik_my_pid', val); }
     const info = document.getElementById('ikp-my-pid-info');
-    const player = mapPlayers.get(val);
-    if (info) info.textContent = player ? `✅ ${player.name}` : '✅ Salvato (player non ancora nel DB)';
-    toast('✅ Player ID salvato');
+    if (info) info.textContent = `✅ Salvato come "${nameVal}"`;
+    toast(`✅ Salvato: ${nameVal}`);
     drawMap();
   }
 

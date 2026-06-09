@@ -1,15 +1,14 @@
 // ═══════════════════════════════════════════════
-// parser_ranking.js — Classifica Ikariam
-// Legge l'HTML dalla chiave "highscore" o "changeView"
-// nei JSON di Ikariam e aggiorna players con:
-// - posizione, nome, alleanza, punteggio, stato
-// Segnala cambi di stato rispetto al DB
+// parser_ranking.js v2
+// Logica basata su DB_highscore.js che funzionava.
+// Usa DOMParser invece di regex — più robusto.
+// Salva multi-punteggio: players[id].scores[tipo]
+// Aggiorna status e rileva cambi di stato.
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
 
-  // Tipi di classifica riconosciuti
-  const RANKING_TYPES = {
+  const RANKING_LABELS = {
     'score':                    'Punteggio totale',
     'building_score_main':      'Costruttori',
     'building_score_secondary': 'Livelli edifici',
@@ -26,133 +25,118 @@
     'piracy':                   'Punti predatore',
   };
 
-  // Determina stato dal tr title attribute
-  function parseState(trTitle) {
-    const t = (trTitle || '').toLowerCase();
-    if (t.includes('vacanza'))   return 'vacation';
-    if (t.includes('non attivo') || t.includes('inactive')) return 'inactive';
-    if (t.includes('bannato')   || t.includes('banned'))    return 'banned';
-    if (t.includes('eliminato') || t.includes('deleted'))   return 'deleted';
-    return 'active';
-  }
+  // Logica da processHtmlContent() del vecchio DB_highscore.js
+  // ma con DOMParser e rilevamento completo stati
+  function parseHtmlBlock(rawHTML) {
+    // Pulisci HTML come nel vecchio script
+    const cleanHTML = rawHTML
+      .replace(/\\"/g,  '"')
+      .replace(/\\n/g,  '')
+      .replace(/\\t/g,  '');
 
-  // Converti score italiano "5.470.883" → numero
-  function parseScore(scoreStr) {
-    if (!scoreStr) return 0;
-    return Number(scoreStr.replace(/\./g, '').replace(',', '.')) || 0;
-  }
+    const doc = new DOMParser().parseFromString(cleanHTML, 'text/html');
 
-  // Estrai tipo classifica dall'HTML (option selected)
-  function extractRankingType(html) {
-    const m = html.match(/value="([^"]+)"\s+selected(?:="selected")?/);
-    return m ? (RANKING_TYPES[m[1]] || m[1]) : 'score';
-  }
+    // Tipo classifica dal select
+    const selectEl = doc.querySelector('select#js_highscoreType');
+    const tipoKey  = selectEl ? selectEl.value : 'score';
+    const tipoLabel = RANKING_LABELS[tipoKey] || tipoKey;
 
-  // Estrai range posizioni dall'HTML
-  function extractRange(html) {
-    const m = html.match(/Posizione\s*<b>([^<]+)<\/b>/);
-    return m ? m[1].trim() : '?';
-  }
+    // Range posizioni
+    const rangeEl = doc.querySelector('p');
+    const range   = rangeEl ? (rangeEl.textContent.match(/\d+-\d+/) || ['?'])[0] : '?';
 
-  // Parser HTML principale
-  function parseHTML(html) {
     const players = [];
 
-    // Estrai tutte le righe <tr...>...</tr>
-    const trPattern = /<tr([^>]*)>([\s\S]*?)<\/tr>/g;
-    let match;
+    doc.querySelectorAll('table.table01.highscore tr').forEach(row => {
+      // Salta header
+      if (row.querySelector('th')) return;
 
-    while ((match = trPattern.exec(html)) !== null) {
-      const trAttrs = match[1];
-      const trBody  = match[2];
+      const nameEl = row.querySelector('.name a');
+      if (!nameEl) return;
 
-      // Deve avere una posizione (classe "place bold")
-      const placeMatch = trBody.match(/class="place bold">(\d+)/);
-      if (!placeMatch) continue;
+      // avatarId dal link
+      const href     = nameEl.getAttribute('href') || '';
+      const avatarId = href.match(/avatarId=(\d+)/)?.[1];
+      if (!avatarId) return;
 
-      const position = Number(placeMatch[1]);
+      const nameSpan = row.querySelector('.avatarName');
+      const scoreTd  = row.querySelector('.score');
+      const allyEl   = row.querySelector('.allytag a');
+      const placeTd  = row.querySelector('.place');
 
-      // Player ID dall'href avatarId
-      const pidMatch  = trBody.match(/avatarId=(\d+)/);
-      const pid       = pidMatch ? Number(pidMatch[1]) : null;
-
-      // Nome player (avatarName span)
-      const nameMatch = trBody.match(/avatarName[^>]*>([^<]+)<\/span>/);
-      const name      = nameMatch ? nameMatch[1].trim() : '?';
-
-      // Alleanza (allyLink)
-      const allyMatch = trBody.match(/allyLink[^>]*>([^<]+)<\/a>/);
-      const allyName  = allyMatch ? allyMatch[1].trim() : null;
-
-      // Ally ID dall'href
-      const allyIdMatch = trBody.match(/allyId=(\d+)/);
-      const allyId      = allyIdMatch ? Number(allyIdMatch[1]) : null;
-
-      // Score dal title del td.score (formato italiano: "5.470.883")
-      const scoreMatch = trBody.match(/class="score"[^>]*title="([\d.]+)"/);
-      const score      = scoreMatch ? parseScore(scoreMatch[1]) : 0;
-
-      // Stato dal title del TR
-      const trTitleMatch = trAttrs.match(/title="([^"]*)"/);
-      const state        = parseState(trTitleMatch ? trTitleMatch[1] : '');
+      const nome      = nameSpan
+        ? nameSpan.textContent.trim()
+        : (nameEl.getAttribute('title') || 'N/A');
+      const scoreRaw  = scoreTd
+        ? (scoreTd.getAttribute('title') || scoreTd.textContent)
+        : '0';
+      const punteggio = parseInt(scoreRaw.replace(/\./g, ''), 10) || 0;
+      const alleanza  = allyEl ? allyEl.textContent.trim() : '';
+      const position  = placeTd ? parseInt(placeTd.textContent.trim(), 10) || 0 : 0;
 
       // Titolo onorifico (tag <i>)
-      const titleMatch = trBody.match(/<i>([^<]+)<\/i>/);
-      const honorTitle = titleMatch ? titleMatch[1].trim() : null;
+      const titleEl   = row.querySelector('.name i');
+      const honorTitle = titleEl ? titleEl.textContent.trim() : null;
 
-      if (pid && name !== '?') {
-        players.push({ position, pid, name, allyName, allyId, score, state, honorTitle });
-      }
-    }
+      // Stato dal title del TR (logica identica al vecchio script)
+      const trTitle  = (row.getAttribute('title') || '').toLowerCase();
+      let status = 'active';
+      if      (trTitle.includes('vacanza'))   status = 'vacation';
+      else if (trTitle.includes('inattivo'))  status = 'inactive';
+      else if (trTitle.includes('bannato'))   status = 'banned';
+      else if (trTitle.includes('eliminato')) status = 'deleted';
 
-    return players;
+      players.push({ avatarId, nome, alleanza, punteggio, position, tipoKey, status, honorTitle });
+    });
+
+    return { tipoKey, tipoLabel, range, players };
   }
 
-  // Salva nel DB e rileva cambi di stato
-  async function savePlayers(players, rankingType) {
+  async function savePlayers(parsed) {
+    const { tipoKey, tipoLabel, players } = parsed;
     const stateChanges = [];
-    const now = new Date().toISOString();
+    const now          = Date.now();
 
     for (const p of players) {
-      // Leggi stato precedente
-      const existing = await window.IkDB.get('players', p.pid).catch(() => null);
+      const pKey    = `av_${p.avatarId}`;
+      const prev    = await window.IkDB.get('players', pKey);
 
-      // Rilevamento cambio stato
-      if (existing && existing.state && existing.state !== p.state) {
+      // Rilevamento cambio stato (come nel vecchio script)
+      if (prev && prev.status && prev.status !== p.status) {
         stateChanges.push({
-          playerId:   p.pid,
-          playerName: p.name,
-          allyName:   p.allyName || '—',
-          prevState:  existing.state,
-          newState:   p.state,
-          prevUpdate: existing.stateUpdated || existing.updated || '?',
-          newUpdate:  now,
-          rankingType,
+          playerId:   p.avatarId,
+          playerName: p.nome,
+          allyName:   p.alleanza || '—',
+          prevState:  prev.status,
+          newState:   p.status,
+          prevUpdate: prev.lastUpdate
+            ? new Date(prev.lastUpdate).toISOString()
+            : '?',
+          newUpdate:  new Date(now).toISOString(),
+          rankingType: tipoLabel,
         });
       }
 
-      // Salva/aggiorna player
+      // Aggiorna/crea player — multi-punteggio come nel vecchio script
+      const scores = { ...(prev?.scores || {}) };
+      scores[tipoKey] = p.punteggio;
+
       await window.IkDB.put('players', {
-        ...(existing || {}),
-        id:           p.pid,
-        name:         p.name,
-        allyName:     p.allyName,
-        allyId:       p.allyId,
-        score:        p.score,
-        state:        p.state,
-        stateSource:  'ranking',       // stato da classifica = fonte autorevole
-        honorTitle:   p.honorTitle,
-        stateUpdated: now,
-        updated:      now,
-        // Salva posizione per tipo classifica
-        rankings: {
-          ...((existing || {}).rankings || {}),
-          [rankingType]: { position: p.position, score: p.score, date: now },
-        },
+        ...(prev || {}),
+        id:          pKey,
+        avatarId:    p.avatarId,
+        name:        p.nome,
+        ally:        p.alleanza,
+        scores,                     // multi-punteggio
+        status:      p.status,      // stato da classifica = fonte autorevole
+        stateSource: 'ranking',
+        honorTitle:  p.honorTitle || (prev?.honorTitle || null),
+        position:    { ...(prev?.position || {}), [tipoKey]: p.position },
+        lastUpdate:  now,
       });
     }
 
-    // Salva cambi di stato
+    // Salva cambi stato
     for (const c of stateChanges) {
       try { await window.IkDB.add('state_changes', c); } catch {}
     }
@@ -160,48 +144,56 @@
     return stateChanges;
   }
 
-  // Entry point
   async function parse(url, data) {
     if (!Array.isArray(data)) return 0;
-    let totalPlayers = 0;
-    let allChanges   = [];
+    let total    = 0;
+    let allChanges = [];
 
     for (const item of data) {
       if (!Array.isArray(item) || item.length < 2) continue;
-      // Cerca azione "highscore" con HTML
-      if (!['highscore', 'changeView'].includes(item[0])) continue;
-      const html = item[1];
-      if (typeof html !== 'string' || html.length < 100) continue;
-      // Deve contenere la tabella classifica
-      if (!html.includes('class="place bold"')) continue;
 
-      const rankingType = extractRankingType(html);
-      const range       = extractRange(html);
-      const players     = parseHTML(html);
-
-      if (players.length === 0) continue;
-
-      console.log(`[parser_ranking] ${rankingType} [${range}]: ${players.length} players`);
-
-      const changes = await savePlayers(players, rankingType);
-      totalPlayers += players.length;
-      allChanges   = allChanges.concat(changes);
-
-      // Notifica cambi di stato
-      if (changes.length > 0) {
-        window.IkApp?.onStateChanges?.(changes);
+      // Logica dal vecchio script: cerca changeview/changeView
+      // che contiene un array ['highscore', html]
+      if (item[0] === 'changeview' || item[0] === 'changeView') {
+        const viewData = item[1];
+        if (Array.isArray(viewData) && viewData[0] === 'highscore') {
+          const htmlContent = viewData[1];
+          if (typeof htmlContent === 'string' && htmlContent.length > 100) {
+            const parsed  = parseHtmlBlock(htmlContent);
+            if (parsed.players.length > 0) {
+              console.log(`[parser_ranking] ${parsed.tipoLabel} [${parsed.range}]: ${parsed.players.length} players`);
+              const changes = await savePlayers(parsed);
+              allChanges    = allChanges.concat(changes);
+              total        += parsed.players.length;
+              window.IkApp?.onRankingUpdated?.({ ...parsed, changes });
+            }
+          }
+        }
+        continue;
       }
 
-      // Aggiorna sezione ranking nel pannello
-      window.IkApp?.onRankingUpdated?.({ rankingType, range, players, changes });
+      // Fallback: highscore direttamente come action
+      if (item[0] === 'highscore' && typeof item[1] === 'string') {
+        const parsed = parseHtmlBlock(item[1]);
+        if (parsed.players.length > 0) {
+          const changes = await savePlayers(parsed);
+          allChanges    = allChanges.concat(changes);
+          total        += parsed.players.length;
+          window.IkApp?.onRankingUpdated?.({ ...parsed, changes });
+        }
+      }
     }
 
-    return totalPlayers;
+    if (allChanges.length > 0) {
+      window.IkApp?.onStateChanges?.(allChanges);
+    }
+
+    return total;
   }
 
   window.IkParsers?.registerParser('ranking', {
     match: url => /ikariam/i.test(url) && !/WorldMap.*getJSONArea/i.test(url),
     parse,
   });
-  console.log('[parser_ranking] OK');
+  console.log('[parser_ranking] v2 OK');
 })();
