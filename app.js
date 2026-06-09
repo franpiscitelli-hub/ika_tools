@@ -59,9 +59,26 @@
     try { parsed = JSON.parse(rawText); } catch { return; }
     sessionCount++;
     updateBadge();
+
+    // Se siamo su ikalogs: invia i dati a Ikariam via BroadcastChannel
+    // (il DB è su ikariam.gameforge.com — unica fonte di verità)
+    const isIkalogs = /ikalogs/i.test(window.location.hostname);
+    if (isIkalogs && window._ikSendToIkariam) {
+      window._ikSendToIkariam(url, parsed);
+      log(`#${sessionCount} [bridge→ikariam]`);
+      if (panelOpen) refreshActiveTab();
+      return; // non salvare nel DB locale di ikalogs
+    }
+
+    // Su ikariam: parse e salva nel DB
     if (window.IkParsers) {
       const result = await window.IkParsers.parse(url, parsed);
       log(`#${sessionCount} [${result.type}]`);
+      // Auto-cleanup: elimina raw entries più vecchie di 30 minuti
+      // I dati strutturati sono già nei rispettivi store
+      if (sessionCount % 10 === 0 && window.IkDB) {
+        window.IkDB.pruneRawByAge(30).catch(() => {});
+      }
     }
     if (panelOpen) refreshActiveTab();
   }
@@ -219,6 +236,7 @@
                 <option value="constructions">🏗 Costruzioni</option>
                 <option value="buildings">🏠 Edifici</option>
                 <option value="state_changes">🔔 Cambi stato</option>
+                <option value="combat_reports">⚔️ Combat Reports</option>
                 <option value="entries">📋 JSON raw</option>
               </select>
               <input class="ikp-input" id="ikp-db-q" placeholder="Cerca..."
@@ -230,6 +248,7 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="ikp-btn danger small" onclick="window.IkApp.clearDB()">🗑 Svuota DB</button>
             <button class="ikp-btn outline small" onclick="window.IkApp.renderDB()">↻ Aggiorna</button>
+            <button class="ikp-btn outline small" onclick="window.IkApp.clearRaw()" title="Elimina JSON raw, mantieni dati strutturati">🧹 Pulisci Raw</button>
           </div>
         </div>
 
@@ -524,10 +543,8 @@
       else if (matchRef)               { color = COLOR_REF;    radius = r*1.5; glow = true; }
 
       if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.fillStyle = color;
-      ctx.fill();
+      ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
       if (glow) ctx.shadowBlur = 0;
     }
 
@@ -959,6 +976,15 @@
       { k: 'url',         label: 'URL' },
       { k: 'date',        label: 'Data' },
     ],
+    combat_reports: [
+      { k: 'combatId',   label: 'ID' },
+      { k: 'date',       label: 'Data' },
+      { k: 'type',       label: 'Tipo' },
+      { k: 'attacker',   label: 'Attaccante' },
+      { k: 'defender',   label: 'Difensore' },
+      { k: 'result',     label: 'Esito' },
+      { k: 'location',   label: 'Luogo' },
+    ],
   };
 
   const STORE_SEARCH = {
@@ -969,7 +995,8 @@
     constructions: r => `${r.cityName} ${r.id}`.toLowerCase(),
     buildings:     r => `${r.name} ${r.id}`.toLowerCase(),
     state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
-    entries:       r => `${r.type} ${r.url}`.toLowerCase(),
+    entries:         r => `${r.type} ${r.url}`.toLowerCase(),
+    combat_reports:  r => `${r.attacker} ${r.defender} ${r.location} ${r.result}`.toLowerCase(),
   };
 
   // Formatta valore per cella tabella
@@ -1098,6 +1125,7 @@
     { key: 'fleets',        label: '⛵ Flotte',            icon: '⛵' },
     { key: 'alliances',     label: '⚔ Alleanze',          icon: '⚔' },
     { key: 'state_changes', label: '🔔 Cambi stato',      icon: '🔔' },
+    { key: 'combat_reports',label: '⚔️ Combat Reports',   icon: '⚔️' },
   ];
 
   // Formatta valore per visualizzazione compatta
@@ -1235,10 +1263,19 @@
     toast(`✅ Importati ${total} record`);
   }
 
+  // ── CLEAR RAW ────────────────────────────────
+  async function clearRaw() {
+    if (!confirm('Eliminare tutti i JSON raw?\nI dati strutturati (isole, players, ecc.) vengono mantenuti.')) return;
+    await window.IkDB.clearRawEntries();
+    toast('🧹 Raw entries eliminate');
+    renderDB();
+    updateStatusBar();
+  }
+
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','cities','resources','constructions','research','fleets','players','alliances','buildings','state_changes'];
+    const stores = ['entries','islands','cities','resources','constructions','research','fleets','players','alliances','buildings','state_changes','combat_reports'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -1298,7 +1335,7 @@
     closePopup, saveMyId, askNotifPerm, pruneOld,
     clearDB, clearChanges, importFiles,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
-    dbSearch,
+    dbSearch, clearRaw,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };

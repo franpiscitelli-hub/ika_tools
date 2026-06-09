@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
   let db = null;
 
   function open() {
@@ -79,6 +79,15 @@
           const s = d.createObjectStore('state_changes', { keyPath: 'id', autoIncrement: true });
           s.createIndex('playerId',  'playerId',  { unique: false });
           s.createIndex('newUpdate', 'newUpdate', { unique: false });
+        }
+
+        // combat_reports — keyPath: combatId
+        if (!d.objectStoreNames.contains('combat_reports')) {
+          const s = d.createObjectStore('combat_reports', { keyPath: 'combatId' });
+          s.createIndex('date',     'date',     { unique: false });
+          s.createIndex('attacker', 'attacker', { unique: false });
+          s.createIndex('defender', 'defender', { unique: false });
+          s.createIndex('result',   'result',   { unique: false });
         }
 
         // buildings — keyPath: "cityId_groundId"
@@ -194,10 +203,26 @@
     return old.length;
   }
 
+  // Elimina tutti i JSON raw (store entries) per liberare spazio
+  // Da chiamare dopo che i parser hanno importato i dati strutturati
+  async function clearRawEntries() {
+    await clear('entries');
+    console.log('[IkDB] Raw entries eliminate');
+  }
+
+  // Elimina i raw più vecchi di N minuti (per pulizia automatica)
+  async function pruneRawByAge(minutes = 30) {
+    const cutoff = new Date(Date.now() - minutes * 60000).toISOString();
+    const all    = await getAll('entries');
+    const old    = all.filter(e => e.date < cutoff);
+    for (const e of old) await deleteRecord('entries', e.id);
+    return old.length;
+  }
+
   // Conta tutti gli store
   async function countAll() {
     const stores = ['entries','islands','cities','resources','constructions',
-                    'research','fleets','players','alliances','state_changes','buildings'];
+                    'research','fleets','players','alliances','state_changes','buildings','combat_reports'];
     const result = {};
     for (const s of stores) {
       try { result[s] = await count(s); } catch { result[s] = 0; }
@@ -208,6 +233,7 @@
   window.IkDB = {
     open, add, put, get, getAll, count, clear,
     deleteRecord, getLast, storageInfo, pruneEntries, countAll,
+    clearRawEntries, pruneRawByAge,
   };
   console.log('[IkDB] v4 caricato');
 })();
