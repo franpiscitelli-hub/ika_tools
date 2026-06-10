@@ -17,7 +17,7 @@
       return 0;
     }
 
-    const citiesInfo = body.cities_info;
+    const citiesInfo = data.body.cities_info;
     if (!citiesInfo) {
       console.warn('[parser_ikalogs] cities_info non trovato nel JSON');
       return 0;
