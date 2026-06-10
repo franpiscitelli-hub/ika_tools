@@ -59,26 +59,9 @@
     try { parsed = JSON.parse(rawText); } catch { return; }
     sessionCount++;
     updateBadge();
-
-    // Se siamo su ikalogs: invia i dati a Ikariam via BroadcastChannel
-    // (il DB è su ikariam.gameforge.com — unica fonte di verità)
-    const isIkalogs = /ikalogs/i.test(window.location.hostname);
-    if (isIkalogs && window._ikSendToIkariam) {
-      window._ikSendToIkariam(url, parsed);
-      log(`#${sessionCount} [bridge→ikariam]`);
-      if (panelOpen) refreshActiveTab();
-      return; // non salvare nel DB locale di ikalogs
-    }
-
-    // Su ikariam: parse e salva nel DB
     if (window.IkParsers) {
       const result = await window.IkParsers.parse(url, parsed);
       log(`#${sessionCount} [${result.type}]`);
-      // Auto-cleanup: elimina raw entries più vecchie di 30 minuti
-      // I dati strutturati sono già nei rispettivi store
-      if (sessionCount % 10 === 0 && window.IkDB) {
-        window.IkDB.pruneRawByAge(30).catch(() => {});
-      }
     }
     if (panelOpen) refreshActiveTab();
   }
@@ -182,26 +165,11 @@
           </div>
         </div>
 
-        <!-- ══ ACCOUNT ══ -->
-        <div class="ikp-section" id="ikp-tab-account">
-
-          <!-- Selettore città -->
-          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
-            <select id="ikp-city-select" class="ikp-input" style="flex:1"
-                    onchange="window.IkApp.selectCity(this.value)">
-              <option value="">— Seleziona città —</option>
-            </select>
-            <button class="ikp-btn small outline" onclick="window.IkApp.renderAccount()">↻</button>
+        <!-- ══ RISORSE ══ -->
+        <div class="ikp-section" id="ikp-tab-resources">
+          <div id="ikp-cities-list">
+            <div class="ikp-empty"><div class="ikp-empty-icon">🏛</div><p>Nessuna città rilevata.<br>Apri una città nel gioco.</p></div>
           </div>
-
-          <!-- Contenuto account per città selezionata -->
-          <div id="ikp-account-content">
-            <div class="ikp-empty">
-              <div class="ikp-empty-icon">🏛</div>
-              <p>Nessuna città disponibile.<br>Apri una città nel gioco.</p>
-            </div>
-          </div>
-
         </div>
 
         <!-- ══ CLASSIFICA ══ -->
@@ -251,7 +219,6 @@
                 <option value="constructions">🏗 Costruzioni</option>
                 <option value="buildings">🏠 Edifici</option>
                 <option value="state_changes">🔔 Cambi stato</option>
-                <option value="combat_reports">⚔️ Combat Reports</option>
                 <option value="entries">📋 JSON raw</option>
               </select>
               <input class="ikp-input" id="ikp-db-q" placeholder="Cerca..."
@@ -263,7 +230,6 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="ikp-btn danger small" onclick="window.IkApp.clearDB()">🗑 Svuota DB</button>
             <button class="ikp-btn outline small" onclick="window.IkApp.renderDB()">↻ Aggiorna</button>
-            <button class="ikp-btn outline small" onclick="window.IkApp.clearRaw()" title="Elimina JSON raw, mantieni dati strutturati">🧹 Pulisci Raw</button>
           </div>
         </div>
 
@@ -383,7 +349,7 @@
     switch (activeTab) {
       case 'map':       resizeCanvas(); drawMap(); break;
       case 'timers':    renderTimers();    break;
-      case 'account':   renderAccount();   break;
+      case 'resources': renderResources(); break;
       case 'ranking':   renderRanking();   break;
       case 'changes':   renderChanges();   break;
       case 'db':        renderDB();        break;
@@ -548,23 +514,21 @@
         if (refFilter && (pname.includes(refFilter) || ally.includes(refFilter))) matchRef = true;
       }
 
-      // Isole vuote: più piccole e semi-trasparenti
       let color  = hasCities ? COLOR_CITY : COLOR_EMPTY;
-      let radius = hasCities ? r : r * 0.55;
-      let alpha  = hasCities ? 1.0 : 0.35;
+      let radius = r;
       let glow   = false;
 
-      if (isMe)                        { color = COLOR_ME;     radius = r*1.6; alpha = 1; glow = true; }
-      else if (matchFilter && matchRef){ color = COLOR_BOTH;   radius = r*1.8; alpha = 1; glow = true; }
-      else if (matchFilter)            { color = COLOR_FILTER; radius = r*1.7; alpha = 1; glow = true; }
-      else if (matchRef)               { color = COLOR_REF;    radius = r*1.5; alpha = 1; glow = true; }
+      if (isMe)                        { color = COLOR_ME;     radius = r*1.6; glow = true; }
+      else if (matchFilter && matchRef){ color = COLOR_BOTH;   radius = r*1.8; glow = true; }
+      else if (matchFilter)            { color = COLOR_FILTER; radius = r*1.7; glow = true; }
+      else if (matchRef)               { color = COLOR_REF;    radius = r*1.5; glow = true; }
 
-      ctx.globalAlpha = alpha;
       if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.fillStyle = color;
-      ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+      ctx.fill();
       if (glow) ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1.0;
     }
 
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
@@ -781,189 +745,42 @@
   }
   function stopTimerTick() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 
-  // ── ACCOUNT ────────────────────────────────────
-  let selectedCityId = null;
-
-  async function renderAccount() {
-    if (!window.IkDB) return;
-
-    // Popola selettore città
-    const cities    = await window.IkDB.getAll('cities');
-    const ownCities = cities.filter(c => c.isOwn || c.source === 'ikariam');
-    const select    = document.getElementById('ikp-city-select');
-    if (select && ownCities.length) {
-      const current = select.value || selectedCityId;
-      select.innerHTML = ownCities.map(c =>
-        `<option value="${c.id}" ${c.id == current ? 'selected' : ''}>
-          ${c.isCapital ? '⭐ ' : ''}${c.name}
-          ${c.islandX ? `[${c.islandX}:${c.islandY}]` : ''}
-        </option>`
-      ).join('');
-      if (!selectedCityId) selectedCityId = ownCities[0].id;
-    }
-
-    const cityId = selectedCityId || (ownCities[0]?.id);
-    if (!cityId) {
-      document.getElementById('ikp-account-content').innerHTML =
-        `<div class="ikp-empty"><div class="ikp-empty-icon">🏛</div>
-         <p>Nessuna città disponibile.<br>Apri una città nel gioco.</p></div>`;
+  // ── RISORSE ───────────────────────────────────
+  async function renderResources() {
+    const el = document.getElementById('ikp-cities-list');
+    if (!el || !window.IkDB) return;
+    const [cities, resources] = await Promise.all([window.IkDB.getAll('cities'), window.IkDB.getAll('resources')]);
+    const ownCities = cities.filter(c => c.ownerId === myPlayerId || !c.ownerId);
+    if (!ownCities.length) {
+      el.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏛</div><p>Nessuna città.</p></div>`;
       return;
     }
-
-    // Carica dati per la città selezionata
-    const [city, res, constructions, buildings] = await Promise.all([
-      window.IkDB.get('cities', Number(cityId)),
-      window.IkDB.get('resources', Number(cityId)),
-      window.IkDB.getAll('constructions'),
-      window.IkDB.getAll('buildings'),
-    ]);
-
-    const cityConstr  = constructions.filter(c => c.cityId === Number(cityId));
-    const cityBuildings = buildings.filter(b => b.cityId === Number(cityId))
-                                   .sort((a,b) => a.groundId - b.groundId);
-
-    const el = document.getElementById('ikp-account-content');
-    if (!el) return;
-
-    const n  = v => v != null ? Number(v).toLocaleString('it') : '—';
-    const ms = res?.maxStorage ? ` / ${n(res.maxStorage)}` : '';
-    const upd = res?.updated?.slice(11,19) || '—';
-
-    el.innerHTML = `
-
-      <!-- ── FINANZE ── -->
-      <div class="ikp-card">
-        <div class="ikp-card-title">🪙 Finanze
-          <span style="font-size:10px;font-weight:400;color:var(--text-muted)">agg. ${upd}</span>
+    el.innerHTML = ownCities.map(city => {
+      const res = resources.find(r => r.cityId === city.id) || {};
+      return `<div class="ikp-card">
+        <div class="ikp-card-title">🏛 ${city.name} <span style="font-size:11px;font-weight:400">[${city.islandX}:${city.islandY}]</span></div>
+        <div class="ikp-res-grid">
+          ${ri('🪵','Legno',    res.wood,   res.maxRes)}
+          ${ri('🍷','Vino',     res.wine,   null)}
+          ${ri('🪨','Marmo',    res.marble, null)}
+          ${ri('💎','Cristallo',res.crystal,null)}
+          ${ri('🔥','Zolfo',   res.sulfur, null)}
+          ${ri('🪙','Oro',      res.gold,   null)}
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          ${acItem('🪙','Oro',         n(res?.gold))}
-          ${acItem('📈','Entrate',     n(res?.income))}
-          ${acItem('📉','Uscite',      n(res?.upkeep))}
-          ${acItem('⚖️','Saldo',       res ? `${res.income - res.upkeep > 0 ? '+' : ''}${n(res.income - res.upkeep)}` : '—')}
-          ${acItem('🔮','Ambrosia',    n(res?.ambrosia))}
-          ${acItem('🧪','Scienziati',  n(res?.scientistsUpkeep))}
-          ${acItem('🏛','Dio oro',     n(res?.godGoldResult))}
-          ${acItem('⚡','Az. città',   n(res?.maxActionPoints))}
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px">
+          👥 ${res.citizens||0}/${res.population||0} · Aggiornato: ${res.updated?.slice(11,19)||'—'}
         </div>
-      </div>
-
-      <!-- ── RISORSE ── -->
-      <div class="ikp-card">
-        <div class="ikp-card-title">📦 Risorse
-          <span style="font-size:10px;font-weight:400;color:var(--text-muted)">max${ms}</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          ${acItemRate('🪵','Legno',     n(res?.wood),    res?.woodPerHour)}
-          ${acItemRate('🍷','Vino',      n(res?.wine),    res?.wineSpendings ? `-${n(res.wineSpendings)}/h` : null)}
-          ${acItemRate('🪨','Marmo',     n(res?.marble),  null)}
-          ${acItemRate('💎','Cristallo', n(res?.crystal), null)}
-          ${acItemRate('🔥','Zolfo',    n(res?.sulfur),  null)}
-          ${acItem(    '🧑','Cittadini', res ? `${n(res.citizens)} / ${n(res.population)}` : '—')}
-        </div>
-        ${res?.tgName ? `<div style="font-size:12px;color:var(--text-muted);margin-top:8px">
-          Produzione: <b style="color:var(--accent)">${res.tgName}</b>
-          +${n(res.tgPerHour)}/h
-          ${res.badTaxAccountant ? ' ⚠️ Tassatore scarso' : ''}
-        </div>` : ''}
-      </div>
-
-      <!-- ── TRASPORTI ── -->
-      <div class="ikp-card">
-        <div class="ikp-card-title">⛵ Trasporti</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          ${acItem('🚢','Trasportatori', n(res?.maxTransporters))}
-          ${acItem('⚓','Mercantili',    n(res?.maxFreighters))}
-        </div>
-      </div>
-
-      <!-- ── COSTRUZIONI IN CORSO ── -->
-      ${cityConstr.length ? `
-      <div class="ikp-card">
-        <div class="ikp-card-title">🏗 Costruzioni in corso</div>
-        ${cityConstr.map(c => {
-          const left = c.endTime - Date.now();
-          const h    = Math.floor(left / 3600000);
-          const m    = Math.floor((left % 3600000) / 60000);
-          const timeStr = left > 0
-            ? `<span style="color:var(--accent);font-weight:700">${h}h ${m}m</span>`
-            : `<span style="color:var(--green)">✅ Completato</span>`;
-          return `<div style="display:flex;justify-content:space-between;
-                              padding:8px 0;border-bottom:1px solid var(--border);
-                              font-size:13px">
-            <span>🏗 ${c.count > 1 ? c.count + ' edifici' : 'Edificio'}</span>
-            ${timeStr}
-          </div>`;
-        }).join('')}
-      </div>` : ''}
-
-      <!-- ── EDIFICI ── -->
-      ${cityBuildings.length ? `
-      <div class="ikp-card">
-        <div class="ikp-card-title">🏠 Edifici
-          <span style="font-size:10px;font-weight:400;color:var(--text-muted)">
-            ${cityBuildings.length} posizioni
-          </span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-          ${cityBuildings.filter(b => b.name).map(b => `
-            <div style="display:flex;align-items:center;gap:6px;
-                        padding:6px 8px;background:var(--bg-card2);
-                        border-radius:var(--radius-sm);border:1px solid var(--border);
-                        ${b.isBusy ? 'border-color:var(--accent)' : ''}">
-              <span style="font-size:18px">${buildingIcon(b.building)}</span>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:12px;font-weight:600;color:var(--text);
-                            overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                  ${b.name}
-                </div>
-                <div style="font-size:11px;color:var(--text-muted)">
-                  Lv ${b.level}
-                  ${b.isBusy    ? ' 🔨' : ''}
-                  ${b.isMaxLevel ? ' ✅' : ''}
-                  ${b.canUpgrade && !b.isBusy ? ' ⬆️' : ''}
-                </div>
-              </div>
-            </div>`).join('')}
-        </div>
-      </div>` : ''}
-    `;
+      </div>`;
+    }).join('');
   }
-
-  function acItem(icon, label, val) {
-    return `<div style="background:var(--bg-card2);border:1px solid var(--border);
-                        border-radius:var(--radius-sm);padding:8px 10px">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;
-                  letter-spacing:.4px">${icon} ${label}</div>
-      <div style="font-size:16px;font-weight:700;color:var(--text);margin-top:2px">${val}</div>
+  function ri(icon, label, val, max) {
+    const v = val != null ? Number(val).toLocaleString('it') : '—';
+    const m = max != null ? `<div class="ikp-res-max">/ ${Number(max).toLocaleString('it')}</div>` : '';
+    return `<div class="ikp-res-item">
+      <div class="ikp-res-icon">${icon}</div>
+      <div class="ikp-res-label">${label}</div>
+      <div class="ikp-res-value">${v}</div>${m}
     </div>`;
-  }
-
-  function acItemRate(icon, label, val, rate) {
-    return `<div style="background:var(--bg-card2);border:1px solid var(--border);
-                        border-radius:var(--radius-sm);padding:8px 10px">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;
-                  letter-spacing:.4px">${icon} ${label}</div>
-      <div style="font-size:16px;font-weight:700;color:var(--text);margin-top:2px">${val}</div>
-      ${rate ? `<div style="font-size:11px;color:var(--green)">+${typeof rate === 'number' ? rate.toLocaleString('it') : rate}/h</div>` : ''}
-    </div>`;
-  }
-
-  function buildingIcon(building) {
-    const icons = {
-      townHall:'🏛', academy:'🎓', warehouse:'🏪', hideout:'🏚',
-      tavern:'🍺', museum:'🏛', port:'⚓', shipyard:'🚢',
-      barracks:'⚔️', wall:'🏯', carpenter:'🪵', glassblowing:'💎',
-      alchemist:'🔥', winegrower:'🍷', quarry:'🪨', palace:'👑',
-      branchOffice:'🏢', temple:'⛩', oracle:'🔮', lighthouse:'🔦',
-      safehouse:'🏠', embassy:'🤝', workshop:'🔧', pirateFortress:'☠️',
-    };
-    return icons[building] || '🏠';
-  }
-
-  function selectCity(id) {
-    selectedCityId = id;
-    renderAccount();
   }
 
   // ── CLASSIFICA ────────────────────────────────
@@ -1142,15 +959,6 @@
       { k: 'url',         label: 'URL' },
       { k: 'date',        label: 'Data' },
     ],
-    combat_reports: [
-      { k: 'combatId',   label: 'ID' },
-      { k: 'date',       label: 'Data' },
-      { k: 'type',       label: 'Tipo' },
-      { k: 'attacker',   label: 'Attaccante' },
-      { k: 'defender',   label: 'Difensore' },
-      { k: 'result',     label: 'Esito' },
-      { k: 'location',   label: 'Luogo' },
-    ],
   };
 
   const STORE_SEARCH = {
@@ -1161,8 +969,7 @@
     constructions: r => `${r.cityName} ${r.id}`.toLowerCase(),
     buildings:     r => `${r.name} ${r.id}`.toLowerCase(),
     state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
-    entries:         r => `${r.type} ${r.url}`.toLowerCase(),
-    combat_reports:  r => `${r.attacker} ${r.defender} ${r.location} ${r.result}`.toLowerCase(),
+    entries:       r => `${r.type} ${r.url}`.toLowerCase(),
   };
 
   // Formatta valore per cella tabella
@@ -1291,7 +1098,6 @@
     { key: 'fleets',        label: '⛵ Flotte',            icon: '⛵' },
     { key: 'alliances',     label: '⚔ Alleanze',          icon: '⚔' },
     { key: 'state_changes', label: '🔔 Cambi stato',      icon: '🔔' },
-    { key: 'combat_reports',label: '⚔️ Combat Reports',   icon: '⚔️' },
   ];
 
   // Formatta valore per visualizzazione compatta
@@ -1429,19 +1235,10 @@
     toast(`✅ Importati ${total} record`);
   }
 
-  // ── CLEAR RAW ────────────────────────────────
-  async function clearRaw() {
-    if (!confirm('Eliminare tutti i JSON raw?\nI dati strutturati (isole, players, ecc.) vengono mantenuti.')) return;
-    await window.IkDB.clearRawEntries();
-    toast('🧹 Raw entries eliminate');
-    renderDB();
-    updateStatusBar();
-  }
-
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','cities','resources','constructions','research','fleets','players','alliances','buildings','state_changes','combat_reports'];
+    const stores = ['entries','islands','cities','resources','constructions','research','fleets','players','alliances','buildings','state_changes'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -1450,8 +1247,8 @@
 
   // ── CALLBACK DAI PARSER ───────────────────────
   function onIslandsUpdated(n)  { if (panelOpen && activeTab === 'map') loadMapData(); updateStatusBar(); }
-  function onCitiesUpdated(id)  { if (panelOpen && activeTab === 'account') renderAccount(); }
-  function onResourcesUpdated() { if (panelOpen && activeTab === 'account')   renderAccount(); }
+  function onCitiesUpdated(id)  { if (panelOpen && activeTab === 'resources') renderResources(); }
+  function onResourcesUpdated() { if (panelOpen && activeTab === 'resources') renderResources(); }
   function onResearchUpdated()  { if (panelOpen && activeTab === 'timers') renderTimers(); }
   function onFleetsUpdated()    { if (panelOpen && activeTab === 'timers') renderTimers(); }
   function onTimerAdded()       { if (panelOpen) updateStatusBar(); }
@@ -1501,7 +1298,7 @@
     closePopup, saveMyId, askNotifPerm, pruneOld,
     clearDB, clearChanges, importFiles,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
-    dbSearch, clearRaw, renderAccount, selectCity,
+    dbSearch,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };
