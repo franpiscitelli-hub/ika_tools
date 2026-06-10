@@ -66,7 +66,7 @@
           templeLevel: Number(raw[5]),
           clusterId:   Number(raw[4]),
           woodLevel:   Number(raw[6]),
-          pirateTs,
+          pirateTs:    pirTs, // Corretto il ReferenceError
           pirateDate:  pirTs ? new Date(pirTs * 1000).toISOString() : null,
           worldmapUpdated: new Date().toISOString(),
           // nCities e hasCities: logica descritta sopra
