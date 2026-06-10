@@ -1,6 +1,10 @@
 // ═══════════════════════════════════════════════
-// parser_globaldata.js v2
-// Fix: resources.cityId mai null, constructions id stringa
+// parser_globaldata.js v3
+//
+// Gestisce updateGlobalData da Ikariam.
+// Cities: usa id NUMERICO come keyPath.
+// Resources: cityId sempre numerico (mai null).
+// Constructions: id stringa 'build_cityId'.
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
@@ -10,41 +14,42 @@
   async function parse(url, data) {
     if (!Array.isArray(data)) return 0;
     let count = 0;
+
     for (const item of data) {
       if (!Array.isArray(item) || item.length < 2) continue;
       if (item[0] !== 'updateGlobalData') continue;
       const payload = item[1];
       if (!payload || typeof payload !== 'object') continue;
-      // Passa backgroundData a parseHeader per ottenere cityId
-      const cityId = payload.backgroundData?.id ? Number(payload.backgroundData.id) : null;
+
+      // cityId da backgroundData (sempre disponibile qui)
+      const cityId = payload.backgroundData?.id
+        ? Number(payload.backgroundData.id)
+        : null;
+
       if (payload.headerData)     count += await parseHeader(payload.headerData, cityId);
       if (payload.backgroundData) count += await parseBackground(payload.backgroundData);
     }
     return count;
   }
 
+  // ── headerData ───────────────────────────────
   async function parseHeader(hd, cityId) {
-    // cityId ora arriva già da backgroundData, non null
-    if (!cityId) return 0; // senza cityId non possiamo salvare risorse
+    if (!cityId) return 0; // senza cityId non salviamo risorse
 
     const cr  = hd.currentResources || {};
     const mr  = hd.maxResources     || {};
     const maxStorage = Number(mr['0'] || mr['1'] || mr['resource'] || 0);
 
-    const woodPerHour = Math.round((hd.resourceProduction  || 0) * 3600);
-    const tgPerHour   = Math.round((hd.tradegoodProduction || 0) * 3600);
-
-    // Salva risorse con cityId garantito non-null
     try {
       await window.IkDB.put('resources', {
-        cityId,
-        wine:       Number(cr['1']        || 0),
-        marble:     Number(cr['2']        || 0),
-        crystal:    Number(cr['3']        || 0),
-        sulfur:     Number(cr['4']        || 0),
-        wood:       Number(cr['resource'] || 0),
-        citizens:   Number(cr.citizens    || 0),
-        population: Number(cr.population  || 0),
+        cityId,                      // SEMPRE numerico
+        wood:             Number(cr['resource'] || 0),
+        wine:             Number(cr['1']        || 0),
+        marble:           Number(cr['2']        || 0),
+        crystal:          Number(cr['3']        || 0),
+        sulfur:           Number(cr['4']        || 0),
+        citizens:         Number(cr.citizens    || 0),
+        population:       Number(cr.population  || 0),
         maxStorage,
         gold:             Math.round(hd.gold             || 0),
         income:           Math.round(hd.income           || 0),
@@ -54,42 +59,43 @@
         ambrosia:         Number(hd.ambrosia             || 0),
         maxTransporters:  Number(hd.maxTransporters      || 0),
         maxFreighters:    Number(hd.maxFreighters        || 0),
-        woodPerHour,
-        tgPerHour,
-        producedTradegood: Number(hd.producedTradegood || 0),
-        tgName:            TG[hd.producedTradegood] || '?',
-        wineSpendings:     Number(hd.wineSpendings    || 0),
-        badTaxAccountant:  Number(hd.badTaxAccountant || 0),
-        maxActionPoints:   Number(hd.maxActionPoints  || 0),
-        updated: new Date().toISOString(),
+        woodPerHour:      Math.round((hd.resourceProduction  || 0) * 3600),
+        tgPerHour:        Math.round((hd.tradegoodProduction || 0) * 3600),
+        producedTradegood:Number(hd.producedTradegood    || 0),
+        tgName:           TG[hd.producedTradegood]       || '?',
+        wineSpendings:    Number(hd.wineSpendings        || 0),
+        badTaxAccountant: Number(hd.badTaxAccountant     || 0),
+        maxActionPoints:  Number(hd.maxActionPoints      || 0),
+        updated:          new Date().toISOString(),
       });
     } catch(e) {
-      console.error('[parser_globaldata] resources put error:', e.message);
+      console.error('[parser_globaldata] resources error:', e.message);
     }
 
-    // Aggiorna lista città proprie
+    // cityDropdownMenu → lista città proprie
     const cdm = hd.cityDropdownMenu || {};
     for (const key of Object.keys(cdm)) {
       const c = cdm[key];
       if (c.relationship !== 'ownCity') continue;
+      const numId = Number(c.id);
+      if (!numId) continue;
       const match = (c.coords || '').match(/\[(\d+):(\d+)\]/);
-      const ix = match ? Number(match[1]) : null;
-      const iy = match ? Number(match[2]) : null;
       try {
-        const existing = await window.IkDB.get('cities', Number(c.id));
+        const prev = await window.IkDB.get('cities', numId);
         await window.IkDB.put('cities', {
-          ...(existing || {}),
-          id:        Number(c.id),
+          ...(prev || {}),
+          id:        numId,          // SEMPRE numerico
           name:      c.name,
-          islandX:   ix,
-          islandY:   iy,
+          islandX:   match ? Number(match[1]) : (prev?.islandX || null),
+          islandY:   match ? Number(match[2]) : (prev?.islandY || null),
           tradegood: Number(c.tradegood),
           tgName:    TG[c.tradegood] || '?',
           isOwn:     true,
+          source:    'ikariam',
           updated:   new Date().toISOString(),
         });
       } catch(e) {
-        console.error('[parser_globaldata] city put error:', e.message);
+        console.error('[parser_globaldata] city dropdown error:', e.message);
       }
     }
 
@@ -97,16 +103,16 @@
     return 1;
   }
 
+  // ── backgroundData ───────────────────────────
   async function parseBackground(bd) {
     if (!bd.id) return 0;
     const cityId = Number(bd.id);
 
-    // Salva città
     try {
-      const existing = await window.IkDB.get('cities', cityId);
+      const prev = await window.IkDB.get('cities', cityId);
       await window.IkDB.put('cities', {
-        ...(existing || {}),
-        id:        cityId,
+        ...(prev || {}),
+        id:        cityId,           // SEMPRE numerico
         name:      bd.name || '?',
         isCapital: !!bd.isCapital,
         ownerId:   Number(bd.ownerId),
@@ -116,23 +122,23 @@
         islandX:   Number(bd.islandXCoord),
         islandY:   Number(bd.islandYCoord),
         phase:     Number(bd.phase),
-        buildingSpeedupActive: Number(bd.buildingSpeedupActive || 0),
+        isOwn:     bd.ownerId ? true : (prev?.isOwn || false),
+        source:    'ikariam',
         updated:   new Date().toISOString(),
       });
     } catch(e) {
-      console.error('[parser_globaldata] city background put error:', e.message);
+      console.error('[parser_globaldata] city background error:', e.message);
     }
 
     // Timer costruzioni
     const endDate = bd.constructionListEndDate || bd.endUpgradeTime;
     if (endDate && endDate > 0) {
       const endMs     = endDate * 1000;
-      const remaining = endMs - Date.now();
-      if (remaining > 0) {
-        const constId = `build_${cityId}`; // id STRINGA, non autoIncrement
+      if (endMs > Date.now()) {
+        const constId = `build_${cityId}`;
         try {
           await window.IkDB.put('constructions', {
-            id:        constId,            // ← stringa, put() funziona
+            id:        constId,
             cityId,
             cityName:  bd.name || '?',
             count:     Number(bd.underConstruction || 1),
@@ -142,18 +148,18 @@
             updated:   new Date().toISOString(),
           });
         } catch(e) {
-          console.error('[parser_globaldata] construction put error:', e.message);
+          console.error('[parser_globaldata] construction error:', e.message);
         }
         window.IkNotifier?.scheduleTimer({
-          id:      constId,
-          label:   `🏗 ${bd.name || 'Città'} — ${bd.underConstruction || '?'} costruzioni`,
+          id:      `build_${cityId}`,
+          label:   `🏗 ${bd.name || 'Città'} — ${bd.underConstruction||'?'} costruzioni`,
           endTime: endMs,
           type:    'building',
         });
       }
     }
 
-    // Edifici
+    // Edifici (position array)
     if (Array.isArray(bd.position)) {
       for (const pos of bd.position) {
         if (!pos || pos.buildingId === undefined) continue;
@@ -162,8 +168,8 @@
             id:        `${cityId}_${pos.groundId}`,
             cityId,
             buildingId:Number(pos.buildingId),
-            building:  pos.building  || '',
-            name:      pos.name      || '',
+            building:  pos.building   || '',
+            name:      pos.name       || '',
             level:     Number(pos.level || 0),
             isBusy:    !!pos.isBusy,
             canUpgrade:!!pos.canUpgrade,
@@ -171,7 +177,7 @@
             groundId:  Number(pos.groundId),
             updated:   new Date().toISOString(),
           });
-        } catch(e) {}
+        } catch {}
       }
     }
 
@@ -180,8 +186,8 @@
   }
 
   window.IkParsers?.registerParser('globaldata', {
-    match: url => /ikariam/i.test(url) && !/WorldMap.*getJSONArea|getJSONWorldMap/i.test(url),
+    match: url => /ikariam/i.test(url) && !/WorldMap.*getJSONArea/i.test(url),
     parse,
   });
-  console.log('[parser_globaldata] v2 OK');
+  console.log('[parser_globaldata] v3 OK');
 })();
