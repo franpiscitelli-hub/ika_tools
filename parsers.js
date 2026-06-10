@@ -49,14 +49,24 @@
     for (const file of subParsers) {
       try {
         const url  = `${BASE}/${file}?v=${Date.now()}`;
+        console.log(`[IkParsers] Caricamento ${file}...`);
         const text = await gmFetch(url);
-        // eval nel contesto globale della pagina
-        (0, eval)(text); // eslint-disable-line no-eval
-        console.log(`[IkParsers] ✅ ${file}`);
+        try {
+          (0, eval)(text);
+          console.log(`[IkParsers] ✅ ${file} (registrati: ${registry.length})`);
+        } catch (evalErr) {
+          console.error(`[IkParsers] ❌ eval ${file}:`, evalErr.message);
+        }
       } catch (e) {
-        console.error(`[IkParsers] ❌ ${file}:`, e.message);
+        console.error(`[IkParsers] ❌ fetch ${file}:`, e.message);
       }
     }
+    console.log(`[IkParsers] Parser registrati:`, registry.map(p => p.name));
+  }
+
+  // Lista parser registrati (per debug)
+  function listParsers() {
+    return registry.map(p => p.name).join(', ');
   }
 
   // ── Dispatch: chiama TUTTI i parser che matchano ──
@@ -106,6 +116,6 @@
     window._gmFetch = fn;
   }
 
-  window.IkParsers = { parse, classify, registerParser, loadSubParsers, setGmFetch };
+  window.IkParsers = { parse, classify, registerParser, loadSubParsers, setGmFetch, listParsers };
   console.log('[IkParsers] Dispatcher v2.0 pronto');
 })();

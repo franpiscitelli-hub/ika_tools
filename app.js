@@ -1487,12 +1487,33 @@
 
   // ── INIT ─────────────────────────────────────
   async function init() {
-    log('Init v3.1.0...');
+    log('Init v3.2.1...');
+
+    // 1. Apri DB
     await window.IkDB.open();
-    await window.IkParsers.loadSubParsers();
-    await window.IkNotifier.restoreTimers();
+    log('✅ DB aperto');
+
+    // 2. Carica sotto-parser (usa _gmFetch già impostato dal TM)
+    if (window.IkParsers) {
+      await window.IkParsers.loadSubParsers();
+      log('✅ Parser caricati, registrati:', window.IkParsers.listParsers?.() || '?');
+    } else {
+      log('❌ IkParsers non trovato!');
+    }
+
+    // 3. Ripristina timer
+    if (window.IkNotifier) {
+      await window.IkNotifier.restoreTimers();
+      log('✅ Timer ripristinati');
+    }
+
+    // 4. Build UI
     buildUI();
-    log('✅ Pronto');
+
+    // 5. Vista iniziale mappa centrata
+    mapView = { x: 50, y: 25, scale: 5 };
+
+    log('✅ Companion v3.2.1 pronto su', window.location.hostname);
   }
 
   window.IkApp = {
