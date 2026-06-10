@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-// db.js — IndexedDB manager v4
+// db.js — IndexedDB manager v5
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
@@ -15,9 +15,8 @@
 
       req.onupgradeneeded = e => {
         const d   = e.target.result;
-        const old = e.oldVersion;
 
-        // entries — JSON grezzi catturati
+        // entries — JSON grezzi catturati (autoIncrement)
         if (!d.objectStoreNames.contains('entries')) {
           const s = d.createObjectStore('entries', { keyPath: 'id', autoIncrement: true });
           s.createIndex('type', 'type', { unique: false });
@@ -28,21 +27,27 @@
         if (!d.objectStoreNames.contains('islands')) {
           const s = d.createObjectStore('islands', { keyPath: 'coords' });
           s.createIndex('name', 'name', { unique: false });
+          s.createIndex('x',    'x',    { unique: false });
+          s.createIndex('y',    'y',    { unique: false });
         }
 
-        // cities — keyPath: id (numerico o stringa "islandId_cityName")
+        // cities — keyPath: id
+        //   numerico da ikariam  (es. 1621)
+        //   stringa da ikalogs   (es. "43:53_NomeCittà")
         if (!d.objectStoreNames.contains('cities')) {
           const s = d.createObjectStore('cities', { keyPath: 'id' });
-          s.createIndex('islandX', 'islandX', { unique: false });
-          s.createIndex('playerId', 'playerId', { unique: false });
+          s.createIndex('islandX',    'islandX',    { unique: false });
+          s.createIndex('islandY',    'islandY',    { unique: false });
+          s.createIndex('playerName', 'playerName', { unique: false });
+          s.createIndex('source',     'source',     { unique: false });
         }
 
-        // resources — keyPath: cityId (numerico, MAI null)
+        // resources — keyPath: cityId (SEMPRE numerico)
         if (!d.objectStoreNames.contains('resources')) {
           d.createObjectStore('resources', { keyPath: 'cityId' });
         }
 
-        // constructions — keyPath: id STRINGA (es "build_1621"), NON autoIncrement
+        // constructions — keyPath: id stringa "build_cityId"
         if (!d.objectStoreNames.contains('constructions')) {
           const s = d.createObjectStore('constructions', { keyPath: 'id' });
           s.createIndex('cityId',  'cityId',  { unique: false });
@@ -60,34 +65,27 @@
           s.createIndex('arrivalTime', 'arrivalTime', { unique: false });
         }
 
-        // players — keyPath: id stringa (player_name se no player_id)
+        // players — keyPath: id stringa
+        //   "pl_NomePlayer" da ikalogs
+        //   "av_avatarId"   da ranking
         if (!d.objectStoreNames.contains('players')) {
           const s = d.createObjectStore('players', { keyPath: 'id' });
-          s.createIndex('name',  'name',  { unique: false });
-          s.createIndex('state', 'state', { unique: false });
-          s.createIndex('score', 'score', { unique: false });
+          s.createIndex('name',        'name',        { unique: false });
+          s.createIndex('status',      'status',      { unique: false });
+          s.createIndex('stateSource', 'stateSource', { unique: false });
         }
 
-        // alliances — keyPath: id stringa (ally_name)
+        // alliances — keyPath: id stringa (nome alleanza)
         if (!d.objectStoreNames.contains('alliances')) {
           const s = d.createObjectStore('alliances', { keyPath: 'id' });
           s.createIndex('name', 'name', { unique: false });
         }
 
-        // state_changes — autoIncrement, id numerico
+        // state_changes — autoIncrement
         if (!d.objectStoreNames.contains('state_changes')) {
           const s = d.createObjectStore('state_changes', { keyPath: 'id', autoIncrement: true });
           s.createIndex('playerId',  'playerId',  { unique: false });
           s.createIndex('newUpdate', 'newUpdate', { unique: false });
-        }
-
-        // combat_reports — keyPath: combatId
-        if (!d.objectStoreNames.contains('combat_reports')) {
-          const s = d.createObjectStore('combat_reports', { keyPath: 'combatId' });
-          s.createIndex('date',     'date',     { unique: false });
-          s.createIndex('attacker', 'attacker', { unique: false });
-          s.createIndex('defender', 'defender', { unique: false });
-          s.createIndex('result',   'result',   { unique: false });
         }
 
         // buildings — keyPath: "cityId_groundId"
@@ -96,12 +94,23 @@
           s.createIndex('cityId',   'cityId',   { unique: false });
           s.createIndex('building', 'building', { unique: false });
         }
+
+        // combat_reports — keyPath: combatId stringa
+        if (!d.objectStoreNames.contains('combat_reports')) {
+          const s = d.createObjectStore('combat_reports', { keyPath: 'combatId' });
+          s.createIndex('date',     'date',     { unique: false });
+          s.createIndex('attacker', 'attacker', { unique: false });
+          s.createIndex('defender', 'defender', { unique: false });
+          s.createIndex('result',   'result',   { unique: false });
+        }
       };
 
       req.onsuccess = e => { db = e.target.result; resolve(db); };
       req.onerror   = e => reject(e.target.error);
     });
   }
+
+  // ── CRUD base ────────────────────────────────
 
   function add(store, rec) {
     return new Promise((resolve, reject) => {
@@ -166,7 +175,8 @@
     });
   }
 
-  // Ultimi N record di uno store
+  // ── Ultimi N record (per il visualizzatore DB) ─
+
   function getLast(store, n = 3) {
     return new Promise((resolve, reject) => {
       const tx      = db.transaction(store, 'readonly');
@@ -185,6 +195,8 @@
     });
   }
 
+  // ── Storage info ─────────────────────────────
+
   async function storageInfo() {
     if (!navigator.storage?.estimate) return null;
     const est = await navigator.storage.estimate();
@@ -195,6 +207,9 @@
     };
   }
 
+  // ── Pulizia ──────────────────────────────────
+
+  // Elimina entries più vecchie di N giorni
   async function pruneEntries(days = 30) {
     const cutoff = new Date(Date.now() - days * 86400000).toISOString();
     const all    = await getAll('entries');
@@ -203,14 +218,14 @@
     return old.length;
   }
 
-  // Elimina tutti i JSON raw (store entries) per liberare spazio
-  // Da chiamare dopo che i parser hanno importato i dati strutturati
+  // Elimina TUTTI i JSON raw (entries)
+  // I dati strutturati nei rispettivi store vengono mantenuti
   async function clearRawEntries() {
     await clear('entries');
     console.log('[IkDB] Raw entries eliminate');
   }
 
-  // Elimina i raw più vecchi di N minuti (per pulizia automatica)
+  // Elimina raw più vecchi di N minuti (auto-cleanup)
   async function pruneRawByAge(minutes = 30) {
     const cutoff = new Date(Date.now() - minutes * 60000).toISOString();
     const all    = await getAll('entries');
@@ -219,10 +234,14 @@
     return old.length;
   }
 
-  // Conta tutti gli store
+  // ── Conteggio tutti gli store ─────────────────
+
   async function countAll() {
-    const stores = ['entries','islands','cities','resources','constructions',
-                    'research','fleets','players','alliances','state_changes','buildings','combat_reports'];
+    const stores = [
+      'entries', 'islands', 'cities', 'resources',
+      'constructions', 'research', 'fleets', 'players',
+      'alliances', 'state_changes', 'buildings', 'combat_reports',
+    ];
     const result = {};
     for (const s of stores) {
       try { result[s] = await count(s); } catch { result[s] = 0; }
@@ -230,10 +249,16 @@
     return result;
   }
 
+  // ── Export ───────────────────────────────────
+
   window.IkDB = {
-    open, add, put, get, getAll, count, clear,
-    deleteRecord, getLast, storageInfo, pruneEntries, countAll,
-    clearRawEntries, pruneRawByAge,
+    open,
+    add, put, get, getAll, count, clear,
+    deleteRecord, getLast,
+    storageInfo,
+    pruneEntries, clearRawEntries, pruneRawByAge,
+    countAll,
   };
-  console.log('[IkDB] v4 caricato');
+
+  console.log('[IkDB] v5 caricato');
 })();
