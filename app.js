@@ -69,8 +69,7 @@
   }
 
   function downloadLog() {
-    const text = logBuffer.map(e => `[${e.time}] ${e.msg}`).join('
-');
+    const text = logBuffer.map(e => `[${e.time}] ${e.msg}`).join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -1268,30 +1267,27 @@
     return String(v);
   }
 
+  // Cache record per download (evita problemi con JSON in onclick)
+  let _dbRecordCache = [];
+
   function renderTable(rows, cols) {
     if (!rows.length) return '<p style="font-size:12px;color:var(--text-muted);padding:8px">Nessun risultato</p>';
+    // Salva in cache per download tramite indice
+    _dbRecordCache = rows;
     return `
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead>
             <tr style="background:var(--bg-card2)">
-              ${cols.map(c => `<th style="padding:6px 8px;text-align:left;font-size:11px;
-                color:var(--text-muted);font-weight:700;text-transform:uppercase;
-                letter-spacing:.5px;border-bottom:2px solid var(--border);
-                white-space:nowrap">${c.label}</th>`).join('')}
+              ${cols.map(c => `<th style="padding:6px 8px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--border);white-space:nowrap">${c.label}</th>`).join('')}
               <th style="padding:6px 8px;border-bottom:2px solid var(--border);width:32px"></th>
             </tr>
           </thead>
           <tbody>
-            ${rows.map((r, i) => `
-              <tr style="${i%2===1?'background:var(--bg-card2)':''}">
-                ${cols.map(c => `<td style="padding:6px 8px;border-bottom:1px solid var(--border);
-                  vertical-align:middle;white-space:nowrap">${fmtCell(r[c.k], c.k)}</td>`).join('')}
+            ${rows.map((r, i) => `<tr style="${i%2===1?'background:var(--bg-card2)':''}">
+                ${cols.map(c => `<td style="padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap">${fmtCell(r[c.k], c.k)}</td>`).join('')}
                 <td style="padding:4px 6px;border-bottom:1px solid var(--border);text-align:center">
-                  <button onclick="window.IkApp.downloadRecord(${JSON.stringify(JSON.stringify(r))})"
-                    style="background:none;border:1px solid var(--border);border-radius:4px;
-                           padding:2px 6px;cursor:pointer;font-size:11px;color:var(--text-muted)"
-                    title="Scarica record JSON">⬇</button>
+                  <button onclick="window.IkApp.downloadRecord(${i})" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 6px;cursor:pointer;font-size:11px;color:var(--text-muted)" title="Scarica">⬇</button>
                 </td>
               </tr>`).join('')}
           </tbody>
@@ -1299,9 +1295,10 @@
       </div>`;
   }
 
-  function downloadRecord(jsonStr) {
+  function downloadRecord(idx) {
     try {
-      const rec  = JSON.parse(jsonStr);
+      const rec  = _dbRecordCache[idx];
+      if (!rec) { toast('❌ Record non trovato'); return; }
       const name = rec.coords || rec.id || rec.combatId || rec.playerName || 'record';
       const blob = new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' });
       const url  = URL.createObjectURL(blob);
@@ -1310,6 +1307,7 @@
       a.download = `ik_${String(name).replace(/[^a-z0-9_:.-]/gi,'_')}_${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
+      toast('⬇ Record scaricato');
     } catch(e) { toast('❌ Errore download: ' + e.message); }
   }
 
@@ -1432,73 +1430,7 @@
     </div>`;
   }
 
-  // ── SETTINGS ─────────────────────────────────
-  function loadSettingsUI() {
-    const nameEl = document.getElementById('ikp-my-name');
-    if (nameEl && myPlayerName) nameEl.value = myPlayerName;
-    const el = document.getElementById('ikp-my-pid');
-    if (el && myPlayerId) el.value = myPlayerId;
-    const st = document.getElementById('ikp-notif-status');
-    if (st) st.textContent = Notification.permission === 'granted' ? '✅ Abilitate' : Notification.permission === 'denied' ? '❌ Negate' : '⏳ Non impostate';
-    updateStorageInfo();
-  }
-
-  function saveMyId() {
-    const nameVal = (document.getElementById('ikp-my-name')?.value || '').trim();
-    if (!nameVal) { toast('⚠️ Inserisci il tuo nome player'); return; }
-    myPlayerName = nameVal;
-    localStorage.setItem('ik_my_name', nameVal);
-    // Prova anche a trovare avatarId
-    const val = Number(document.getElementById('ikp-my-pid')?.value);
-    if (val) { myPlayerId = val; localStorage.setItem('ik_my_pid', val); }
-    const info = document.getElementById('ikp-my-pid-info');
-    if (info) info.textContent = `✅ Salvato come "${nameVal}"`;
-    toast(`✅ Salvato: ${nameVal}`);
-    drawMap();
-  }
-
-  async function askNotifPerm() {
-    const ok = await window.IkNotifier?.requestPermission();
-    const el = document.getElementById('ikp-notif-status');
-    if (el) el.textContent = ok ? '✅ Abilitate' : '❌ Negate';
-    if (ok) toast('🔔 Notifiche abilitate!');
-  }
-
-  async function updateStorageInfo() {
-    const el = document.getElementById('ikp-storage-info');
-    if (!el || !window.IkDB) return;
-    const info = await window.IkDB.storageInfo();
-    el.innerHTML = info ? `Usato: <b>${info.usedMB} MB</b> / ${info.quotaMB} MB (${info.pct}%)` : 'Non disponibile';
-  }
-
-  async function pruneOld() {
-    const n = await window.IkDB?.pruneEntries(30);
-    toast(`🧹 Rimossi ${n} record`);
-    renderDB(); updateStatusBar();
-  }
-
-  // ── IMPORT FILE ───────────────────────────────
-  async function importFiles(input) {
-    const files = Array.from(input.files);
-    let total = 0;
-    for (const file of files) {
-      try {
-        const json = JSON.parse(await file.text());
-        const entries = Array.isArray(json) ? json : [json];
-        for (const e of entries) {
-          const data = e.data || e;
-          const url  = e.url || e._meta?.url || 'import';
-          if (window.IkParsers) await window.IkParsers.parse(url, data);
-          total++;
-        }
-      } catch(err) { toast(`❌ ${file.name}`); }
-    }
-    input.value = '';
-    await loadMapData();
-    refreshActiveTab(); updateStatusBar();
-    toast(`✅ Importati ${total} record`);
-  }
-
+  
   // ── CLEAR RAW ────────────────────────────────
   async function clearRaw() {
     if (!confirm('Eliminare tutti i JSON raw?\nI dati strutturati (isole, players, ecc.) vengono mantenuti.')) return;
