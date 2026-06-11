@@ -25,7 +25,60 @@
   let timerInterval = null;
   let popupIsland   = null;
 
-  function log(...a) { console.log('[IkApp]', ...a); }
+  // ── SISTEMA LOG IN-APP ───────────────────────
+  const logBuffer = [];
+  const LOG_MAX   = 200;
+
+  function log(...a) {
+    const msg  = a.join(' ');
+    const time = new Date().toLocaleTimeString('it-IT');
+    const entry = { time, msg };
+    logBuffer.push(entry);
+    if (logBuffer.length > LOG_MAX) logBuffer.shift();
+    console.log('[IkApp]', msg);
+    // Aggiorna UI log se tab aperta
+    if (panelOpen && activeTab === 'log') renderLogTab();
+    // Aggiorna badge log se errore
+    if (msg.includes('❌') || msg.includes('errore') || msg.includes('error')) {
+      const badge = document.getElementById('ikp-log-badge');
+      if (badge) { badge.style.display = 'inline'; badge.textContent = '!'; }
+    }
+  }
+
+  function renderLogTab() {
+    const el = document.getElementById('ikp-log-list');
+    if (!el) return;
+    if (!logBuffer.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:8px">Nessun log ancora.</div>';
+      return;
+    }
+    el.innerHTML = logBuffer.slice().reverse().map(e => {
+      const isErr  = e.msg.includes('❌') || e.msg.toLowerCase().includes('error');
+      const isOk   = e.msg.includes('✅');
+      const isWarn = e.msg.includes('⚠️');
+      const color  = isErr ? 'var(--red)' : isOk ? 'var(--green)' : isWarn ? 'var(--orange)' : 'var(--text-dim)';
+      return `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:${color}">
+        <span style="color:var(--text-muted)">${e.time}</span> ${e.msg}
+      </div>`;
+    }).join('');
+  }
+
+  function clearLog() {
+    logBuffer.length = 0;
+    renderLogTab();
+  }
+
+  function downloadLog() {
+    const text = logBuffer.map(e => `[${e.time}] ${e.msg}`).join('
+');
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `ik_log_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   // ── INTERCETTAZIONE ─────────────────────────
   const rawOpen = XMLHttpRequest.prototype.open;
@@ -122,6 +175,7 @@
         <div class="ikp-tab" data-tab="ranking">🏆 Classifica</div>
         <div class="ikp-tab" data-tab="changes">🔔 Cambi</div>
         <div class="ikp-tab" data-tab="db">🗄 Dati</div>
+        <div class="ikp-tab" data-tab="log">📟 Log</div>
         <div class="ikp-tab" data-tab="settings">⚙</div>
       </div>
       <div id="ikp-body">
@@ -231,6 +285,21 @@
           </div>
         </div>
 
+        <!-- ══ LOG ══ -->
+        <div class="ikp-section" id="ikp-tab-log">
+          <div class="ikp-card">
+            <div class="ikp-card-title">
+              📟 Log sistema
+              <div style="display:flex;gap:6px">
+                <button class="ikp-btn small outline" onclick="window.IkApp.clearLog()">🗑 Pulisci</button>
+                <button class="ikp-btn small outline" onclick="window.IkApp.downloadLog()">⬇ Scarica</button>
+              </div>
+            </div>
+            <div id="ikp-log-list" style="max-height:60vh;overflow-y:auto;
+                 font-family:monospace;font-size:11px;line-height:1.6"></div>
+          </div>
+        </div>
+
         <!-- ══ DATABASE ══ -->
         <div class="ikp-section" id="ikp-tab-db">
 
@@ -263,7 +332,8 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="ikp-btn danger small" onclick="window.IkApp.clearDB()">🗑 Svuota DB</button>
             <button class="ikp-btn outline small" onclick="window.IkApp.renderDB()">↻ Aggiorna</button>
-            <button class="ikp-btn outline small" onclick="window.IkApp.clearRaw()" title="Elimina JSON raw, mantieni dati strutturati">🧹 Pulisci Raw</button>
+            <button class="ikp-btn outline small" onclick="window.IkApp.clearRaw()" title="Elimina JSON raw">🧹 Raw</button>
+            <button class="ikp-btn outline small" onclick="window.IkApp.downloadSearchResults()" title="Scarica risultati visibili">⬇ Scarica</button>
           </div>
         </div>
 
@@ -386,6 +456,7 @@
       case 'account':   renderAccount();   break;
       case 'ranking':   renderRanking();   break;
       case 'changes':   renderChanges();   break;
+      case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
       case 'settings':  loadSettingsUI();  break;
     }
@@ -1208,6 +1279,7 @@
                 color:var(--text-muted);font-weight:700;text-transform:uppercase;
                 letter-spacing:.5px;border-bottom:2px solid var(--border);
                 white-space:nowrap">${c.label}</th>`).join('')}
+              <th style="padding:6px 8px;border-bottom:2px solid var(--border);width:32px"></th>
             </tr>
           </thead>
           <tbody>
@@ -1215,10 +1287,48 @@
               <tr style="${i%2===1?'background:var(--bg-card2)':''}">
                 ${cols.map(c => `<td style="padding:6px 8px;border-bottom:1px solid var(--border);
                   vertical-align:middle;white-space:nowrap">${fmtCell(r[c.k], c.k)}</td>`).join('')}
+                <td style="padding:4px 6px;border-bottom:1px solid var(--border);text-align:center">
+                  <button onclick="window.IkApp.downloadRecord(${JSON.stringify(JSON.stringify(r))})"
+                    style="background:none;border:1px solid var(--border);border-radius:4px;
+                           padding:2px 6px;cursor:pointer;font-size:11px;color:var(--text-muted)"
+                    title="Scarica record JSON">⬇</button>
+                </td>
               </tr>`).join('')}
           </tbody>
         </table>
       </div>`;
+  }
+
+  function downloadRecord(jsonStr) {
+    try {
+      const rec  = JSON.parse(jsonStr);
+      const name = rec.coords || rec.id || rec.combatId || rec.playerName || 'record';
+      const blob = new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `ik_${String(name).replace(/[^a-z0-9_:.-]/gi,'_')}_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) { toast('❌ Errore download: ' + e.message); }
+  }
+
+  // Download tutti i risultati della ricerca corrente
+  function downloadSearchResults() {
+    const store  = document.getElementById('ikp-db-store')?.value || 'entries';
+    const q      = document.getElementById('ikp-db-q')?.value || '';
+    window.IkDB.getAll(store).then(all => {
+      const searchFn = STORE_SEARCH[store] || (r => JSON.stringify(r).toLowerCase());
+      const filtered = q ? all.filter(r => searchFn(r).includes(q.toLowerCase())) : all;
+      const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `ik_${store}_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(`⬇ ${filtered.length} record scaricati`);
+    });
   }
 
   async function dbSearch() {
@@ -1523,6 +1633,7 @@
     clearDB, clearChanges, importFiles,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
     dbSearch, clearRaw, renderAccount, selectCity,
+    downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };
