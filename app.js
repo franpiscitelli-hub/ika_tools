@@ -1432,46 +1432,6 @@
     </div>`;
   }
 
-  async function renderDB() {
-    const el = document.getElementById('ikp-db-list');
-    if (!el || !window.IkDB) return;
-
-    // Conta tutti gli store
-    const counts = await window.IkDB.countAll();
-
-    let html = '';
-    for (const store of DB_STORES) {
-      const n = counts[store.key] || 0;
-      // Prendi ultimi 3 record
-      let last = [];
-      try { last = await window.IkDB.getLast(store.key, 3); } catch {}
-
-      html += `
-        <div class="ikp-card" style="margin-bottom:10px">
-          <div class="ikp-card-title" style="cursor:pointer"
-               onclick="this.nextElementSibling.style.display=
-                        this.nextElementSibling.style.display==='none'?'block':'none'">
-            ${store.icon} ${store.label}
-            <span style="margin-left:auto;background:var(--accent);color:#fff;
-                         padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">
-              ${n}
-            </span>
-          </div>
-          <div ${n === 0 ? 'style="display:none"' : ''}>
-            ${last.length === 0
-              ? '<p style="font-size:12px;color:var(--text-muted);padding:8px 0">Nessun dato</p>'
-              : last.map(r => renderRecord(r, store.key)).join('')
-            }
-            ${n > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:4px">
-              … altri ${n - 3} record</div>` : ''}
-          </div>
-        </div>`;
-    }
-
-    el.innerHTML = html || '<div class="ikp-empty"><p>DB vuoto</p></div>';
-    updateStatusBar();
-  }
-
   // ── SETTINGS ─────────────────────────────────
   function loadSettingsUI() {
     const nameEl = document.getElementById('ikp-my-name');
