@@ -1494,7 +1494,6 @@
     const isIkalogsSite = /ikalogs/i.test(window.location.hostname);
 
     if (isIkalogsSite) {
-      // Su ikalogs: DB e parser non sono caricati, avvia solo la UI bridge
       log('ℹ️ Modalità bridge (ikalogs) — skip DB/parsers/notifier');
       buildUI();
       log('✅ Companion v3.2.1 pronto su', window.location.hostname);
@@ -1509,7 +1508,7 @@
       log('❌ IkDB non trovato!');
     }
 
-    // 2. Carica sotto-parser (usa _gmFetch già impostato dal TM)
+    // 2. Carica sotto-parser
     if (window.IkParsers) {
       await window.IkParsers.loadSubParsers();
       log('✅ Parser caricati, registrati:', window.IkParsers.listParsers?.() || '?');
@@ -1523,8 +1522,15 @@
       log('✅ Timer ripristinati');
     }
 
-    // 4. Build UI
+    // 4. Build UI — con retry se ikariam la rimuove durante il boot
     buildUI();
+    // Ikariam a volte resetta il body dopo il load: ricontrollo dopo 2s
+    setTimeout(() => {
+      if (!document.getElementById('ikp-fab')) {
+        log('⚠️ FAB rimosso dal gioco, reinserisco UI...');
+        buildUI();
+      }
+    }, 2000);
 
     // 5. Vista iniziale mappa centrata
     mapView = { x: 50, y: 25, scale: 5 };
