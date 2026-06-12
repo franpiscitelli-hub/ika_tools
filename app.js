@@ -1440,6 +1440,28 @@
     updateStatusBar();
   }
 
+    // ── IMPORT FILE ───────────────────────────────
+  async function importFiles(input) {
+    const files = Array.from(input.files);
+    let total = 0;
+    for (const file of files) {
+      try {
+        const json = JSON.parse(await file.text());
+        const entries = Array.isArray(json) ? json : [json];
+        for (const e of entries) {
+          const data = e.data || e;
+          const url  = e.url || e._meta?.url || 'import';
+          if (window.IkParsers) await window.IkParsers.parse(url, data);
+          total++;
+        }
+      } catch(err) { toast(`❌ ${file.name}`); }
+    }
+    input.value = '';
+    await loadMapData();
+    refreshActiveTab(); updateStatusBar();
+    toast(`✅ Importati ${total} record`);
+  }
+
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
