@@ -1518,6 +1518,61 @@
     log('✅ Companion v3.2.1 pronto su', window.location.hostname);
   }
 
+
+
+  function loadSettingsUI() {
+    const nameEl = document.getElementById('ikp-my-name');
+    if (nameEl && myPlayerName) nameEl.value = myPlayerName;
+    const pidEl = document.getElementById('ikp-my-pid');
+    if (pidEl && myPlayerId) pidEl.value = myPlayerId;
+    const st = document.getElementById('ikp-notif-status');
+    if (st) {
+      st.textContent = !('Notification' in window) ? 'Non supportato'
+        : Notification.permission === 'granted' ? '✅ Abilitate'
+        : Notification.permission === 'denied'  ? '❌ Negate'
+        : '⏳ Non impostate';
+    }
+    updateStorageInfo();
+  }
+
+  async function updateStorageInfo() {
+    const el = document.getElementById('ikp-storage-info');
+    if (!el || !window.IkDB) return;
+    const info = await window.IkDB.storageInfo();
+    el.innerHTML = info
+      ? 'Usato: <b>' + info.usedMB + ' MB</b> / ' + info.quotaMB + ' MB (' + info.pct + '%)'
+      : 'Non disponibile';
+  }
+
+  // ── SETTINGS ACTIONS ────────────────────────
+  function saveMyId() {
+    const nameVal = (document.getElementById('ikp-my-name')?.value || '').trim();
+    if (!nameVal) { toast('⚠️ Inserisci il tuo nome player'); return; }
+    myPlayerName = nameVal;
+    localStorage.setItem('ik_my_name', nameVal);
+    const val = Number(document.getElementById('ikp-my-pid')?.value);
+    if (val) { myPlayerId = val; localStorage.setItem('ik_my_pid', String(val)); }
+    const info = document.getElementById('ikp-my-pid-info');
+    if (info) info.textContent = '✅ Salvato come "' + nameVal + '"';
+    toast('✅ Salvato: ' + nameVal);
+    drawMap();
+    log('✅ Player impostato: ' + nameVal + (val ? ' (ID: ' + val + ')' : ''));
+  }
+
+  async function askNotifPerm() {
+    const ok = await window.IkNotifier?.requestPermission();
+    const el = document.getElementById('ikp-notif-status');
+    if (el) el.textContent = ok ? '✅ Abilitate' : '❌ Negate';
+    if (ok) toast('🔔 Notifiche abilitate!');
+  }
+
+  async function pruneOld() {
+    const n = await window.IkDB?.pruneEntries(30);
+    toast('🧹 Rimossi ' + n + ' record');
+    renderDB();
+    updateStatusBar();
+  }
+
   window.IkApp = {
     init, toggle, toast, drawMap, mapReset, mapZoom,
     applyFilters, clearFilters, goToMe,
@@ -1531,3 +1586,4 @@
   };
   log('Modulo caricato');
 })();
+
