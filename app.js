@@ -1619,3 +1619,21 @@
   log('Modulo caricato');
 })();
 
+function handleInterceptedData(url, data) {
+  // Se siamo su Ikalogs (o comunque senza parser locali), inviamo al Master Tab
+  if (!window.IkParsers && window._ikSendToMaster) {
+      window._ikSendToMaster(url, data);
+      log('Invio dati al DB principale in corso...');
+      toast('Inviato a Ikariam Tab');
+      return;
+  }
+  
+  // Logica normale se siamo su Ikariam
+  if (window.IkParsers) {
+      window.IkParsers.parse(url, data)
+        .then(res => {
+           // aggiorna UI, mappe, ecc.
+        });
+  }
+    }
+ 
