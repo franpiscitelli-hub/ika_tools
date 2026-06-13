@@ -354,6 +354,9 @@
             <input type="file" id="ikp-file-in" accept="*/*" multiple style="display:none"
               onchange="window.IkApp.importFiles(this)">
             <button class="ikp-btn" onclick="document.getElementById('ikp-file-in').click()">📂 Scegli file</button>
+            <div id="ikp-import-log" style="display:none;margin-top:10px;padding:8px;
+              background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+              max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px"></div>
           </div>
           <div class="ikp-card">
             <div class="ikp-card-title">💾 Storage</div>
@@ -1201,6 +1204,8 @@
       { k: 'type',        label: 'Tipo' },
       { k: 'url',         label: 'URL' },
       { k: 'date',        label: 'Data' },
+      { k: '_parserName', label: 'Parser' },
+      { k: '_parserCount',label: 'Records' },
     ],
     combat_reports: [
       { k: 'combatId',   label: 'ID' },
@@ -1565,47 +1570,106 @@
 
 
   // ── IMPORT FILE MANUALE ──────────────────────
+  function importLog(msg, color) {
+    const box = document.getElementById('ikp-import-log');
+    if (!box) return;
+    const line = document.createElement('div');
+    line.style.cssText = 'font-size:11px;padding:1px 0;color:' + (color || 'var(--text)');
+    line.textContent = new Date().toISOString().slice(11,19) + ' ' + msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+
   async function importFiles(input) {
     const files = Array.from(input.files);
     if (!files.length) return;
+
+    // Svuota e mostra log box
+    const box = document.getElementById('ikp-import-log');
+    if (box) { box.innerHTML = ''; box.style.display = 'block'; }
+
     let total = 0;
+
     for (const file of files) {
+      importLog('📂 File: ' + file.name);
       try {
         const text = await file.text();
-        const json = JSON.parse(text);
+        importLog('   Dimensione: ' + (text.length / 1024).toFixed(1) + ' KB');
+
+        let json;
+        try {
+          json = JSON.parse(text);
+          importLog('   JSON parsato OK');
+        } catch(pe) {
+          importLog('   ❌ JSON non valido: ' + pe.message, 'var(--red)');
+          throw pe;
+        }
+
         const entries = Array.isArray(json) ? json : [json];
+        importLog('   Entry trovate: ' + entries.length);
+
         for (const entry of entries) {
-          const data = entry.data || entry;
-          const url  = entry.url || entry._meta?.url || 'https://ikalogs.ru/import';
-          if (window.IkParsers) {
-            const result = await window.IkParsers.parse(url, data);
-            const n = (typeof result === 'object') ? (result.parsed || 0) : (result || 0);
-            total += n;
-            // Aggiorna il record raw nel DB con info diagnostica
-            if (entry.id) {
-              try {
-                const raw = await window.IkDB.get('entries', entry.id);
-                if (raw) {
-                  raw._parserRun    = true;
-                  raw._parserName   = result?.parserName || (n > 0 ? 'ok' : 'none');
-                  raw._parserCount  = n;
-                  raw._parserDate   = new Date().toISOString();
-                  await window.IkDB.put('entries', raw);
-                }
-              } catch {}
-            }
+          const data   = entry.data || entry;
+          const url    = entry.url || entry._meta?.url || 'https://ikalogs.ru/import';
+          const entryId = entry.id;
+          importLog('   URL: ' + url);
+
+          if (!window.IkParsers) {
+            importLog('   ❌ IkParsers non disponibile', 'var(--red)');
+            continue;
+          }
+
+          // Controlla quale parser matcha
+          const matchedParser = window.IkParsers.whichParser?.(url);
+          importLog('   Parser selezionato: ' + (matchedParser || 'nessuno'),
+                    matchedParser ? 'var(--text)' : 'orange');
+
+          if (!matchedParser) {
+            importLog('   ⚠️ Nessun parser matcha URL: ' + url, 'orange');
+          }
+
+          importLog('   ▶ Avvio parse...');
+          const result = await window.IkParsers.parse(url, data);
+          const n = (typeof result === 'object') ? (result.parsed || 0) : (Number(result) || 0);
+          total += n;
+
+          if (typeof result === 'object' && result.parserName) {
+            importLog('   Parser eseguito: ' + result.parserName, 'var(--ok)');
+            if (result.countIslands  != null) importLog('   Isole:   ' + result.countIslands);
+            if (result.countCities   != null) importLog('   Città:   ' + result.countCities);
+            if (result.countPlayers  != null) importLog('   Players: ' + result.countPlayers);
+          }
+          importLog('   ✅ Totale record: ' + n, n > 0 ? 'var(--ok)' : 'orange');
+
+          // Aggiorna record raw nel DB con info diagnostica
+          if (entryId) {
+            try {
+              const raw = await window.IkDB.get('entries', entryId);
+              if (raw) {
+                raw._parserName  = result?.parserName || (n > 0 ? 'ok' : 'none');
+                raw._parserCount = n;
+                raw._parserDate  = new Date().toISOString();
+                await window.IkDB.put('entries', raw);
+              }
+            } catch {}
           }
         }
+
+        importLog('✅ ' + file.name + ' completato', 'var(--ok)');
         toast('📂 ' + file.name + ': OK');
       } catch(e) {
+        importLog('❌ Errore: ' + e.message, 'var(--red)');
         toast('❌ ' + file.name + ': ' + e.message);
         log('❌ Import ' + file.name + ': ' + e.message);
       }
     }
+
     input.value = '';
     await loadMapData();
     refreshActiveTab();
     updateStatusBar();
+    importLog('──────────────────────');
+    importLog('TOTALE importato: ' + total + ' record', total > 0 ? 'var(--ok)' : 'orange');
     if (total > 0) toast('✅ Importati ' + total + ' record');
   }
 
@@ -1613,7 +1677,7 @@
     init, toggle, toast, drawMap, mapReset, mapZoom,
     applyFilters, clearFilters, goToMe,
     closePopup, saveMyId, askNotifPerm, pruneOld,
-    clearDB, clearChanges, importFiles,
+    clearDB, clearChanges, importFiles, importLog,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
     dbSearch, clearRaw, renderAccount, selectCity,
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,

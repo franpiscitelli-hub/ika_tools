@@ -116,6 +116,13 @@
     window._gmFetch = fn;
   }
 
-  window.IkParsers = { parse, classify, registerParser, loadSubParsers, setGmFetch, listParsers };
+  function whichParser(url) {
+    for (const [name, p] of parsers.entries ? parsers.entries() : Object.entries(parsers)) {
+      try { if (p.match && p.match(url)) return name; } catch {}
+    }
+    return null;
+  }
+
+  window.IkParsers = { parse, classify, registerParser, loadSubParsers, setGmFetch, listParsers, whichParser };
   console.log('[IkParsers] Dispatcher v2.0 pronto');
 })();
