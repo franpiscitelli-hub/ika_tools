@@ -139,38 +139,18 @@
   function buildUI() {
     if (!document.body) { setTimeout(buildUI, 300); return; }
 
-    // Stile override: batte CSS di ikariam (transform/zoom/overflow sul body)
-    if (!document.getElementById('ikp-override-style')) {
-      const s = document.createElement('style');
-      s.id = 'ikp-override-style';
-      s.textContent = [
-        '#ikp-fab,#ikp-overlay,#ikp-panel,#ikp-island-popup,#ikp-map-tooltip,#ikp-toast{',
-        '  position:fixed!important;transform:none!important;zoom:1!important}',
-        '#ikp-fab{bottom:80px!important;right:16px!important;',
-        '  z-index:2147483647!important;display:flex!important;',
-        '  visibility:visible!important;opacity:1!important;pointer-events:auto!important}',
-        '#ikp-panel{z-index:2147483646!important}',
-        '#ikp-overlay{z-index:2147483645!important}',
-      ].join('');
-      // Append su <html>, non su <body>, sopravvive a reset del body
-      document.documentElement.appendChild(s);
-    }
-
-    // Mount su <html> per sopravvivere a overflow:hidden / height fisso sul body
-    const mountRoot = document.documentElement;
-
     // FAB
     const fab = document.createElement('div');
     fab.id = 'ikp-fab';
     fab.innerHTML = `⚓<span id="ikp-fab-badge"></span>`;
     fab.onclick = toggle;
-    mountRoot.appendChild(fab);
+    document.body.appendChild(fab);
 
     // Overlay
     const overlay = document.createElement('div');
     overlay.id = 'ikp-overlay';
     overlay.onclick = toggle;
-    mountRoot.appendChild(overlay);
+    document.body.appendChild(overlay);
 
     // Pannello
     const panel = document.createElement('div');
@@ -394,23 +374,23 @@
 
       </div><!-- /body -->
     `;
-    mountRoot.appendChild(panel);
+    document.body.appendChild(panel);
 
     // Popup isola
     const popup = document.createElement('div');
     popup.id = 'ikp-island-popup';
     popup.innerHTML = `<button id="ikp-popup-close" onclick="window.IkApp.closePopup()">✕</button><div id="ikp-popup-content"></div>`;
-    mountRoot.appendChild(popup);
+    document.body.appendChild(popup);
 
     // Tooltip mappa
     const tt = document.createElement('div');
     tt.id = 'ikp-map-tooltip';
-    mountRoot.appendChild(tt);
+    document.body.appendChild(tt);
 
     // Toast
     const toastEl = document.createElement('div');
     toastEl.id = 'ikp-toast';
-    mountRoot.appendChild(toastEl);
+    document.body.appendChild(toastEl);
 
     // Tab click
     panel.querySelectorAll('.ikp-tab').forEach(t => {
@@ -1511,23 +1491,9 @@
   async function init() {
     log('Init v3.2.1...');
 
-    const isIkalogsSite = /ikalogs/i.test(window.location.hostname);
-
-    if (isIkalogsSite) {
-      // Su ikalogs: DB e parser non sono caricati, avvia solo la UI bridge
-      log('ℹ️ Modalità bridge (ikalogs) — skip DB/parsers/notifier');
-      buildUI();
-      log('✅ Companion v3.2.1 pronto su', window.location.hostname);
-      return;
-    }
-
     // 1. Apri DB
-    if (window.IkDB) {
-      await window.IkDB.open();
-      log('✅ DB aperto');
-    } else {
-      log('❌ IkDB non trovato!');
-    }
+    await window.IkDB.open();
+    log('✅ DB aperto');
 
     // 2. Carica sotto-parser (usa _gmFetch già impostato dal TM)
     if (window.IkParsers) {
