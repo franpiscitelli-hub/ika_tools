@@ -147,7 +147,7 @@
     panel.id = 'ikp-panel';
     panel.innerHTML = `
       <div id="ikp-header">
-        <div id="ikp-title">⚓ IKARIAM COMPANION<span>v3.1.0</span></div>
+        <div id="ikp-title">⚓ IKARIAM COMPANION<span>v3.1.0 - No Bridge</span></div>
         <button id="ikp-close-btn" onclick="window.IkApp.toggle()">✕</button>
       </div>
       <div id="ikp-statusbar">
