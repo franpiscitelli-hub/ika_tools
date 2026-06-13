@@ -1576,7 +1576,7 @@
         const entries = Array.isArray(json) ? json : [json];
         for (const entry of entries) {
           const data = entry.data || entry;
-          const url  = entry.url || entry._meta?.url || 'import';
+          const url  = entry.url || entry._meta?.url || 'https://ikalogs.ru/import';
           if (window.IkParsers) {
             const result = await window.IkParsers.parse(url, data);
             total += result.parsed || 0;
