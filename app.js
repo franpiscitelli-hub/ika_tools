@@ -1579,7 +1579,21 @@
           const url  = entry.url || entry._meta?.url || 'https://ikalogs.ru/import';
           if (window.IkParsers) {
             const result = await window.IkParsers.parse(url, data);
-            total += result.parsed || 0;
+            const n = (typeof result === 'object') ? (result.parsed || 0) : (result || 0);
+            total += n;
+            // Aggiorna il record raw nel DB con info diagnostica
+            if (entry.id) {
+              try {
+                const raw = await window.IkDB.get('entries', entry.id);
+                if (raw) {
+                  raw._parserRun    = true;
+                  raw._parserName   = result?.parserName || (n > 0 ? 'ok' : 'none');
+                  raw._parserCount  = n;
+                  raw._parserDate   = new Date().toISOString();
+                  await window.IkDB.put('entries', raw);
+                }
+              } catch {}
+            }
           }
         }
         toast('📂 ' + file.name + ': OK');

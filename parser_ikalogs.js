@@ -24,12 +24,12 @@
 
   async function parse(url, data) {
     const body = data?.body;
-    if (!body) { console.warn('[parser_ikalogs] body mancante'); return 0; }
+    if (!body) { console.warn('[parser_ikalogs] body mancante'); return { parsed: 0, parserName: 'ikalogs' }; }
 
     const citiesInfo = body.cities_info;
     const islandsList = body.islands || [];
 
-    if (!citiesInfo && !islandsList.length) return 0;
+    if (!citiesInfo && !islandsList.length) return { parsed: 0, parserName: 'ikalogs' };
 
     let countIslands = 0, countCities = 0, countPlayers = 0;
 
@@ -65,7 +65,7 @@
     }
 
     // ── STEP 2: cities_info → isole + città + players ──
-    if (!citiesInfo) return countIslands;
+    if (!citiesInfo) return { parsed: countIslands, parserName: 'ikalogs', countIslands, countCities: 0, countPlayers: 0 };
 
     // Accumula cities per isola in memoria prima di scrivere
     // (evita letture/scritture ripetute dello stesso record isola)
@@ -183,18 +183,20 @@
       }
     }
 
+    const tot = countIslands + countCities + countPlayers;
     console.log(`[parser_ikalogs] ${countIslands} isole, ${countCities} città, ${countPlayers} players`);
     window.IkApp?.onIslandsUpdated?.(countIslands);
-    return countIslands + countCities + countPlayers;
+    return {
+      parsed:      tot,
+      parserName:  'ikalogs',
+      countIslands,
+      countCities,
+      countPlayers,
+    };
   }
 
   window.IkParsers?.registerParser('ikalogs', {
-    // Matcha:
-    // 1. URL reali di ikalogs.ru (navigazione live)
-    // 2. /common/report/index/ (JSON scaricati dall'app e reimportati)
-    // 3. URL fallback usato da importFiles()
-    match: url => /ikalogs/i.test(url)
-               || /\/common\/report/i.test(url),
+    match: url => /ikalogs/i.test(url) || /\/common\/report/i.test(url),
     parse,
   });
   console.log('[parser_ikalogs] v4 OK');
