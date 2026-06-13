@@ -7,53 +7,6 @@
 
   // ── STATO ───────────────────────────────────
   let panelOpen    = false;
-
-  // ── GIST BRIDGE CONFIG ─────────────────────────
-  const GIST_TOKEN = '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';
-  const GIST_FILENAME = 'ikariam_companion_bridge.json';
-  let   gistId = localStorage.getItem('ikp_gist_id') || null;
-
-  async function gistSave(data) {
-    const body = {
-      description: 'Ikariam Companion Bridge',
-      public: false,
-      files: { [GIST_FILENAME]: { content: JSON.stringify(data) } }
-    };
-    if (gistId) {
-      // PATCH — aggiorna gist esistente
-      const r = await fetch('https://api.github.com/gists/' + gistId, {
-        method: 'PATCH',
-        headers: { Authorization: 'token ' + GIST_TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (!r.ok) throw new Error('Gist PATCH ' + r.status);
-    } else {
-      // POST — crea gist nuovo
-      const r = await fetch('https://api.github.com/gists', {
-        method: 'POST',
-        headers: { Authorization: 'token ' + GIST_TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (!r.ok) throw new Error('Gist POST ' + r.status);
-      const j = await r.json();
-      gistId = j.id;
-      localStorage.setItem('ikp_gist_id', gistId);
-    }
-  }
-
-  async function gistLoad() {
-    if (!gistId) throw new Error('Nessun Gist ID salvato. Prima invia da Ikalogs.');
-    const r = await fetch('https://api.github.com/gists/' + gistId, {
-      headers: { Authorization: 'token ' + GIST_TOKEN }
-    });
-    if (!r.ok) throw new Error('Gist GET ' + r.status);
-    const j = await r.json();
-    const raw = j.files[GIST_FILENAME]?.content;
-    if (!raw) throw new Error('File non trovato nel Gist');
-    return JSON.parse(raw);
-  }
-
-
   let activeTab    = 'map';
   let sessionCount = 0;
   let mapIslands   = [];
@@ -159,17 +112,7 @@
     sessionCount++;
     updateBadge();
 
-    // Se siamo su ikalogs: invia i dati a Ikariam via BroadcastChannel
-    // (il DB è su ikariam.gameforge.com — unica fonte di verità)
-    const isIkalogs = /ikalogs/i.test(window.location.hostname);
-    if (isIkalogs && window._ikSendToIkariam) {
-      window._ikSendToIkariam(url, parsed);
-      log(`#${sessionCount} [bridge→ikariam]`);
-      if (panelOpen) refreshActiveTab();
-      return; // non salvare nel DB locale di ikalogs
-    }
-
-    // Su ikariam: parse e salva nel DB
+    // Parse e salva nel DB
     if (window.IkParsers) {
       const result = await window.IkParsers.parse(url, parsed);
       log(`#${sessionCount} [${result.type}]`);
@@ -406,35 +349,6 @@
             <button class="ikp-btn success" onclick="window.IkApp.askNotifPerm()">🔔 Abilita notifiche</button>
             <span id="ikp-notif-status" style="font-size:12px;color:var(--text-muted);margin-left:10px"></span>
           </div>
-          <!-- GIST BRIDGE -->
-          <div class="ikp-card" id="ikp-gist-card">
-            <div class="ikp-card-title">🔗 Sync Ikalogs → Ikariam</div>
-            <div id="ikp-gist-status" style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-              Pronto.
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <!-- Su Ikalogs: tasto invio -->
-              <button class="ikp-btn success" id="ikp-gist-send"
-                onclick="window.IkApp.gistSendAll()"
-                style="display:none">
-                📤 Invia a Ikariam
-              </button>
-              <!-- Su Ikariam: tasto ricezione -->
-              <button class="ikp-btn" id="ikp-gist-recv"
-                onclick="window.IkApp.gistReceive()"
-                style="display:none">
-                📥 Sync da Ikalogs
-              </button>
-            </div>
-            <div style="margin-top:8px">
-              <input class="ikp-input" id="ikp-gist-id-input"
-                placeholder="Gist ID (auto dopo primo invio)"
-                style="font-size:11px;width:100%">
-              <button class="ikp-btn outline small" style="margin-top:6px"
-                onclick="window.IkApp.gistSetId()">💾 Salva ID manuale</button>
-            </div>
-          </div>
-
           <div class="ikp-card">
             <div class="ikp-card-title">📥 Import file JSON</div>
             <input type="file" id="ikp-file-in" accept="*/*" multiple style="display:none"
@@ -493,21 +407,6 @@
     if (myPlayerId) {
       const el = document.getElementById('ikp-my-pid');
       if (el) el.value = myPlayerId;
-    }
-
-    // Gist bridge: mostra il tasto giusto in base al sito
-    const isIkalogsSite = /ikalogs/i.test(window.location.hostname);
-    const sendBtn = document.getElementById('ikp-gist-send');
-    const recvBtn = document.getElementById('ikp-gist-recv');
-    if (isIkalogsSite) {
-      if (sendBtn) sendBtn.style.display = '';
-    } else {
-      if (recvBtn) recvBtn.style.display = '';
-    }
-    // Ripristina gist ID nell'input
-    if (gistId) {
-      const inp = document.getElementById('ikp-gist-id-input');
-      if (inp) inp.value = gistId;
     }
 
     log('UI pronta');
@@ -1694,69 +1593,6 @@
     refreshActiveTab();
     updateStatusBar();
     if (total > 0) toast('✅ Importati ' + total + ' record');
-  }
-
-
-  // ── GIST BRIDGE FUNCTIONS ────────────────────────
-  async function gistSendAll() {
-    const btn = document.getElementById('ikp-gist-send');
-    const status = document.getElementById('ikp-gist-status');
-    btn.disabled = true;
-    status.textContent = '⏳ Esportazione in corso...';
-    try {
-      const stores = ['islands','cities','players','resources','constructions','buildings','state_changes','entries'];
-      const dump = {};
-      for (const s of stores) {
-        try { dump[s] = await window.IkDB.getAll(s); } catch { dump[s] = []; }
-      }
-      dump._ts = Date.now();
-      dump._src = 'ikalogs';
-      await gistSave(dump);
-      status.innerHTML = '✅ Inviato! Gist ID: <b>' + gistId + '</b>';
-      toast('✅ Dati inviati al Gist');
-    } catch(e) {
-      status.textContent = '❌ ' + e.message;
-      toast('❌ ' + e.message);
-    }
-    btn.disabled = false;
-  }
-
-  async function gistReceive() {
-    const btn = document.getElementById('ikp-gist-recv');
-    const status = document.getElementById('ikp-gist-status');
-    // Prendi il Gist ID dall'input se presente
-    const inputId = document.getElementById('ikp-gist-id-input')?.value?.trim();
-    if (inputId) { gistId = inputId; localStorage.setItem('ikp_gist_id', gistId); }
-    btn.disabled = true;
-    status.textContent = '⏳ Download in corso...';
-    try {
-      const dump = await gistLoad();
-      let total = 0;
-      const stores = ['islands','cities','players','resources','constructions','buildings','state_changes','entries'];
-      for (const s of stores) {
-        if (!dump[s]?.length) continue;
-        for (const rec of dump[s]) {
-          try { await window.IkDB.put(s, rec); total++; } catch {}
-        }
-      }
-      const age = dump._ts ? Math.round((Date.now() - dump._ts) / 60000) + ' min fa' : '?';
-      status.textContent = '✅ Importati ' + total + ' record (' + age + ')';
-      toast('✅ ' + total + ' record importati');
-      renderDB();
-      updateStatusBar();
-    } catch(e) {
-      status.textContent = '❌ ' + e.message;
-      toast('❌ ' + e.message);
-    }
-    btn.disabled = false;
-  }
-
-  function gistSetId() {
-    const v = document.getElementById('ikp-gist-id-input')?.value?.trim();
-    if (!v) { toast('⚠️ Inserisci un Gist ID'); return; }
-    gistId = v;
-    localStorage.setItem('ikp_gist_id', gistId);
-    toast('✅ Gist ID salvato');
   }
 
   window.IkApp = {
