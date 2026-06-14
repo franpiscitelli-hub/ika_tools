@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-// parser_ikalogs.js v5
+// parser_ikalogs.js v6
 //
 // Struttura JSON:
 // data.body.cities_info = { "X": { "Y": [{city}] } }
@@ -15,9 +15,9 @@
 //    AZZERA islands[coords].cities e ricrea con TUTTE le
 //    polis del JSON ikalogs (anche doppioni di nome).
 // 3. Coords X:Y NON esiste? → crea isola da zero coi dati ikalogs.
-// 4. Players: chiave = pl_<nome>. Stato preso da ikalogs solo
-//    se non già impostato da ranking (stateSource:'ranking'
-//    ha sempre priorità — verrà raffinato da parser_ranking).
+// 4. NIENTE scritture su 'players': i dati ikalogs servono
+//    solo per la mappa. I players vengono gestiti
+//    esclusivamente da parser_ranking.
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
@@ -31,14 +31,12 @@
 
     if (!citiesInfo && !islandsList.length) return { parsed: 0, parserName: 'ikalogs' };
 
-    let countIslands = 0, countCities = 0, countPlayers = 0;
+    let countIslands = 0, countCities = 0;
 
-    // ── PRE-CARICAMENTO: tutto in memoria con una getAll() ciascuno ──
+    // ── PRE-CARICAMENTO: solo islands (i dati ikalogs servono
+    // unicamente per la mappa, niente scrittura su 'players') ──
     const allIslands = await window.IkDB.getAll('islands');
-    const allPlayers = await window.IkDB.getAll('players');
-
-    const islandMap = new Map(allIslands.map(r => [r.coords, r]));
-    const playerMap = new Map(allPlayers.map(r => [r.id, r]));
+    const islandMap  = new Map(allIslands.map(r => [r.coords, r]));
 
     // ── STEP 1: isole vuote da islands[] ─────────────
     for (const isl of islandsList) {
@@ -115,31 +113,11 @@
               ally_name:    allyName,
             });
             countCities++;
-
-            // Player: aggiorna in mappa in memoria (lo stato finale verrà
-            // poi raffinato dal parser ranking, fonte autorevole)
-            if (playerName) {
-              const pKey = `pl_${playerName}`;
-              const prev = playerMap.get(pKey);
-              playerMap.set(pKey, {
-                id:          pKey,
-                name:        playerName,
-                ally:        allyName || (prev?.ally || null),
-                status:      prev?.stateSource === 'ranking'
-                               ? prev.status
-                               : (playerState || prev?.status || 'active'),
-                stateSource: prev?.stateSource === 'ranking'
-                               ? 'ranking'
-                               : 'ikalogs',
-                lastUpdate:  Date.now(),
-              });
-              countPlayers++;
-            }
           }
         }
       }
     } else {
-      return { parsed: countIslands, parserName: 'ikalogs', countIslands, countCities: 0, countPlayers: 0 };
+      return { parsed: countIslands, parserName: 'ikalogs', countIslands, countCities: 0 };
     }
 
     // ── STEP 3: finalizza isole in memoria ────────────
@@ -153,23 +131,21 @@
       islandsToWrite.push(rec);
     }
 
-    // ── STEP 4: scrittura batch — 2 transazioni totali ────
+    // ── STEP 4: scrittura batch — 1 transazione ────
     try {
       await window.IkDB.putMany('islands', islandsToWrite);
-      await window.IkDB.putMany('players', [...playerMap.values()]);
     } catch (e) {
       console.error('[parser_ikalogs] putMany error:', e.message);
     }
 
-    const tot = countIslands + countCities + countPlayers;
-    console.log(`[parser_ikalogs] ${countIslands} isole, ${countCities} città, ${countPlayers} players`);
+    const tot = countIslands + countCities;
+    console.log(`[parser_ikalogs] ${countIslands} isole, ${countCities} città`);
     window.IkApp?.onIslandsUpdated?.(countIslands);
     return {
       parsed:      tot,
       parserName:  'ikalogs',
       countIslands,
       countCities,
-      countPlayers,
     };
   }
 
@@ -177,5 +153,5 @@
     match: url => /ikalogs/i.test(url) || /\/common\/report/i.test(url),
     parse,
   });
-  console.log('[parser_ikalogs] v5 OK');
+  console.log('[parser_ikalogs] v6 OK');
 })();

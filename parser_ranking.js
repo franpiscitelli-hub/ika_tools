@@ -112,18 +112,28 @@
       const pKey = `av_${p.avatarId}`;
       const prev = playerMap.get(pKey);
 
+      // Rilevamento cambio nome — conserva lo storico
+      let nameHistory = prev?.nameHistory || [];
+      if (prev && prev.name && prev.name !== p.nome) {
+        nameHistory = [...nameHistory, {
+          name: prev.name,
+          until: nowIso,
+        }];
+      }
+
       // Rilevamento cambio stato
       if (prev && prev.status && prev.status !== p.status) {
         stateChanges.push({
-          playerId:   p.avatarId,
-          playerName: p.nome,
-          allyName:   p.alleanza || '—',
-          prevState:  prev.status,
-          newState:   p.status,
-          prevUpdate: prev.lastUpdate
+          playerId:    p.avatarId,
+          playerName:  p.nome,
+          prevName:    (prev.name && prev.name !== p.nome) ? prev.name : null,
+          allyName:    p.alleanza || '—',
+          prevState:   prev.status,
+          newState:    p.status,
+          prevUpdate:  prev.lastUpdate
             ? new Date(prev.lastUpdate).toISOString()
             : '?',
-          newUpdate:  nowIso,
+          newUpdate:   nowIso,
           rankingType: tipoLabel,
         });
       }
@@ -137,6 +147,7 @@
         id:          pKey,
         avatarId:    p.avatarId,
         name:        p.nome,
+        nameHistory,                // storico nomi precedenti
         ally:        p.alleanza,
         scores,                     // multi-punteggio
         status:      p.status,      // stato da classifica = fonte autorevole

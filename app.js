@@ -1213,7 +1213,7 @@
       const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
       const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
       return `<div class="ikp-change-row">
-        <div class="ikp-change-player">👤 ${c.playerName} ${c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
+        <div class="ikp-change-player">👤 ${c.playerName}${c.prevName ? ` <span style="font-size:11px;color:var(--text-muted)">(ex: ${c.prevName})</span>` : ''} ${c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
         <div class="ikp-change-states">
           <span class="ikp-state-badge ${prev.cls}">${prev.label}</span>
           →
@@ -1289,6 +1289,7 @@
     ],
     state_changes: [
       { k: 'playerName',  label: 'Player' },
+      { k: 'prevName',    label: 'Ex-nome' },
       { k: 'allyName',    label: 'Ally' },
       { k: 'prevState',   label: 'Da' },
       { k: 'newState',    label: 'A' },
