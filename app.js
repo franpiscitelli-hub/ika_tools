@@ -540,7 +540,7 @@
     if (!mapCanvas) return;
     const wrap = document.getElementById('ikp-map-wrap');
     mapCanvas.width  = wrap ? wrap.clientWidth : window.innerWidth;
-    mapCanvas.height = 460;
+    mapCanvas.height = 575;
   }
 
   function mapReset() {
