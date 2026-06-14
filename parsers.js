@@ -72,15 +72,16 @@
   // ── Dispatch: chiama TUTTI i parser che matchano ──
   // (non solo il primo — globaldata E ranking devono
   //  essere entrambi chiamati sullo stesso JSON)
-  async function parse(url, data) {
-    const matching = registry.filter(p => p.match(url));
+  async function parse(url, data, meta) {
+    meta = meta || {};
+    const matching = registry.filter(p => p.match(url, data, meta));
 
     if (matching.length === 0) {
       // Nessun parser: salva come raw
       try {
         await window.IkDB.add('entries', {
           url, type: 'raw',
-          date:   new Date().toISOString(),
+          date:   meta.date || new Date().toISOString(),
           server: window.location.hostname,
           data,
           _parserName:  'nessuno',
@@ -95,8 +96,9 @@
 
     for (const parser of matching) {
       try {
-        const result = await parser.parse(url, data);
-        totalParsed += result || 0;
+        const result = await parser.parse(url, data, meta);
+        const n = (typeof result === 'object') ? (result.parsed || 0) : (Number(result) || 0);
+        totalParsed += n;
         types.push(parser.name);
       } catch (e) {
         console.error(`[IkParsers] Errore in ${parser.name}:`, e.message);
@@ -106,8 +108,8 @@
     return { type: types.join('+'), parsed: totalParsed };
   }
 
-  function classify(url) {
-    const matches = registry.filter(r => r.match(url));
+  function classify(url, data, meta) {
+    const matches = registry.filter(r => r.match(url, data, meta || {}));
     return matches.map(r => r.name).join('+') || 'unknown';
   }
 
@@ -118,9 +120,9 @@
     window._gmFetch = fn;
   }
 
-  function whichParser(url) {
+  function whichParser(url, data, meta) {
     for (const p of registry) {
-      try { if (p.match && p.match(url)) return p.name; } catch {}
+      try { if (p.match && p.match(url, data, meta || {})) return p.name; } catch {}
     }
     return null;
   }

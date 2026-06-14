@@ -1,5 +1,10 @@
 // ═══════════════════════════════════════════════
-// parser_ranking.js v2
+// parser_ranking.js v3
+// Match basato sul CONTENUTO (non sull'URL, che può variare):
+//   - data contiene un blocco ['changeview'|'changeView', ['highscore', html]]
+//   - l'HTML contiene la parola "highscore"
+// meta.date (timestamp di cattura) viene salvato come
+// lastUpdate/lastUpdateDate sui players.
 // Logica basata su DB_highscore.js che funzionava.
 // Usa DOMParser invece di regex — più robusto.
 // Salva multi-punteggio: players[id].scores[tipo]
@@ -92,16 +97,22 @@
     return { tipoKey, tipoLabel, range, players };
   }
 
-  async function savePlayers(parsed) {
+  async function savePlayers(parsed, meta) {
+    meta = meta || {};
     const { tipoKey, tipoLabel, players } = parsed;
     const stateChanges = [];
-    const now          = Date.now();
+    const nowIso = meta.date || new Date().toISOString();
+    const nowMs  = new Date(nowIso).getTime() || Date.now();
+
+    // Pre-carica tutti i players in memoria (una sola getAll)
+    const allPlayers = await window.IkDB.getAll('players');
+    const playerMap  = new Map(allPlayers.map(r => [r.id, r]));
 
     for (const p of players) {
-      const pKey    = `av_${p.avatarId}`;
-      const prev    = await window.IkDB.get('players', pKey);
+      const pKey = `av_${p.avatarId}`;
+      const prev = playerMap.get(pKey);
 
-      // Rilevamento cambio stato (come nel vecchio script)
+      // Rilevamento cambio stato
       if (prev && prev.status && prev.status !== p.status) {
         stateChanges.push({
           playerId:   p.avatarId,
@@ -112,16 +123,16 @@
           prevUpdate: prev.lastUpdate
             ? new Date(prev.lastUpdate).toISOString()
             : '?',
-          newUpdate:  new Date(now).toISOString(),
+          newUpdate:  nowIso,
           rankingType: tipoLabel,
         });
       }
 
-      // Aggiorna/crea player — multi-punteggio come nel vecchio script
+      // Aggiorna/crea player — multi-punteggio
       const scores = { ...(prev?.scores || {}) };
       scores[tipoKey] = p.punteggio;
 
-      await window.IkDB.put('players', {
+      playerMap.set(pKey, {
         ...(prev || {}),
         id:          pKey,
         avatarId:    p.avatarId,
@@ -132,8 +143,16 @@
         stateSource: 'ranking',
         honorTitle:  p.honorTitle || (prev?.honorTitle || null),
         position:    { ...(prev?.position || {}), [tipoKey]: p.position },
-        lastUpdate:  now,
+        lastUpdate:  nowMs,
+        lastUpdateDate: nowIso,     // data leggibile della cattura
       });
+    }
+
+    // Scrittura batch in un'unica transazione
+    try {
+      await window.IkDB.putMany('players', [...playerMap.values()]);
+    } catch (e) {
+      console.error('[parser_ranking] putMany error:', e.message);
     }
 
     // Salva cambi stato
@@ -144,56 +163,61 @@
     return stateChanges;
   }
 
-  async function parse(url, data) {
-    if (!Array.isArray(data)) return 0;
-    let total    = 0;
-    let allChanges = [];
-
+  // Trova l'eventuale blocco ['changeview'|'changeView', ['highscore', html]]
+  // dentro l'array di azioni. Ritorna l'HTML oppure null.
+  function findHighscoreHtml(data) {
+    if (!Array.isArray(data)) return null;
     for (const item of data) {
       if (!Array.isArray(item) || item.length < 2) continue;
 
-      // Logica dal vecchio script: cerca changeview/changeView
-      // che contiene un array ['highscore', html]
       if (item[0] === 'changeview' || item[0] === 'changeView') {
         const viewData = item[1];
         if (Array.isArray(viewData) && viewData[0] === 'highscore') {
-          const htmlContent = viewData[1];
-          if (typeof htmlContent === 'string' && htmlContent.length > 100) {
-            const parsed  = parseHtmlBlock(htmlContent);
-            if (parsed.players.length > 0) {
-              console.log(`[parser_ranking] ${parsed.tipoLabel} [${parsed.range}]: ${parsed.players.length} players`);
-              const changes = await savePlayers(parsed);
-              allChanges    = allChanges.concat(changes);
-              total        += parsed.players.length;
-              window.IkApp?.onRankingUpdated?.({ ...parsed, changes });
-            }
-          }
+          const html = viewData[1];
+          if (typeof html === 'string' && html.includes('highscore')) return html;
         }
         continue;
       }
 
       // Fallback: highscore direttamente come action
-      if (item[0] === 'highscore' && typeof item[1] === 'string') {
-        const parsed = parseHtmlBlock(item[1]);
-        if (parsed.players.length > 0) {
-          const changes = await savePlayers(parsed);
-          allChanges    = allChanges.concat(changes);
-          total        += parsed.players.length;
-          window.IkApp?.onRankingUpdated?.({ ...parsed, changes });
-        }
+      if (item[0] === 'highscore' && typeof item[1] === 'string'
+          && item[1].includes('highscore')) {
+        return item[1];
       }
     }
-
-    if (allChanges.length > 0) {
-      window.IkApp?.onStateChanges?.(allChanges);
-    }
-
-    return total;
+    return null;
   }
 
+  async function parse(url, data, meta) {
+    meta = meta || {};
+    const html = findHighscoreHtml(data);
+    if (!html) return { parsed: 0, parserName: 'ranking' };
+
+    const parsed = parseHtmlBlock(html);
+    if (!parsed.players.length) return { parsed: 0, parserName: 'ranking' };
+
+    console.log(`[parser_ranking] ${parsed.tipoLabel} [${parsed.range}]: ${parsed.players.length} players`);
+    const changes = await savePlayers(parsed, meta);
+
+    window.IkApp?.onRankingUpdated?.({ ...parsed, changes });
+    if (changes.length > 0) window.IkApp?.onStateChanges?.(changes);
+
+    return {
+      parsed:     parsed.players.length,
+      parserName: 'ranking',
+      tipoLabel:  parsed.tipoLabel,
+      range:      parsed.range,
+      changes:    changes.length,
+      date:       meta.date || null,
+    };
+  }
+
+  // Match basato sul CONTENUTO, non sull'URL (può variare):
+  // 1. data deve contenere un blocco changeview/changeView
+  // 2. il payload HTML deve contenere la parola "highscore"
   window.IkParsers?.registerParser('ranking', {
-    match: url => /ikariam/i.test(url) && !/WorldMap.*getJSONArea/i.test(url),
+    match: (url, data) => findHighscoreHtml(data) !== null,
     parse,
   });
-  console.log('[parser_ranking] v2 OK');
+  console.log('[parser_ranking] v3 OK');
 })();

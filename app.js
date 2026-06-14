@@ -131,7 +131,8 @@
 
     // Parse e salva nel DB
     if (window.IkParsers) {
-      const result = await window.IkParsers.parse(url, parsed);
+      const meta   = { date: new Date().toISOString() };
+      const result = await window.IkParsers.parse(url, parsed, meta);
       log(`#${sessionCount} [${result.type}]`);
       // Auto-cleanup: elimina raw entries più vecchie di 30 minuti
       // I dati strutturati sono già nei rispettivi store
@@ -1734,7 +1735,9 @@
           const data   = entry.data || entry;
           const url    = entry.url || entry._meta?.url || 'https://ikalogs.ru/import';
           const entryId = entry.id;
+          const meta   = { date: entry.date || entry._meta?.date || null };
           importLog('   URL: ' + url);
+          if (meta.date) importLog('   Data cattura: ' + meta.date);
 
           if (!window.IkParsers) {
             importLog('   ❌ IkParsers non disponibile', 'var(--red)');
@@ -1742,7 +1745,7 @@
           }
 
           // Controlla quale parser matcha
-          const matchedParser = window.IkParsers.whichParser?.(url);
+          const matchedParser = window.IkParsers.whichParser?.(url, data, meta);
           importLog('   Parser selezionato: ' + (matchedParser || 'nessuno'),
                     matchedParser ? 'var(--text)' : 'orange');
 
@@ -1751,7 +1754,7 @@
           }
 
           importLog('   ▶ Avvio parse...');
-          const result = await window.IkParsers.parse(url, data);
+          const result = await window.IkParsers.parse(url, data, meta);
           const n = (typeof result === 'object') ? (result.parsed || 0) : (Number(result) || 0);
           total += n;
 
