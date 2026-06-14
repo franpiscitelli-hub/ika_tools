@@ -31,9 +31,9 @@
   --shadow-lg:   0 4px 20px rgba(0,0,0,0.18);
   --radius:      8px;
   --radius-sm:   4px;
-  --map-bg:      #1a2535;
-  --map-island:  #4a9eff;
-  --map-cities:  #ff6b35;
+  --map-bg:      #6ec6e8;
+  --map-island:  #d8c39a;
+  --map-cities:  #a8895c;
   --map-me:      #00e676;
   --map-target:  #ffeb3b;
   --map-ally:    #ab47bc;
@@ -126,27 +126,20 @@
   transform: translateX(-50%) translateY(0) !important;
 }
 
-/* ── POPUP ISOLA ────────────────────────────── */
-#ikp-island-popup {
-  position: fixed !important;
-  bottom: 0 !important; left: 0 !important; right: 0 !important;
-  background: #ffffff !important;
-  border-top: 2px solid #8b5e3c !important;
-  border-radius: 16px 16px 0 0 !important;
-  padding: 16px !important;
-  z-index: 2147483648 !important;
-  max-height: 60vh !important;
+/* ── PANNELLO POLIS (inline sotto la mappa) ──── */
+#ikp-panel #ikp-island-popup {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  padding: 14px !important;
+  margin-bottom: 10px !important;
+  max-height: 320px !important;
   overflow-y: auto !important;
-  transform: translateY(100%) !important;
-  transition: transform .3s ease !important;
-  box-shadow: 0 -4px 24px rgba(0,0,0,0.2) !important;
+  box-shadow: var(--shadow) !important;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
   box-sizing: border-box !important;
 }
-#ikp-island-popup.open {
-  transform: translateY(0) !important;
-}
-#ikp-island-popup * {
+#ikp-panel #ikp-island-popup * {
   box-sizing: border-box;
 }
 #ikp-island-popup .pop-title {
@@ -171,15 +164,6 @@
   background: #f0ebe0; padding: 2px 7px;
   border-radius: 10px; margin-left: auto;
   white-space: nowrap;
-}
-#ikp-popup-close {
-  position: absolute !important; top: 12px !important; right: 14px !important;
-  background: #f0ebe0 !important; border: none !important;
-  width: 28px !important; height: 28px !important;
-  border-radius: 50% !important; font-size: 16px !important;
-  cursor: pointer !important; color: #6b4f2e !important;
-  display: flex !important; align-items: center !important;
-  justify-content: center !important;
 }
 
 /* ── TOOLTIP MAPPA ──────────────────────────── */
@@ -343,7 +327,7 @@
 
 /* ── MAPPA ───────────────────────────────────── */
 #ikp-panel #ikp-map-wrap {
-  background: #1a2535; border-radius: var(--radius);
+  background: var(--map-bg); border-radius: var(--radius);
   overflow: hidden; position: relative; margin-bottom: 10px;
 }
 #ikp-panel #ikp-map-canvas {

@@ -236,8 +236,6 @@
         <div class="ikp-tab" data-tab="captured" id="ikp-tab-btn-captured" style="display:none">📥 Catturati</div>
         <div class="ikp-tab active" data-tab="map" id="ikp-tab-btn-map">🗺 Mappa</div>
         <div class="ikp-tab" data-tab="timers" id="ikp-tab-btn-timers">⏰ Timer</div>
-        <div class="ikp-tab" data-tab="resources" id="ikp-tab-btn-resources">💰 Risorse</div>
-        <div class="ikp-tab" data-tab="ranking" id="ikp-tab-btn-ranking">🏆 Classifica</div>
         <div class="ikp-tab" data-tab="changes" id="ikp-tab-btn-changes">🔔 Cambi</div>
         <div class="ikp-tab" data-tab="db" id="ikp-tab-btn-db">🗄 Dati</div>
         <div class="ikp-tab" data-tab="log" id="ikp-tab-btn-log">📟 Log</div>
@@ -292,9 +290,14 @@
           <div id="ikp-map-wrap">
             <canvas id="ikp-map-canvas" height="460"></canvas>
           </div>
+          <div id="ikp-island-popup">
+            <div id="ikp-popup-content">
+              <div class="ikp-empty"><div class="ikp-empty-icon">🏝</div><p>Seleziona un'isola sulla mappa per vedere le sue polis.</p></div>
+            </div>
+          </div>
           <div class="ikp-map-legend">
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#2a5a8a"></div> Isola vuota</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#4a9eff"></div> Con player</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#d8c39a"></div> Isola vuota</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#a8895c"></div> Con player</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00e676"></div> Mio</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(59,209,111,0.9)"></div> 🟢 Filtro</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(77,184,255,0.9)"></div> 🔵 Riferimento</div>
@@ -314,42 +317,6 @@
             <div class="ikp-card-title">⏰ Timer attivi</div>
             <div id="ikp-timer-list">
               <div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ══ ACCOUNT ══ -->
-        <div class="ikp-section" id="ikp-tab-account">
-
-          <!-- Selettore città -->
-          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
-            <select id="ikp-city-select" class="ikp-input" style="flex:1"
-                    onchange="window.IkApp.selectCity(this.value)">
-              <option value="">— Seleziona città —</option>
-            </select>
-            <button class="ikp-btn small outline" onclick="window.IkApp.renderAccount()">↻</button>
-          </div>
-
-          <!-- Contenuto account per città selezionata -->
-          <div id="ikp-account-content">
-            <div class="ikp-empty">
-              <div class="ikp-empty-icon">🏛</div>
-              <p>Nessuna città disponibile.<br>Apri una città nel gioco.</p>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- ══ CLASSIFICA ══ -->
-        <div class="ikp-section" id="ikp-tab-ranking">
-          <div class="ikp-card">
-            <div class="ikp-card-title">
-              🏆 <span id="ikp-rank-title">Classifica</span>
-              <span id="ikp-rank-range" style="font-size:11px;font-weight:400;color:var(--text-muted)"></span>
-            </div>
-            <div id="ikp-rank-list">
-              <div class="ikp-empty"><div class="ikp-empty-icon">🏆</div>
-              <p>Apri la classifica nel gioco.<br>I dati appariranno automaticamente.</p></div>
             </div>
           </div>
         </div>
@@ -386,7 +353,7 @@
         <div class="ikp-section" id="ikp-tab-db">
 
           <!-- Stats compatte -->
-          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;
+          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;
                gap:8px;margin-bottom:12px"></div>
 
           <!-- Ricerca -->
@@ -396,13 +363,8 @@
               <select id="ikp-db-store" class="ikp-input" style="flex:1;min-width:140px"
                       onchange="window.IkApp.dbSearch()">
                 <option value="islands">🏝 Isole</option>
-                <option value="cities">🏛 Città</option>
                 <option value="players">👤 Players</option>
-                <option value="resources">💰 Risorse</option>
-                <option value="constructions">🏗 Costruzioni</option>
-                <option value="buildings">🏠 Edifici</option>
                 <option value="state_changes">🔔 Cambi stato</option>
-                <option value="combat_reports">⚔️ Combat Reports</option>
                 <option value="entries">📋 JSON raw</option>
               </select>
               <input class="ikp-input" id="ikp-db-q" placeholder="Cerca..."
@@ -461,12 +423,6 @@
       </div><!-- /body -->
     `;
     document.body.appendChild(panel);
-
-    // Popup isola
-    const popup = document.createElement('div');
-    popup.id = 'ikp-island-popup';
-    popup.innerHTML = `<button id="ikp-popup-close" onclick="window.IkApp.closePopup()">✕</button><div id="ikp-popup-content"></div>`;
-    document.body.appendChild(popup);
 
     // Tooltip mappa
     const tt = document.createElement('div');
@@ -539,8 +495,6 @@
       case 'captured':  renderCaptured();    break;
       case 'map':       resizeCanvas(); drawMap(); break;
       case 'timers':    renderTimers();    break;
-      case 'account':   renderAccount();   break;
-      case 'ranking':   renderRanking();   break;
       case 'changes':   renderChanges();   break;
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
@@ -639,8 +593,8 @@
   const COLOR_REF     = 'rgba(77,184,255,0.9)';
   const COLOR_BOTH    = 'rgba(255,77,77,0.9)';
   const COLOR_ME      = '#00e676';
-  const COLOR_CITY    = '#4a9eff';
-  const COLOR_EMPTY   = '#2a5a8a';
+  const COLOR_CITY    = '#a8895c';
+  const COLOR_EMPTY   = '#d8c39a';
 
   function drawMap() {
     if (!mapCtx || !mapCanvas) return;
@@ -648,11 +602,11 @@
     const s = mapView.scale;
     const ctx = mapCtx;
 
-    ctx.fillStyle = '#1a2535';
+    ctx.fillStyle = '#6ec6e8';
     ctx.fillRect(0, 0, W, H);
 
     // Griglia
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.07)';
     ctx.lineWidth = 0.5;
     const gs = 10 * s;
     const ox = ((-mapView.x * s) % gs + gs) % gs;
@@ -661,7 +615,7 @@
     for (let y = oy; y < H; y += gs) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
     // Assi centro mappa
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
     ctx.lineWidth = 1;
     const c50 = worldToCanvas(50, 50);
     ctx.beginPath(); ctx.moveTo(c50.cx, 0); ctx.lineTo(c50.cx, H); ctx.stroke();
@@ -705,10 +659,10 @@
         if (refFilter && (pname.includes(refFilter) || ally.includes(refFilter))) matchRef = true;
       }
 
-      // Isole vuote: più piccole e semi-trasparenti
+      // Isole vuote: più piccole ma ben visibili (beige chiaro su mare azzurro)
       let color  = hasCities ? COLOR_CITY : COLOR_EMPTY;
-      let radius = hasCities ? r : r * 0.55;
-      let alpha  = hasCities ? 1.0 : 0.35;
+      let radius = hasCities ? r : r * 0.6;
+      let alpha  = 1.0;
       let glow   = false;
 
       if (isMe)                        { color = COLOR_ME;     radius = r*1.6; alpha = 1; glow = true; }
@@ -724,13 +678,13 @@
       ctx.globalAlpha = 1.0;
     }
 
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.font = '10px monospace';
     const tl = canvasToWorld(0, 0);
     ctx.fillText(`[${Math.round(tl.wx)}:${Math.round(tl.wy)}]`, 6, 14);
 
     if (mapIslands.length === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('Naviga la mappa di gioco per caricare le isole', W/2, H/2);
@@ -843,14 +797,13 @@
     if (tt) tt.style.display = 'none';
   }
 
-  // ── POPUP ISOLA (mobile tap) ─────────────────
+  // ── PANNELLO POLIS ISOLA (inline sotto la mappa) ──
   function showIslandPopup(isl) {
     popupIsland = isl;
     // Usa direttamente isl.cities[] salvato da parser_ikalogs
     const cities = isl.cities || [];
     const el     = document.getElementById('ikp-popup-content');
-    const popup  = document.getElementById('ikp-island-popup');
-    if (!el || !popup) return;
+    if (!el) return;
 
     const stateColors = {
       active:'#4caf50', inactive:'#ff9800',
@@ -892,13 +845,14 @@
           }).join('')
       }
     `;
-    popup.classList.add('open');
   }
 
   function closePopup() {
-    const popup = document.getElementById('ikp-island-popup');
-    if (popup) popup.classList.remove('open');
     popupIsland = null;
+    const el = document.getElementById('ikp-popup-content');
+    if (el) {
+      el.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏝</div><p>Seleziona un'isola sulla mappa per vedere le sue polis.</p></div>`;
+    }
     hideTooltip();
   }
 
@@ -1250,42 +1204,12 @@
       { k: 'woodLevel',   label: 'Lv Legno' },
       { k: 'nCities',     label: 'Polis' },
     ],
-    cities: [
-      { k: 'id',          label: 'ID' },
-      { k: 'name',        label: 'Nome' },
-      { k: 'level',       label: 'Lv' },
-      { k: 'playerName',  label: 'Player' },
-      { k: 'allyName',    label: 'Ally' },
-      { k: 'islandX',     label: 'X' },
-      { k: 'islandY',     label: 'Y' },
-    ],
     players: [
       { k: 'id',          label: 'ID' },
       { k: 'name',        label: 'Nome' },
       { k: 'ally',        label: 'Ally' },
       { k: 'status',      label: 'Stato' },
       { k: 'stateSource', label: 'Fonte' },
-    ],
-    resources: [
-      { k: 'cityId',      label: 'Città' },
-      { k: 'wood',        label: '🪵' },
-      { k: 'wine',        label: '🍷' },
-      { k: 'marble',      label: '🪨' },
-      { k: 'crystal',     label: '💎' },
-      { k: 'sulfur',      label: '🔥' },
-      { k: 'gold',        label: '🪙' },
-    ],
-    constructions: [
-      { k: 'id',          label: 'ID' },
-      { k: 'cityName',    label: 'Città' },
-      { k: 'count',       label: 'N' },
-      { k: 'endTime',     label: 'Fine' },
-    ],
-    buildings: [
-      { k: 'id',          label: 'ID' },
-      { k: 'name',        label: 'Edificio' },
-      { k: 'level',       label: 'Lv' },
-      { k: 'isBusy',      label: 'Occupato' },
     ],
     state_changes: [
       { k: 'playerName',  label: 'Player' },
@@ -1302,27 +1226,13 @@
       { k: '_parserName', label: 'Parser' },
       { k: '_parserCount',label: 'Records' },
     ],
-    combat_reports: [
-      { k: 'combatId',   label: 'ID' },
-      { k: 'date',       label: 'Data' },
-      { k: 'type',       label: 'Tipo' },
-      { k: 'attacker',   label: 'Attaccante' },
-      { k: 'defender',   label: 'Difensore' },
-      { k: 'result',     label: 'Esito' },
-      { k: 'location',   label: 'Luogo' },
-    ],
   };
 
   const STORE_SEARCH = {
     islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
-    cities:        r => `${r.name} ${r.playerName} ${r.allyName} ${r.islandX}:${r.islandY}`.toLowerCase(),
     players:       r => `${r.name} ${r.ally} ${r.status} ${r.stateSource}`.toLowerCase(),
-    resources:     r => String(r.cityId),
-    constructions: r => `${r.cityName} ${r.id}`.toLowerCase(),
-    buildings:     r => `${r.name} ${r.id}`.toLowerCase(),
     state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
-    entries:         r => `${r.type} ${r.url}`.toLowerCase(),
-    combat_reports:  r => `${r.attacker} ${r.defender} ${r.location} ${r.result}`.toLowerCase(),
+    entries:       r => `${r.type} ${r.url}`.toLowerCase(),
   };
 
   // Formatta valore per cella tabella
@@ -1455,12 +1365,10 @@
     if (statsEl && window.IkDB) {
       const counts = await window.IkDB.countAll();
       const items = [
-        { icon: '🏝', label: 'Isole',    val: counts.islands },
-        { icon: '🏛', label: 'Città',    val: counts.cities },
-        { icon: '👤', label: 'Players',  val: counts.players },
-        { icon: '💰', label: 'Risorse',  val: counts.resources },
-        { icon: '🏗', label: 'Costruz.', val: counts.constructions },
-        { icon: '📋', label: 'JSON raw', val: counts.entries },
+        { icon: '🏝', label: 'Isole',     val: counts.islands },
+        { icon: '👤', label: 'Players',   val: counts.players },
+        { icon: '🔔', label: 'Cambi',     val: counts.state_changes },
+        { icon: '📋', label: 'JSON raw',  val: counts.entries },
       ];
       statsEl.innerHTML = items.map(it => `
         <div style="background:var(--bg-card);border:1px solid var(--border);
@@ -1476,21 +1384,6 @@
     await dbSearch();
     updateStatusBar();
   }
-
-  const DB_STORES = [
-    { key: 'entries',       label: '📋 JSON catturati',   icon: '📋' },
-    { key: 'islands',       label: '🏝 Isole',             icon: '🏝' },
-    { key: 'cities',        label: '🏛 Città',             icon: '🏛' },
-    { key: 'resources',     label: '💰 Risorse',           icon: '💰' },
-    { key: 'players',       label: '👤 Players',           icon: '👤' },
-    { key: 'constructions', label: '🏗 Costruzioni',       icon: '🏗' },
-    { key: 'buildings',     label: '🏠 Edifici',           icon: '🏠' },
-    { key: 'research',      label: '🔬 Ricerche',          icon: '🔬' },
-    { key: 'fleets',        label: '⛵ Flotte',            icon: '⛵' },
-    { key: 'alliances',     label: '⚔ Alleanze',          icon: '⚔' },
-    { key: 'state_changes', label: '🔔 Cambi stato',      icon: '🔔' },
-    { key: 'combat_reports',label: '⚔️ Combat Reports',   icon: '⚔️' },
-  ];
 
   // Formatta valore per visualizzazione compatta
   function fmtVal(v, depth = 0) {
@@ -1533,7 +1426,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','cities','resources','constructions','research','fleets','players','alliances','buildings','state_changes','combat_reports'];
+    const stores = ['entries','islands','players','state_changes'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
