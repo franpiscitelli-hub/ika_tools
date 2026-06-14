@@ -232,7 +232,7 @@
         <div class="ikp-stat-pill">⏰ <b id="ikp-s-tim">0</b> timer</div>
       </div>
       <div id="ikp-tabs">
-        <div class="ikp-tab" data-tab="captured" id="ikp-tab-btn-captured">📥 Catturati</div>
+        <div class="ikp-tab" data-tab="captured" id="ikp-tab-btn-captured" style="display:none">📥 Catturati</div>
         <div class="ikp-tab active" data-tab="map" id="ikp-tab-btn-map">🗺 Mappa</div>
         <div class="ikp-tab" data-tab="timers" id="ikp-tab-btn-timers">⏰ Timer</div>
         <div class="ikp-tab" data-tab="resources" id="ikp-tab-btn-resources">💰 Risorse</div>
@@ -1595,7 +1595,7 @@
       // Attiva "Catturati" come tab predefinito
       const capBtn = document.getElementById('ikp-tab-btn-captured');
       const capSec = document.getElementById('ikp-tab-captured');
-      if (capBtn) capBtn.classList.add('active');
+      if (capBtn) { capBtn.style.display = ''; capBtn.classList.add('active'); }
       if (capSec) capSec.classList.add('active');
       activeTab = 'captured';
       renderCaptured();

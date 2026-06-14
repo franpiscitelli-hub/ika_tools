@@ -83,6 +83,8 @@
           date:   new Date().toISOString(),
           server: window.location.hostname,
           data,
+          _parserName:  'nessuno',
+          _parserCount: 0,
         });
       } catch {}
       return { type: 'raw', parsed: 0 };
