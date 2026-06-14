@@ -288,7 +288,13 @@
             <button class="ikp-btn small outline" onclick="window.IkApp.clearFilters()">✕ Reset</button>
           </div>
           <div id="ikp-map-wrap">
-            <canvas id="ikp-map-canvas" height="460"></canvas>
+            <canvas id="ikp-map-canvas" height="575"></canvas>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:10px;flex-wrap:wrap">
+            <button class="ikp-btn small" onclick="window.IkApp.mapReset()">⌂ Reset</button>
+            <button class="ikp-btn small" onclick="window.IkApp.mapZoom(1.4)">＋ Zoom</button>
+            <button class="ikp-btn small" onclick="window.IkApp.mapZoom(0.7)">－ Zoom</button>
+            <button class="ikp-btn small outline" onclick="window.IkApp.goToMe()">📍 Vai a me</button>
           </div>
           <div id="ikp-island-popup">
             <div id="ikp-popup-content">
@@ -296,18 +302,12 @@
             </div>
           </div>
           <div class="ikp-map-legend">
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#d8c39a"></div> Isola vuota</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#c9b182"></div> Isola vuota</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#a8895c"></div> Con player</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00e676"></div> Mio</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(59,209,111,0.9)"></div> 🟢 Filtro</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(77,184,255,0.9)"></div> 🔵 Riferimento</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(255,77,77,0.9)"></div> 🔴 Entrambi</div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-            <button class="ikp-btn small" onclick="window.IkApp.mapReset()">⌂ Reset</button>
-            <button class="ikp-btn small" onclick="window.IkApp.mapZoom(1.4)">＋ Zoom</button>
-            <button class="ikp-btn small" onclick="window.IkApp.mapZoom(0.7)">－ Zoom</button>
-            <button class="ikp-btn small outline" onclick="window.IkApp.goToMe()">📍 Vai a me</button>
           </div>
         </div>
 
@@ -594,7 +594,7 @@
   const COLOR_BOTH    = 'rgba(255,77,77,0.9)';
   const COLOR_ME      = '#00e676';
   const COLOR_CITY    = '#a8895c';
-  const COLOR_EMPTY   = '#d8c39a';
+  const COLOR_EMPTY   = '#c9b182';
 
   function drawMap() {
     if (!mapCtx || !mapCanvas) return;
@@ -659,16 +659,16 @@
         if (refFilter && (pname.includes(refFilter) || ally.includes(refFilter))) matchRef = true;
       }
 
-      // Isole vuote: più piccole ma ben visibili (beige chiaro su mare azzurro)
+      // Isole tutte della stessa dimensione, colore diverso per occupate/vuote
       let color  = hasCities ? COLOR_CITY : COLOR_EMPTY;
-      let radius = hasCities ? r : r * 0.6;
+      let radius = r;
       let alpha  = 1.0;
       let glow   = false;
 
-      if (isMe)                        { color = COLOR_ME;     radius = r*1.6; alpha = 1; glow = true; }
-      else if (matchFilter && matchRef){ color = COLOR_BOTH;   radius = r*1.8; alpha = 1; glow = true; }
-      else if (matchFilter)            { color = COLOR_FILTER; radius = r*1.7; alpha = 1; glow = true; }
-      else if (matchRef)               { color = COLOR_REF;    radius = r*1.5; alpha = 1; glow = true; }
+      if (isMe)                        { color = COLOR_ME;     alpha = 1; glow = true; }
+      else if (matchFilter && matchRef){ color = COLOR_BOTH;   alpha = 1; glow = true; }
+      else if (matchFilter)            { color = COLOR_FILTER; alpha = 1; glow = true; }
+      else if (matchRef)               { color = COLOR_REF;    alpha = 1; glow = true; }
 
       ctx.globalAlpha = alpha;
       if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
