@@ -627,7 +627,7 @@
       nameToState.set((p.name || '').toLowerCase(), p.status || p.state || 'active');
     }
 
-    const r = Math.max(2, s * 0.4);
+    const r = Math.max(2, s * 0.45);
 
     for (const isl of mapIslands) {
       const { cx, cy } = worldToCanvas(isl.x, isl.y);
