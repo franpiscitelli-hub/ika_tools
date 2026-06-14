@@ -130,6 +130,24 @@
     });
   }
 
+  // Scrive molti record in un'unica transazione (molto più rapido
+  // di N chiamate separate a put()). records: array di oggetti.
+  function putMany(store, records) {
+    return new Promise((resolve, reject) => {
+      if (!records || !records.length) { resolve(0); return; }
+      const tx = db.transaction(store, 'readwrite');
+      const os = tx.objectStore(store);
+      let n = 0;
+      for (const rec of records) {
+        os.put(rec);
+        n++;
+      }
+      tx.oncomplete = () => resolve(n);
+      tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error);
+    });
+  }
+
   function get(store, key) {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(store, 'readonly');
@@ -253,7 +271,7 @@
 
   window.IkDB = {
     open,
-    add, put, get, getAll, count, clear,
+    add, put, putMany, get, getAll, count, clear,
     deleteRecord, getLast,
     storageInfo,
     pruneEntries, clearRawEntries, pruneRawByAge,
