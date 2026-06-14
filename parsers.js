@@ -117,8 +117,8 @@
   }
 
   function whichParser(url) {
-    for (const [name, p] of parsers.entries ? parsers.entries() : Object.entries(parsers)) {
-      try { if (p.match && p.match(url)) return name; } catch {}
+    for (const p of registry) {
+      try { if (p.match && p.match(url)) return p.name; } catch {}
     }
     return null;
   }
