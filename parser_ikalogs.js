@@ -1,23 +1,23 @@
 // ═══════════════════════════════════════════════
-// parser_ikalogs.js v4
+// parser_ikalogs.js v5
 //
-// Struttura JSON (dallo screenshot):
+// Struttura JSON:
 // data.body.cities_info = { "X": { "Y": [{city}] } }
 // data.body.islands     = [{ island_id, x, y, allies }]
 //
-// Campi city: island_id, ally_id, x, y,
-//   city_name, city_level, player_name,
-//   player_score, player_state, ally_name
+// Campi città salvati (solo questi):
+//   city_name, city_level, player_name, player_state, ally_name
 //
 // REGOLE:
-// 1. Islands: merge su coords — worldmap ha priorità
-//    su nome/risorsa/tempio/legno. Ikalogs aggiunge
-//    cities[], nCities, allyNames, allies.
-// 2. Cities: chiave = coords+"_"+city_name
-//    (no city_id in ikalogs)
-// 3. Players: chiave = player_name (no avatarId)
-//    stato importato solo se player NON esiste già
-//    (se esiste, stato da ranking ha priorità)
+// 1. Niente store "cities" separato — le città vivono
+//    solo dentro islands[coords].cities[].
+// 2. Coords X:Y esiste nel DB? → mantieni i dati worldmap,
+//    AZZERA islands[coords].cities e ricrea con TUTTE le
+//    polis del JSON ikalogs (anche doppioni di nome).
+// 3. Coords X:Y NON esiste? → crea isola da zero coi dati ikalogs.
+// 4. Players: chiave = pl_<nome>. Stato preso da ikalogs solo
+//    se non già impostato da ranking (stateSource:'ranking'
+//    ha sempre priorità — verrà raffinato da parser_ranking).
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
@@ -39,8 +39,6 @@
 
     const islandMap = new Map(allIslands.map(r => [r.coords, r]));
     const playerMap = new Map(allPlayers.map(r => [r.id, r]));
-
-    const citiesToWrite = []; // accumulo per putMany finale
 
     // ── STEP 1: isole vuote da islands[] ─────────────
     for (const isl of islandsList) {
@@ -83,6 +81,7 @@
 
           let islandRec = islandMap.get(coords);
           if (!islandRec) {
+            // Coordinate non presenti nel DB: crea isola da zero con i dati di ikalogs
             islandRec = {
               coords, x, y,
               id:        Number(cityList[0].island_id),
@@ -93,42 +92,32 @@
             islandMap.set(coords, islandRec);
           }
 
-          // Reinizializza cities per questa sessione di import
+          // Reset delle città di questa isola: sostituite interamente
+          // con quelle del JSON ikalogs (anche se ci sono doppioni di nome)
           if (!islandRec._citiesReset) {
             islandRec.cities       = [];
             islandRec._citiesReset = true;
           }
 
           for (const city of cityList) {
-            const playerName = city.player_name || '';
-            const allyName   = city.ally_name   || '';
-            const cityName   = city.city_name   || '';
+            const playerName = city.player_name  || '';
+            const allyName   = city.ally_name    || '';
+            const cityName   = city.city_name    || '';
             const cityLevel  = Number(city.city_level) || 0;
+            const playerState = city.player_state || '';
 
+            // Solo i campi richiesti, niente ID artificiali
             islandRec.cities.push({
-              player_name: playerName,
-              ally_name:   allyName,
-              city_name:   cityName,
-              city_level:  cityLevel,
-            });
-
-            // Città: accumula per scrittura batch
-            const cityKey = `${xKey}:${yKey}_${cityName}`;
-            citiesToWrite.push({
-              id:         cityKey,
-              name:       cityName,
-              level:      cityLevel,
-              islandId:   Number(city.island_id),
-              islandX:    x,
-              islandY:    y,
-              playerName,
-              allyName:   allyName || null,
-              source:     'ikalogs',
-              updated:    new Date().toISOString(),
+              city_name:    cityName,
+              city_level:   cityLevel,
+              player_name:  playerName,
+              player_state: playerState,
+              ally_name:    allyName,
             });
             countCities++;
 
-            // Player: aggiorna in mappa in memoria
+            // Player: aggiorna in mappa in memoria (lo stato finale verrà
+            // poi raffinato dal parser ranking, fonte autorevole)
             if (playerName) {
               const pKey = `pl_${playerName}`;
               const prev = playerMap.get(pKey);
@@ -136,10 +125,9 @@
                 id:          pKey,
                 name:        playerName,
                 ally:        allyName || (prev?.ally || null),
-                score:       Number(city.player_score) || (prev?.score || 0),
                 status:      prev?.stateSource === 'ranking'
                                ? prev.status
-                               : (city.player_state || prev?.status || 'active'),
+                               : (playerState || prev?.status || 'active'),
                 stateSource: prev?.stateSource === 'ranking'
                                ? 'ranking'
                                : 'ikalogs',
@@ -165,11 +153,10 @@
       islandsToWrite.push(rec);
     }
 
-    // ── STEP 4: scrittura batch — 3 transazioni totali ────
+    // ── STEP 4: scrittura batch — 2 transazioni totali ────
     try {
       await window.IkDB.putMany('islands', islandsToWrite);
       await window.IkDB.putMany('players', [...playerMap.values()]);
-      await window.IkDB.putMany('cities',  citiesToWrite);
     } catch (e) {
       console.error('[parser_ikalogs] putMany error:', e.message);
     }
@@ -190,5 +177,5 @@
     match: url => /ikalogs/i.test(url) || /\/common\/report/i.test(url),
     parse,
   });
-  console.log('[parser_ikalogs] v4 OK');
+  console.log('[parser_ikalogs] v5 OK');
 })();
