@@ -1484,11 +1484,25 @@
 
   // ── INIT ─────────────────────────────────────
   async function init() {
-    log('Init v3.2.1...');
+    log('Init v3.2.5...');
+
+    const isIkalogsSite = /ikalogs/i.test(window.location.hostname);
+
+    if (isIkalogsSite) {
+      // Su ikalogs non c'è DB/parsers/notifier: solo UI bridge
+      log('ℹ️ Modalità bridge (ikalogs) — skip DB/parsers/notifier');
+      buildUI();
+      log('✅ Companion v3.2.5 pronto su', window.location.hostname);
+      return;
+    }
 
     // 1. Apri DB
-    await window.IkDB.open();
-    log('✅ DB aperto');
+    if (window.IkDB) {
+      await window.IkDB.open();
+      log('✅ DB aperto');
+    } else {
+      log('❌ IkDB non trovato!');
+    }
 
     // 2. Carica sotto-parser (usa _gmFetch già impostato dal TM)
     if (window.IkParsers) {
@@ -1510,7 +1524,7 @@
     // 5. Vista iniziale mappa centrata
     mapView = { x: 50, y: 25, scale: 5 };
 
-    log('✅ Companion v3.2.1 pronto su', window.location.hostname);
+    log('✅ Companion v3.2.5 pronto su', window.location.hostname);
   }
 
 
