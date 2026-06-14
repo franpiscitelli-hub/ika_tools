@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════
+ho// ═══════════════════════════════════════════════
 // app.js — UI principale + intercettazione JSON
 // v3.1.0
 // ═══════════════════════════════════════════════
@@ -627,7 +627,7 @@
       nameToState.set((p.name || '').toLowerCase(), p.status || p.state || 'active');
     }
 
-    const r = Math.max(2, s * 0.8);
+    const r = Math.max(2, s * 0.5);
 
     for (const isl of mapIslands) {
       const { cx, cy } = worldToCanvas(isl.x, isl.y);
