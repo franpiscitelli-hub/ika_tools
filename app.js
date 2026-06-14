@@ -99,6 +99,9 @@
     return res;
   };
 
+  const isIkalogsSite = /ikalogs/i.test(window.location.hostname);
+  const capturedJson  = []; // { url, date, data } — solo su ikalogs
+
   const lastSeen = {};
   async function onData(url, rawText) {
     if (!rawText || rawText.length < 10) return;
@@ -111,6 +114,20 @@
     try { parsed = JSON.parse(rawText); } catch { return; }
     sessionCount++;
     updateBadge();
+
+    // Su ikalogs: salva il JSON catturato per il download manuale
+    if (isIkalogsSite) {
+      capturedJson.push({
+        url,
+        date: new Date().toISOString(),
+        data: parsed,
+      });
+      // Limita la cronologia in memoria
+      if (capturedJson.length > 100) capturedJson.shift();
+      log(`#${sessionCount} catturato: ${key}`);
+      if (panelOpen) refreshActiveTab();
+      return;
+    }
 
     // Parse e salva nel DB
     if (window.IkParsers) {
@@ -125,7 +142,64 @@
     if (panelOpen) refreshActiveTab();
   }
 
-  // ── BUILD UI ─────────────────────────────────
+  // ── CATTURATI (solo ikalogs) ─────────────────
+  function renderCaptured() {
+    const list = document.getElementById('ikp-captured-list');
+    if (!list) return;
+    if (!capturedJson.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">📭</div><p>Nessun JSON catturato.<br>Naviga su ikalogs per catturare dati.</p></div>`;
+      return;
+    }
+    list.innerHTML = capturedJson.map((c, i) => {
+      const short = c.url.length > 50 ? c.url.slice(0, 50) + '…' : c.url;
+      return `
+        <div class="ikp-card" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;margin-bottom:6px">
+          <div style="min-width:0;flex:1">
+            <div style="font-size:12px;font-weight:600" title="${c.url.replace(/"/g,'&quot;')}">${short}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${c.date.replace('T',' ').slice(0,19)}</div>
+          </div>
+          <button class="ikp-btn small outline" onclick="window.IkApp.downloadCaptured(${i})">⬇</button>
+        </div>`;
+    }).reverse().join('');
+  }
+
+  function downloadCaptured(idx) {
+    try {
+      const c = capturedJson[idx];
+      if (!c) return;
+      const blob = new Blob([JSON.stringify(c, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ik_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) { toast('❌ Errore download: ' + e.message); }
+  }
+
+  function downloadAllCaptured() {
+    if (!capturedJson.length) { toast('⚠️ Nessun JSON catturato'); return; }
+    try {
+      const blob = new Blob([JSON.stringify(capturedJson, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ik_captured_all_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('✅ Scaricati ' + capturedJson.length + ' JSON');
+    } catch(e) { toast('❌ Errore download: ' + e.message); }
+  }
+
+  function clearCaptured() {
+    capturedJson.length = 0;
+    sessionCount = 0;
+    updateBadge();
+    renderCaptured();
+    toast('🗑 Lista catturati svuotata');
+  }
+
+
   function buildUI() {
     if (!document.body) { setTimeout(buildUI, 300); return; }
 
@@ -158,16 +232,34 @@
         <div class="ikp-stat-pill">⏰ <b id="ikp-s-tim">0</b> timer</div>
       </div>
       <div id="ikp-tabs">
-        <div class="ikp-tab active" data-tab="map">🗺 Mappa</div>
-        <div class="ikp-tab" data-tab="timers">⏰ Timer</div>
-        <div class="ikp-tab" data-tab="resources">💰 Risorse</div>
-        <div class="ikp-tab" data-tab="ranking">🏆 Classifica</div>
-        <div class="ikp-tab" data-tab="changes">🔔 Cambi</div>
-        <div class="ikp-tab" data-tab="db">🗄 Dati</div>
-        <div class="ikp-tab" data-tab="log">📟 Log</div>
-        <div class="ikp-tab" data-tab="settings">⚙</div>
+        <div class="ikp-tab" data-tab="captured" id="ikp-tab-btn-captured">📥 Catturati</div>
+        <div class="ikp-tab active" data-tab="map" id="ikp-tab-btn-map">🗺 Mappa</div>
+        <div class="ikp-tab" data-tab="timers" id="ikp-tab-btn-timers">⏰ Timer</div>
+        <div class="ikp-tab" data-tab="resources" id="ikp-tab-btn-resources">💰 Risorse</div>
+        <div class="ikp-tab" data-tab="ranking" id="ikp-tab-btn-ranking">🏆 Classifica</div>
+        <div class="ikp-tab" data-tab="changes" id="ikp-tab-btn-changes">🔔 Cambi</div>
+        <div class="ikp-tab" data-tab="db" id="ikp-tab-btn-db">🗄 Dati</div>
+        <div class="ikp-tab" data-tab="log" id="ikp-tab-btn-log">📟 Log</div>
+        <div class="ikp-tab" data-tab="settings" id="ikp-tab-btn-settings">⚙</div>
       </div>
       <div id="ikp-body">
+
+        <!-- ══ CATTURATI (ikalogs) ══ -->
+        <div class="ikp-section" id="ikp-tab-captured">
+          <div class="ikp-card">
+            <div class="ikp-card-title">📥 JSON catturati su ikalogs</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+              Naviga sulle pagine di ikalogs (mappa, classifiche, profili...) per catturare
+              i dati JSON. Poi scaricali e importali nella Tab di Ikariam.
+            </p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <button class="ikp-btn" onclick="window.IkApp.downloadAllCaptured()">⬇ Scarica tutto</button>
+              <button class="ikp-btn outline" onclick="window.IkApp.renderCaptured()">↻ Aggiorna</button>
+              <button class="ikp-btn danger small" onclick="window.IkApp.clearCaptured()">🗑 Svuota</button>
+            </div>
+            <div id="ikp-captured-list"></div>
+          </div>
+        </div>
 
         <!-- ══ MAPPA ══ -->
         <div class="ikp-section active" id="ikp-tab-map">
@@ -443,6 +535,7 @@
 
   function refreshActiveTab() {
     switch (activeTab) {
+      case 'captured':  renderCaptured();    break;
       case 'map':       resizeCanvas(); drawMap(); break;
       case 'timers':    renderTimers();    break;
       case 'account':   renderAccount();   break;
@@ -1486,12 +1579,27 @@
   async function init() {
     log('Init v3.2.5...');
 
-    const isIkalogsSite = /ikalogs/i.test(window.location.hostname);
-
     if (isIkalogsSite) {
-      // Su ikalogs non c'è DB/parsers/notifier: solo UI bridge
+      // Su ikalogs non c'è DB/parsers/notifier: solo UI bridge + catturati
       log('ℹ️ Modalità bridge (ikalogs) — skip DB/parsers/notifier');
       buildUI();
+
+      // Nascondi i tab non rilevanti su ikalogs
+      const hideTabs = ['map','timers','resources','ranking','changes','db','log'];
+      hideTabs.forEach(t => {
+        const btn = document.getElementById('ikp-tab-btn-' + t);
+        const sec = document.getElementById('ikp-tab-' + t);
+        if (btn) btn.style.display = 'none';
+        if (sec) sec.classList.remove('active');
+      });
+      // Attiva "Catturati" come tab predefinito
+      const capBtn = document.getElementById('ikp-tab-btn-captured');
+      const capSec = document.getElementById('ikp-tab-captured');
+      if (capBtn) capBtn.classList.add('active');
+      if (capSec) capSec.classList.add('active');
+      activeTab = 'captured';
+      renderCaptured();
+
       log('✅ Companion v3.2.5 pronto su', window.location.hostname);
       return;
     }
@@ -1695,6 +1803,7 @@
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
     dbSearch, clearRaw, renderAccount, selectCity,
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
+    renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };
