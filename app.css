@@ -31,10 +31,10 @@
   --shadow-lg:   0 4px 20px rgba(0,0,0,0.18);
   --radius:      8px;
   --radius-sm:   4px;
-  --map-bg:      #08304A
-  --map-island:  #d8c39a;
+  --map-bg:      #6ec6e8;
+  --map-island:  #c9b182;
   --map-cities:  #a8895c;
-  --map-me:      #8C4A00;
+  --map-me:      #00e676;
   --map-target:  #ffeb3b;
   --map-ally:    #ab47bc;
   --map-search:  #ff1744;

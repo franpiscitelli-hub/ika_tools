@@ -305,9 +305,9 @@
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#c9b182"></div> Isola vuota</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#a8895c"></div> Con player</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00e676"></div> Mio</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(59,209,111,0.9)"></div> 🟢 Filtro</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(77,184,255,0.9)"></div> 🔵 Riferimento</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:rgba(255,77,77,0.9)"></div> 🔴 Entrambi</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff9100"></div> 🟠 Filtro</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#7c4dff"></div> 🟣 Riferimento</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff1744"></div> 🔴 Entrambi</div>
           </div>
         </div>
 
@@ -589,10 +589,10 @@
 
   // ── DRAW MAP ─────────────────────────────────
   // Logica colori basata su map_filters.js (versione collaudata)
-  const COLOR_FILTER  = 'rgba(59,209,111,0.9)';
-  const COLOR_REF     = 'rgba(77,184,255,0.9)';
-  const COLOR_BOTH    = 'rgba(255,77,77,0.9)';
-  const COLOR_ME      = '#00e676';
+  const COLOR_FILTER  = '#ff9100';  // arancione acceso — filtro
+  const COLOR_REF     = '#7c4dff';  // viola acceso — riferimento
+  const COLOR_BOTH    = '#ff1744';  // rosso acceso — entrambi
+  const COLOR_ME      = '#00e676';  // verde — il mio
   const COLOR_CITY    = '#a8895c';
   const COLOR_EMPTY   = '#c9b182';
 
@@ -627,7 +627,7 @@
       nameToState.set((p.name || '').toLowerCase(), p.status || p.state || 'active');
     }
 
-    const r = Math.max(2, s * 0.45);
+    const r = Math.max(2, s * 0.8);
 
     for (const isl of mapIslands) {
       const { cx, cy } = worldToCanvas(isl.x, isl.y);
@@ -781,9 +781,12 @@
       ${cities.slice(0,4).map(c => {
         const pl = mapPlayers.get((c.player_name||'').toLowerCase());
         const stIcon = { active:'🟢', inactive:'🟡', vacation:'🔵', banned:'🔴' }[pl?.status||pl?.state] || '⚪';
+        const ally  = pl?.ally || c.ally_name || '—';
+        const score = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
+        const scoreLabel = (score != null) ? Number(score).toLocaleString('it') : '—';
         return `<div class="tt-row">
           <span class="tt-label">${stIcon} ${c.player_name||'?'}</span>
-          <span class="tt-value">${c.ally_name||'—'}</span>
+          <span class="tt-value">${ally} · 🏆${scoreLabel}</span>
         </div>`;
       }).join('')}
       ${cities.length > 4 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center">+${cities.length-4} altri</div>` : ''}
