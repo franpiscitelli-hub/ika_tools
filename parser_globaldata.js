@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-// parser_globaldata.js v4
+// parser_globaldata.js v5
 //
 // Gestisce updateGlobalData da Ikariam.
 // Attivazione: data contiene ['updateGlobalData', payload]
@@ -47,22 +47,27 @@
   async function parseHeader(hd) {
     // 1. Aggiorna l'elenco delle città proprie da cityDropdownMenu
     const cdm = hd.cityDropdownMenu || {};
-    let activeCityId = null;
     for (const key of Object.keys(cdm)) {
       const c = cdm[key];
-      const numId = Number(c.id);
+      const numId = Number(c?.id);
       if (!numId) continue;
       if (c.relationship === 'ownCity') {
         myCityIds.add(numId);
       }
-      // La città "attiva" è quella selezionata nel dropdown (se marcata)
-      if (c.active || c.selected) activeCityId = numId;
     }
 
-    // Se non troviamo un id esplicito "attivo", usiamo relatedCity.owncity
-    // come riferimento indiretto (presente in molte risposte)
+    // 2. La città attiva è indicata da cityDropdownMenu.selectedCity = "city_<ID>"
+    let activeCityId = null;
+    const selKey = cdm.selectedCity; // es. "city_1614"
+    if (typeof selKey === 'string') {
+      const m = selKey.match(/(\d+)/);
+      if (m) activeCityId = Number(m[1]);
+    }
+
+    // Fallback: relatedCity.owncity (storicamente non sempre un city id valido)
     if (!activeCityId && hd.relatedCity?.owncity) {
-      activeCityId = Number(hd.relatedCity.owncity);
+      const fallback = Number(hd.relatedCity.owncity);
+      if (myCityIds.has(fallback)) activeCityId = fallback;
     }
 
     if (!activeCityId) return 0; // senza cityId non possiamo salvare risorse
@@ -112,7 +117,7 @@
     // Aggiorna anche nome/coords/tradegood per ogni città propria nel dropdown
     for (const key of Object.keys(cdm)) {
       const c = cdm[key];
-      if (c.relationship !== 'ownCity') continue;
+      if (!c || typeof c !== 'object' || c.relationship !== 'ownCity') continue;
       const numId = Number(c.id);
       if (!numId) continue;
       const match = (c.coords || '').match(/\[(\d+):(\d+)\]/);
@@ -266,5 +271,5 @@
     },
     parse,
   });
-  console.log('[parser_globaldata] v4 OK');
+  console.log('[parser_globaldata] v5 OK');
 })();

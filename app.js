@@ -236,6 +236,7 @@
         <div class="ikp-tab" data-tab="captured" id="ikp-tab-btn-captured" style="display:none">📥 Catturati</div>
         <div class="ikp-tab active" data-tab="map" id="ikp-tab-btn-map">🗺 Mappa</div>
         <div class="ikp-tab" data-tab="timers" id="ikp-tab-btn-timers">⏰ Timer</div>
+        <div class="ikp-tab" data-tab="mycities" id="ikp-tab-btn-mycities">🏠 Città</div>
         <div class="ikp-tab" data-tab="changes" id="ikp-tab-btn-changes">🔔 Cambi</div>
         <div class="ikp-tab" data-tab="db" id="ikp-tab-btn-db">🗄 Dati</div>
         <div class="ikp-tab" data-tab="log" id="ikp-tab-btn-log">📟 Log</div>
@@ -317,6 +318,19 @@
             <div class="ikp-card-title">⏰ Timer attivi</div>
             <div id="ikp-timer-list">
               <div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ MIE CITTÀ ══ -->
+        <div class="ikp-section" id="ikp-tab-mycities">
+          <div class="ikp-card">
+            <div class="ikp-card-title">
+              🏠 Le mie città
+              <button class="ikp-btn small outline" onclick="window.IkApp.renderMyCities()">↻</button>
+            </div>
+            <div id="ikp-mycities-list">
+              <div class="ikp-empty"><div class="ikp-empty-icon">🏠</div><p>Naviga le tue città nel gioco per popolare questa vista.</p></div>
             </div>
           </div>
         </div>
@@ -497,6 +511,7 @@
       case 'captured':  renderCaptured();    break;
       case 'map':       resizeCanvas(); drawMap(); break;
       case 'timers':    renderTimers();    break;
+      case 'mycities':  renderMyCities();  break;
       case 'changes':   renderChanges();   break;
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
@@ -629,7 +644,7 @@
       nameToState.set((p.name || '').toLowerCase(), p.status || p.state || 'active');
     }
 
-    const r = Math.max(2, s * 0.8);
+    const r = Math.max(2, s * 0.45);
 
     for (const isl of mapIslands) {
       const { cx, cy } = worldToCanvas(isl.x, isl.y);
@@ -882,6 +897,72 @@
           ${window.IkNotifier.formatTime(t.msLeft)}
         </div>
       </div>`).join('');
+  }
+
+  // ── MIE CITTÀ ──────────────────────────────────
+  async function renderMyCities() {
+    const list = document.getElementById('ikp-mycities-list');
+    if (!list || !window.IkDB) return;
+
+    const cities = await window.IkDB.getAll('my_cities');
+    if (!cities.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏠</div><p>Naviga le tue città nel gioco per popolare questa vista.</p></div>`;
+      return;
+    }
+
+    // Ordina per coordinate
+    cities.sort((a, b) => (a.islandX - b.islandX) || (a.islandY - b.islandY) || (a.cityId - b.cityId));
+
+    let totalIncome = 0;
+
+    const rows = cities.map(c => {
+      const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
+      const tgName  = c.tgName || '—';
+      const tgPerHr = (c.tgPerHour != null) ? c.tgPerHour.toLocaleString('it') : '—';
+      const wood    = (c.wood != null) ? c.wood.toLocaleString('it') : '—';
+      const income  = (c.income != null) ? Math.round(c.income) : 0;
+      if (c.income != null) totalIncome += c.income;
+      const sciUp   = (c.scientistsUpkeep != null) ? c.scientistsUpkeep.toLocaleString('it') : '—';
+      let citFree = '—', citBusy = '—';
+      if (c.citizens != null && c.population != null) {
+        citFree = Math.round(c.citizens).toLocaleString('it');
+        citBusy = Math.round(c.population - c.citizens).toLocaleString('it');
+      }
+      return `<tr>
+        <td>${c.cityId}</td>
+        <td>${c.name || '—'}</td>
+        <td>${coords}</td>
+        <td>${tgName}</td>
+        <td style="text-align:right">${tgPerHr}</td>
+        <td style="text-align:right">${wood}</td>
+        <td style="text-align:right">${income.toLocaleString('it')}</td>
+        <td style="text-align:right">${sciUp}</td>
+        <td style="text-align:right">${citFree}</td>
+        <td style="text-align:right">${citBusy}</td>
+      </tr>`;
+    }).join('');
+
+    list.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="ikp-db-table">
+          <thead><tr>
+            <th>ID</th><th>Nome</th><th>X:Y</th><th>Bene</th>
+            <th style="text-align:right">Bene/h</th>
+            <th style="text-align:right">🪵 Legno</th>
+            <th style="text-align:right">🪙 Oro</th>
+            <th style="text-align:right">Scienziati</th>
+            <th style="text-align:right">Liberi</th>
+            <th style="text-align:right">Occupati</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr style="font-weight:600;border-top:2px solid var(--border)">
+            <td colspan="6">Totale entrate oro/h</td>
+            <td style="text-align:right">${Math.round(totalIncome).toLocaleString('it')}</td>
+            <td colspan="3"></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    `;
   }
 
   function startTimerTick() {
@@ -1728,6 +1809,7 @@
     dbSearch, clearRaw, renderAccount, selectCity,
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
     renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
+    renderMyCities,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };
