@@ -905,36 +905,53 @@
     const list = document.getElementById('ikp-mycities-list');
     if (!list || !window.IkDB) return;
 
-    const cities  = await window.IkDB.getAll('my_cities');
+    let cities = await window.IkDB.getAll('my_cities');
     const summary = await window.IkDB.get('account_summary', 'main');
+
+    // Filtra record fantasma: senza nome e senza coordinate
+    // (es. cityId residui da fallback errati di versioni precedenti)
+    cities = cities.filter(c => c.name || (c.islandX != null && c.islandY != null));
 
     if (!cities.length && !summary) {
       list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏠</div><p>Naviga le tue città nel gioco per popolare questa vista.</p></div>`;
       return;
     }
 
-    // ── Riepilogo globale account ──
+    // ── Riepilogo globale account, organizzato per sezioni ──
     let summaryHtml = '';
     if (summary) {
       const netGold = (summary.income || 0) + (summary.upkeep || 0) + (summary.godGoldResult || 0);
       summaryHtml = `
         <div class="ikp-card" style="margin-bottom:10px">
           <div class="ikp-card-title">💰 Riepilogo account</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">
-            <div>🪙 Oro: <b>${Math.round(summary.gold).toLocaleString('it')}</b></div>
+
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-top:6px;margin-bottom:4px">🪙 ORO</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;margin-bottom:8px">
+            <div>Oro: <b>${Math.round(summary.gold).toLocaleString('it')}</b></div>
             <div>📈 Entrate: <b>${Math.round(summary.income).toLocaleString('it')}</b></div>
             <div>📉 Consumo: <b>${Math.round(summary.upkeep).toLocaleString('it')}</b></div>
             <div>🏛 Pluto: <b>${Math.round(summary.godGoldResult).toLocaleString('it')}</b></div>
             <div>⚖ Netto/h: <b>${Math.round(netGold).toLocaleString('it')}</b></div>
             <div>🍯 Ambrosia: <b>${summary.ambrosia.toLocaleString('it')}</b></div>
+          </div>
+
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">⛴ NAVI</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
             <div>🚛 Trasportatori: <b>${summary.freeTransporters}/${summary.maxTransporters}</b></div>
             <div>⛴ Mercantili: <b>${summary.freeFreighters}/${summary.maxFreighters}</b></div>
           </div>
         </div>`;
     }
 
+    const resetBtnHtml = `
+      <div style="margin-top:10px">
+        <button class="ikp-btn danger small" onclick="window.IkApp.resetMyCities()">🗑 Reset dati polis</button>
+      </div>`;
+
     if (!cities.length) {
-      list.innerHTML = summaryHtml + `<div class="ikp-empty"><div class="ikp-empty-icon">🏠</div><p>Naviga le tue città nel gioco per popolare la tabella polis.</p></div>`;
+      list.innerHTML = summaryHtml
+        + `<div class="ikp-empty"><div class="ikp-empty-icon">🏠</div><p>Naviga le tue città nel gioco per popolare la tabella polis.</p></div>`
+        + resetBtnHtml;
       return;
     }
 
@@ -990,7 +1007,7 @@
           </tr></tfoot>
         </table>
       </div>
-    `;
+    ` + resetBtnHtml;
   }
 
   function startTimerTick() {
@@ -1369,6 +1386,7 @@
       { k: 'date',        label: 'Data' },
       { k: '_parserName', label: 'Parser' },
       { k: '_parserCount',label: 'Records' },
+      { k: '_actions',    label: 'Azioni' },
     ],
   };
 
@@ -1580,6 +1598,16 @@
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
     toast('🗑 DB svuotato');
+  }
+
+  // Reset solo dati polis (my_cities + account_summary).
+  // Mantiene isole, players, cambi stato, edifici nemici.
+  async function resetMyCities() {
+    if (!confirm('Azzerare i dati delle tue polis (risorse, edifici, riepilogo account)?')) return;
+    await window.IkDB.clear('my_cities').catch(()=>{});
+    await window.IkDB.clear('account_summary').catch(()=>{});
+    renderMyCities();
+    toast('🗑 Dati polis azzerati');
   }
 
   // ── CALLBACK DAI PARSER ───────────────────────
@@ -1850,7 +1878,7 @@
     dbSearch, clearRaw, renderAccount, selectCity,
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
     renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
-    renderMyCities,
+    renderMyCities, resetMyCities,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };

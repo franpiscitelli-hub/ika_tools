@@ -77,7 +77,18 @@
     const matching = registry.filter(p => p.match(url, data, meta));
 
     if (matching.length === 0) {
-      // Nessun parser: salva come raw
+      // Nessun parser: salva come raw, con elenco delle azioni
+      // top-level contenute (utile per capire cosa va ancora implementato)
+      let actions = null;
+      try {
+        if (Array.isArray(data)) {
+          actions = [...new Set(
+            data.filter(it => Array.isArray(it) && it.length >= 1)
+                .map(it => String(it[0]))
+          )].join(', ');
+        }
+      } catch {}
+
       try {
         await window.IkDB.add('entries', {
           url, type: 'raw',
@@ -86,6 +97,7 @@
           data,
           _parserName:  'nessuno',
           _parserCount: 0,
+          _actions: actions,
         });
       } catch {}
       return { type: 'raw', parsed: 0 };
