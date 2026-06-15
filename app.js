@@ -320,6 +320,12 @@
               <div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>
             </div>
           </div>
+          <div class="ikp-card">
+            <div class="ikp-card-title">🍷 Esaurimento vino</div>
+            <div id="ikp-wine-list">
+              <div class="ikp-empty"><div class="ikp-empty-icon">🍷</div><p>Naviga le tue città per popolare questa stima.</p></div>
+            </div>
+          </div>
         </div>
 
         <!-- ══ MIE CITTÀ ══ -->
@@ -878,26 +884,90 @@
   }
 
   // ── TIMER ─────────────────────────────────────
-  function renderTimers() {
+  async function renderTimers() {
     const list = document.getElementById('ikp-timer-list');
-    if (!list || !window.IkNotifier) return;
-    const active = window.IkNotifier.getActive();
-    if (!active.length) {
-      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer.</p></div>`;
+    if (list && window.IkNotifier) {
+      const active = window.IkNotifier.getActive();
+      if (!active.length) {
+        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer.</p></div>`;
+      } else {
+        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
+        list.innerHTML = active.map(t => `
+          <div class="ikp-timer">
+            <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
+            <div class="ikp-timer-info">
+              <div class="ikp-timer-label">${t.label}</div>
+              <div class="ikp-timer-sub">${t.type}</div>
+            </div>
+            <div class="ikp-timer-time ${t.msLeft < 300000 ? 'urgent' : ''}" data-id="${t.id}">
+              ${window.IkNotifier.formatTime(t.msLeft)}
+            </div>
+          </div>`).join('');
+      }
+    }
+    await renderWineTimers();
+  }
+
+  // ── ESAURIMENTO VINO ─────────────────────────────
+  // Stima per ogni polis: tempo rimanente = vino attuale / consumo orario
+  async function renderWineTimers() {
+    const list = document.getElementById('ikp-wine-list');
+    if (!list || !window.IkDB) return;
+
+    let cities = await window.IkDB.getAll('my_cities');
+    cities = cities.filter(c => c.name || (c.islandX != null && c.islandY != null));
+
+    // Solo città con dati vino disponibili
+    const withWine = cities.filter(c => c.wine != null && c.wineSpendings != null);
+
+    if (!withWine.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🍷</div><p>Naviga le tue città per popolare questa stima.</p></div>`;
       return;
     }
-    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
-    list.innerHTML = active.map(t => `
-      <div class="ikp-timer">
-        <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
+
+    // Calcola ore rimanenti, ordina dal più urgente
+    const rows = withWine.map(c => {
+      let hoursLeft = null;
+      if (c.wineSpendings > 0) {
+        hoursLeft = c.wine / c.wineSpendings;
+      } else if (c.wineSpendings === 0) {
+        hoursLeft = Infinity; // nessun consumo: non si esaurisce
+      }
+      return { ...c, hoursLeft };
+    }).sort((a, b) => (a.hoursLeft ?? Infinity) - (b.hoursLeft ?? Infinity));
+
+    list.innerHTML = rows.map(c => {
+      const coords = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
+      const wine   = Math.round(c.wine).toLocaleString('it');
+      const spend  = c.wineSpendings.toLocaleString('it');
+
+      let timeLabel, urgent = false;
+      if (c.hoursLeft === Infinity) {
+        timeLabel = '∞ (consumo nullo)';
+      } else {
+        const totalMin = Math.round(c.hoursLeft * 60);
+        const days  = Math.floor(totalMin / 1440);
+        const hours = Math.floor((totalMin % 1440) / 60);
+        const mins  = totalMin % 60;
+        const parts = [];
+        if (days)  parts.push(`${days}g`);
+        if (hours) parts.push(`${hours}h`);
+        if (!days) parts.push(`${mins}m`);
+        timeLabel = parts.join(' ');
+        urgent = c.hoursLeft < 6; // meno di 6 ore: evidenzia
+      }
+
+      return `<div class="ikp-timer">
+        <div class="ikp-timer-icon">🍷</div>
         <div class="ikp-timer-info">
-          <div class="ikp-timer-label">${t.label}</div>
-          <div class="ikp-timer-sub">${t.type}</div>
+          <div class="ikp-timer-label">${c.name || '?'} <span style="color:var(--text-muted);font-size:11px">[${coords}]</span></div>
+          <div class="ikp-timer-sub">${wine} vino · consumo ${spend}/h</div>
         </div>
-        <div class="ikp-timer-time ${t.msLeft < 300000 ? 'urgent' : ''}" data-id="${t.id}">
-          ${window.IkNotifier.formatTime(t.msLeft)}
+        <div class="ikp-timer-time ${urgent ? 'urgent' : ''}">
+          ${timeLabel}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   // ── MIE CITTÀ ──────────────────────────────────
@@ -1613,7 +1683,12 @@
   // ── CALLBACK DAI PARSER ───────────────────────
   function onIslandsUpdated(n)  { if (panelOpen && activeTab === 'map') loadMapData(); updateStatusBar(); }
   function onCitiesUpdated(id)  { if (panelOpen && activeTab === 'account') renderAccount(); }
-  function onResourcesUpdated() { if (panelOpen && activeTab === 'account')   renderAccount(); }
+  function onResourcesUpdated() {
+    if (!panelOpen) return;
+    if (activeTab === 'account')  renderAccount();
+    if (activeTab === 'timers')   renderWineTimers();
+    if (activeTab === 'mycities') renderMyCities();
+  }
   function onResearchUpdated()  { if (panelOpen && activeTab === 'timers') renderTimers(); }
   function onFleetsUpdated()    { if (panelOpen && activeTab === 'timers') renderTimers(); }
   function onTimerAdded()       { if (panelOpen) updateStatusBar(); }
@@ -1878,7 +1953,7 @@
     dbSearch, clearRaw, renderAccount, selectCity,
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
     renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
-    renderMyCities, resetMyCities,
+    renderMyCities, resetMyCities, renderWineTimers,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };
