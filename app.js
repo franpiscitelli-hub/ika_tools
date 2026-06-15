@@ -378,6 +378,7 @@
                       onchange="window.IkApp.dbSearch()">
                 <option value="islands">🏝 Isole</option>
                 <option value="my_cities">🏠 Mie città</option>
+                <option value="account_summary">💰 Riepilogo account</option>
                 <option value="enemy_buildings">🏢 Edifici nemici</option>
                 <option value="players">👤 Players</option>
                 <option value="state_changes">🔔 Cambi stato</option>
@@ -904,25 +905,52 @@
     const list = document.getElementById('ikp-mycities-list');
     if (!list || !window.IkDB) return;
 
-    const cities = await window.IkDB.getAll('my_cities');
-    if (!cities.length) {
+    const cities  = await window.IkDB.getAll('my_cities');
+    const summary = await window.IkDB.get('account_summary', 'main');
+
+    if (!cities.length && !summary) {
       list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏠</div><p>Naviga le tue città nel gioco per popolare questa vista.</p></div>`;
+      return;
+    }
+
+    // ── Riepilogo globale account ──
+    let summaryHtml = '';
+    if (summary) {
+      const netGold = (summary.income || 0) + (summary.upkeep || 0) + (summary.godGoldResult || 0);
+      summaryHtml = `
+        <div class="ikp-card" style="margin-bottom:10px">
+          <div class="ikp-card-title">💰 Riepilogo account</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">
+            <div>🪙 Oro: <b>${Math.round(summary.gold).toLocaleString('it')}</b></div>
+            <div>📈 Entrate: <b>${Math.round(summary.income).toLocaleString('it')}</b></div>
+            <div>📉 Consumo: <b>${Math.round(summary.upkeep).toLocaleString('it')}</b></div>
+            <div>🏛 Pluto: <b>${Math.round(summary.godGoldResult).toLocaleString('it')}</b></div>
+            <div>⚖ Netto/h: <b>${Math.round(netGold).toLocaleString('it')}</b></div>
+            <div>🍯 Ambrosia: <b>${summary.ambrosia.toLocaleString('it')}</b></div>
+            <div>🚛 Trasportatori: <b>${summary.freeTransporters}/${summary.maxTransporters}</b></div>
+            <div>⛴ Mercantili: <b>${summary.freeFreighters}/${summary.maxFreighters}</b></div>
+          </div>
+        </div>`;
+    }
+
+    if (!cities.length) {
+      list.innerHTML = summaryHtml + `<div class="ikp-empty"><div class="ikp-empty-icon">🏠</div><p>Naviga le tue città nel gioco per popolare la tabella polis.</p></div>`;
       return;
     }
 
     // Ordina per coordinate
     cities.sort((a, b) => (a.islandX - b.islandX) || (a.islandY - b.islandY) || (a.cityId - b.cityId));
 
-    let totalIncome = 0;
+    let totalWine = 0;
 
     const rows = cities.map(c => {
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const tgName  = c.tgName || '—';
       const tgPerHr = (c.tgPerHour != null) ? c.tgPerHour.toLocaleString('it') : '—';
-      const wood    = (c.wood != null) ? c.wood.toLocaleString('it') : '—';
-      const income  = (c.income != null) ? Math.round(c.income) : 0;
-      if (c.income != null) totalIncome += c.income;
+      const wood    = (c.wood != null) ? Math.round(c.wood).toLocaleString('it') : '—';
       const sciUp   = (c.scientistsUpkeep != null) ? c.scientistsUpkeep.toLocaleString('it') : '—';
+      const wineSp  = (c.wineSpendings != null) ? c.wineSpendings.toLocaleString('it') : '—';
+      if (c.wineSpendings != null) totalWine += c.wineSpendings;
       let citFree = '—', citBusy = '—';
       if (c.citizens != null && c.population != null) {
         citFree = Math.round(c.citizens).toLocaleString('it');
@@ -935,29 +963,29 @@
         <td>${tgName}</td>
         <td style="text-align:right">${tgPerHr}</td>
         <td style="text-align:right">${wood}</td>
-        <td style="text-align:right">${income.toLocaleString('it')}</td>
+        <td style="text-align:right">${wineSp}</td>
         <td style="text-align:right">${sciUp}</td>
         <td style="text-align:right">${citFree}</td>
         <td style="text-align:right">${citBusy}</td>
       </tr>`;
     }).join('');
 
-    list.innerHTML = `
+    list.innerHTML = summaryHtml + `
       <div style="overflow-x:auto">
         <table class="ikp-db-table">
           <thead><tr>
             <th>ID</th><th>Nome</th><th>X:Y</th><th>Bene</th>
             <th style="text-align:right">Bene/h</th>
             <th style="text-align:right">🪵 Legno</th>
-            <th style="text-align:right">🪙 Oro</th>
+            <th style="text-align:right">🍷 Consumo vino</th>
             <th style="text-align:right">Scienziati</th>
             <th style="text-align:right">Liberi</th>
             <th style="text-align:right">Occupati</th>
           </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr style="font-weight:600;border-top:2px solid var(--border)">
-            <td colspan="6">Totale entrate oro/h</td>
-            <td style="text-align:right">${Math.round(totalIncome).toLocaleString('it')}</td>
+            <td colspan="6">Totale consumo vino</td>
+            <td style="text-align:right">${Math.round(totalWine).toLocaleString('it')}</td>
             <td colspan="3"></td>
           </tr></tfoot>
         </table>
@@ -1308,6 +1336,18 @@
       { k: 'islandY',   label: 'Y' },
       { k: 'buildings', label: 'Edifici' },
     ],
+    account_summary: [
+      { k: 'gold',             label: '🪙 Oro' },
+      { k: 'income',           label: 'Entrate' },
+      { k: 'upkeep',           label: 'Consumo' },
+      { k: 'godGoldResult',    label: 'Pluto' },
+      { k: 'ambrosia',         label: '🍯 Ambrosia' },
+      { k: 'freeTransporters', label: 'Trasp. liberi' },
+      { k: 'maxTransporters',  label: 'Trasp. tot' },
+      { k: 'freeFreighters',   label: 'Merc. liberi' },
+      { k: 'maxFreighters',    label: 'Merc. tot' },
+      { k: 'updated',          label: 'Agg.' },
+    ],
     players: [
       { k: 'id',          label: 'ID' },
       { k: 'name',        label: 'Nome' },
@@ -1336,6 +1376,7 @@
     islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
     my_cities:       r => `${r.name} ${r.cityId} ${r.islandX}:${r.islandY} ${r.tgName}`.toLowerCase(),
     enemy_buildings: r => `${r.cityName} ${r.ownerName} ${r.islandX}:${r.islandY}`.toLowerCase(),
+    account_summary: r => 'main',
     players:       r => `${r.name} ${r.ally} ${r.status} ${r.stateSource}`.toLowerCase(),
     state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
     entries:       r => `${r.type} ${r.url}`.toLowerCase(),
@@ -1534,7 +1575,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();

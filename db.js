@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 6;
+  const DB_VERSION = 7;
   let db = null;
 
   function open() {
@@ -118,6 +118,12 @@
           const s = d.createObjectStore('enemy_buildings', { keyPath: 'cityId' });
           s.createIndex('ownerId',   'ownerId',   { unique: false });
           s.createIndex('ownerName', 'ownerName', { unique: false });
+        }
+
+        // account_summary — dati globali account (oro totale, navi, income/upkeep)
+        // record unico, keyPath fisso 'id' = 'main'
+        if (!d.objectStoreNames.contains('account_summary')) {
+          d.createObjectStore('account_summary', { keyPath: 'id' });
         }
       };
 
@@ -275,7 +281,7 @@
       'entries', 'islands', 'cities', 'resources',
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
-      'my_cities', 'enemy_buildings',
+      'my_cities', 'enemy_buildings', 'account_summary',
     ];
     const result = {};
     for (const s of stores) {
@@ -295,5 +301,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v6 caricato');
+  console.log('[IkDB] v7 caricato');
 })();

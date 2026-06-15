@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-// parser_globaldata.js v5
+// parser_globaldata.js v6
 //
 // Gestisce updateGlobalData da Ikariam.
 // Attivazione: data contiene ['updateGlobalData', payload]
@@ -7,9 +7,17 @@
 //
 // REGOLE:
 // 1. headerData → SEMPRE la città attiva del proprietario
-//    dell'account. Risorse/economia salvate in 'my_cities'.
+//    dell'account.
+//    - Dati GLOBALI account (gold, income, upkeep,
+//      godGoldResult, ambrosia, transporters/freighters)
+//      → store 'account_summary' (record unico 'main').
+//    - Dati PER-POLIS (risorse correnti, produzione/h,
+//      wineSpendings, badTaxAccountant, maxActionPoints,
+//      scientistsUpkeep) → 'my_cities'[activeCityId].
 //    cityDropdownMenu (relationship:'ownCity') definisce
 //    l'elenco delle città proprie (myCityIds).
+//    cityDropdownMenu.selectedCity = "city_<ID>" indica
+//    la città attiva.
 // 2. backgroundData:
 //    - se bd.id è in myCityIds (isOwn) → merge completo in
 //      'my_cities' (identità, edifici, costruzioni→timer).
@@ -76,6 +84,27 @@
     const mr = hd.maxResources     || {};
     const maxStorage = Number(mr['0'] || mr['1'] || mr['resource'] || 0);
 
+    // ── Dati GLOBALI account (oro totale, navi, income/upkeep totali) ──
+    // Non sono specifici della città attiva: vanno in account_summary.
+    try {
+      await window.IkDB.put('account_summary', {
+        id:               'main',
+        gold:             Math.round(Number(hd.gold) || 0),
+        income:           Math.round(hd.income           || 0),
+        upkeep:           Math.round(hd.upkeep           || 0),
+        godGoldResult:    Math.round(hd.godGoldResult    || 0),
+        ambrosia:         Number(hd.ambrosia             || 0),
+        freeTransporters: Number(hd.freeTransporters     || 0),
+        maxTransporters:  Number(hd.maxTransporters      || 0),
+        freeFreighters:   Number(hd.freeFreighters       || 0),
+        maxFreighters:    Number(hd.maxFreighters        || 0),
+        updated:          new Date().toISOString(),
+      });
+    } catch(e) {
+      console.error('[parser_globaldata] account_summary error:', e.message);
+    }
+
+    // ── Dati PER-POLIS: relativi alla città attualmente visualizzata ──
     const resourceData = {
       wood:             Number(cr['resource'] || 0),
       wine:             Number(cr['1']        || 0),
@@ -85,14 +114,7 @@
       citizens:         Number(cr.citizens    || 0),
       population:       Number(cr.population  || 0),
       maxStorage,
-      gold:             Math.round(hd.gold             || 0),
-      income:           Math.round(hd.income           || 0),
-      upkeep:           Math.round(hd.upkeep           || 0),
-      godGoldResult:    Math.round(hd.godGoldResult    || 0),
       scientistsUpkeep: Math.round(hd.scientistsUpkeep || 0),
-      ambrosia:         Number(hd.ambrosia             || 0),
-      maxTransporters:  Number(hd.maxTransporters      || 0),
-      maxFreighters:    Number(hd.maxFreighters        || 0),
       woodPerHour:      Math.round((hd.resourceProduction  || 0) * 3600),
       tgPerHour:        Math.round((hd.tradegoodProduction || 0) * 3600),
       producedTradegood:Number(hd.producedTradegood    || 0),
@@ -271,5 +293,5 @@
     },
     parse,
   });
-  console.log('[parser_globaldata] v5 OK');
+  console.log('[parser_globaldata] v6 OK');
 })();
