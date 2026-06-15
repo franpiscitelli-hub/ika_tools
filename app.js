@@ -353,7 +353,7 @@
         <div class="ikp-section" id="ikp-tab-db">
 
           <!-- Stats compatte -->
-          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;
+          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;
                gap:8px;margin-bottom:12px"></div>
 
           <!-- Ricerca -->
@@ -363,6 +363,8 @@
               <select id="ikp-db-store" class="ikp-input" style="flex:1;min-width:140px"
                       onchange="window.IkApp.dbSearch()">
                 <option value="islands">🏝 Isole</option>
+                <option value="my_cities">🏠 Mie città</option>
+                <option value="enemy_buildings">🏢 Edifici nemici</option>
                 <option value="players">👤 Players</option>
                 <option value="state_changes">🔔 Cambi stato</option>
                 <option value="entries">📋 JSON raw</option>
@@ -627,7 +629,7 @@
       nameToState.set((p.name || '').toLowerCase(), p.status || p.state || 'active');
     }
 
-    const r = Math.max(2, s * 0.45);
+    const r = Math.max(2, s * 0.8);
 
     for (const isl of mapIslands) {
       const { cx, cy } = worldToCanvas(isl.x, isl.y);
@@ -1207,6 +1209,24 @@
       { k: 'woodLevel',   label: 'Lv Legno' },
       { k: 'nCities',     label: 'Polis' },
     ],
+    my_cities: [
+      { k: 'cityId',     label: 'ID' },
+      { k: 'name',       label: 'Nome' },
+      { k: 'islandX',    label: 'X' },
+      { k: 'islandY',    label: 'Y' },
+      { k: 'wood',       label: '🪵' },
+      { k: 'gold',       label: '🪙' },
+      { k: 'population', label: 'Pop' },
+      { k: 'tgName',     label: 'Bene' },
+    ],
+    enemy_buildings: [
+      { k: 'cityId',    label: 'ID' },
+      { k: 'cityName',  label: 'Città' },
+      { k: 'ownerName', label: 'Player' },
+      { k: 'islandX',   label: 'X' },
+      { k: 'islandY',   label: 'Y' },
+      { k: 'buildings', label: 'Edifici' },
+    ],
     players: [
       { k: 'id',          label: 'ID' },
       { k: 'name',        label: 'Nome' },
@@ -1233,6 +1253,8 @@
 
   const STORE_SEARCH = {
     islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
+    my_cities:       r => `${r.name} ${r.cityId} ${r.islandX}:${r.islandY} ${r.tgName}`.toLowerCase(),
+    enemy_buildings: r => `${r.cityName} ${r.ownerName} ${r.islandX}:${r.islandY}`.toLowerCase(),
     players:       r => `${r.name} ${r.ally} ${r.status} ${r.stateSource}`.toLowerCase(),
     state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
     entries:       r => `${r.type} ${r.url}`.toLowerCase(),
@@ -1369,6 +1391,8 @@
       const counts = await window.IkDB.countAll();
       const items = [
         { icon: '🏝', label: 'Isole',     val: counts.islands },
+        { icon: '🏠', label: 'Mie città', val: counts.my_cities },
+        { icon: '🏢', label: 'Ed.nemici', val: counts.enemy_buildings },
         { icon: '👤', label: 'Players',   val: counts.players },
         { icon: '🔔', label: 'Cambi',     val: counts.state_changes },
         { icon: '📋', label: 'JSON raw',  val: counts.entries },
@@ -1429,7 +1453,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();

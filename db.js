@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 5;
+  const DB_VERSION = 6;
   let db = null;
 
   function open() {
@@ -102,6 +102,22 @@
           s.createIndex('attacker', 'attacker', { unique: false });
           s.createIndex('defender', 'defender', { unique: false });
           s.createIndex('result',   'result',   { unique: false });
+        }
+
+        // my_cities — città del proprietario dell'account (isOwn:true)
+        // dati completi: risorse, economia, edifici, costruzioni
+        if (!d.objectStoreNames.contains('my_cities')) {
+          const s = d.createObjectStore('my_cities', { keyPath: 'cityId' });
+          s.createIndex('ownerId', 'ownerId', { unique: false });
+          s.createIndex('name',    'name',    { unique: false });
+        }
+
+        // enemy_buildings — città di altri player (isOwn:false)
+        // solo edifici + livello, associati a ownerId/ownerName
+        if (!d.objectStoreNames.contains('enemy_buildings')) {
+          const s = d.createObjectStore('enemy_buildings', { keyPath: 'cityId' });
+          s.createIndex('ownerId',   'ownerId',   { unique: false });
+          s.createIndex('ownerName', 'ownerName', { unique: false });
         }
       };
 
@@ -259,6 +275,7 @@
       'entries', 'islands', 'cities', 'resources',
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
+      'my_cities', 'enemy_buildings',
     ];
     const result = {};
     for (const s of stores) {
@@ -278,5 +295,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v5 caricato');
+  console.log('[IkDB] v6 caricato');
 })();
