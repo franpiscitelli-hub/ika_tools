@@ -1160,6 +1160,8 @@
     const popup = document.getElementById('ikp-buildings-popup');
     if (popup) popup.style.display = 'none';
   }
+
+  function startTimerTick() {
     stopTimerTick();
     timerInterval = setInterval(() => {
       if (!panelOpen) return;
