@@ -533,3 +533,25 @@
 #ikp-panel .ikp-db-table tfoot td {
   border-top: 2px solid var(--border); border-bottom: none;
 }
+
+/* ── SEZIONI EDIFICI PER POLIS ──────────────── */
+.ikp-buildings-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.ikp-buildings-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg-card);
+  user-select: none;
+}
+.ikp-buildings-header:hover {
+  background: var(--bg);
+}

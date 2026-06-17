@@ -1040,7 +1040,8 @@
       crystalMine:'💎', sulfurPit:'🔥', safehouse:'🕵️',
     };
 
-    const rows = cities.map(c => {
+    // ── Tabella principale: risorse / polis ──────────
+    const mainRows = cities.map(c => {
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const tgName  = c.tgName || '—';
       const tgPerHr = (c.tgPerHour != null) ? c.tgPerHour.toLocaleString('it') : '—';
@@ -1053,38 +1054,7 @@
         citFree = Math.round(c.citizens).toLocaleString('it');
         citBusy = Math.round(c.population - c.citizens).toLocaleString('it');
       }
-
-      // Griglia edifici inline
-      const buildings = c.buildings || [];
-      const occupied  = buildings.filter(b => b.building);
-      const emptyCount = buildings.filter(b => !b.building).length;
-
-      const bHasData = occupied.length > 0;
-      const bGrid = bHasData ? `
-        <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 0">
-          ${occupied.map(b => {
-            const icon = BICONS[b.building] || '🏗';
-            const busy = b.isBusy ? ' style="border-color:#ff9100"' : b.isMaxLevel ? ' style="border-color:#f5c842"' : '';
-            return `<div${busy} style="border:1px solid var(--border);border-radius:6px;padding:5px 7px;text-align:center;min-width:56px;font-size:11px;background:var(--bg)">
-              <div style="font-size:18px">${icon}</div>
-              <div style="color:var(--text-muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px">${b.name || b.building}</div>
-              <div style="font-weight:700">Lv${b.level}</div>
-              ${b.isBusy ? '<div style="font-size:9px">🔨</div>' : b.canUpgrade ? '<div style="font-size:9px">⬆️</div>' : b.isMaxLevel ? '<div style="font-size:9px">⭐</div>' : ''}
-            </div>`;
-          }).join('')}
-          ${Array(emptyCount).fill(0).map(() =>
-            `<div style="border:1px dashed var(--border);border-radius:6px;padding:5px 7px;text-align:center;min-width:56px;font-size:18px;color:var(--text-muted);background:var(--bg)">⬜</div>`
-          ).join('')}
-        </div>
-        <div style="font-size:11px;color:var(--text-muted);padding-bottom:6px">${occupied.length} edifici · ${emptyCount} slot vuoti</div>`
-      : `<div style="padding:10px 0;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili.<br>Visita questa città nel gioco.</div>`;
-
-      return `<tr style="cursor:pointer" onclick="(function(el){
-          const next=el.nextElementSibling;
-          if(next&&next.classList.contains('ikp-buildings-row')){
-            next.style.display=next.style.display==='none'?'':'none';
-          }
-        })(this)">
+      return `<tr>
         <td>${c.cityId}</td>
         <td>${c.name || '—'}</td>
         <td>${coords}</td>
@@ -1095,11 +1065,62 @@
         <td style="text-align:right">${sciUp}</td>
         <td style="text-align:right">${citFree}</td>
         <td style="text-align:right">${citBusy}</td>
-        <td style="text-align:center;color:var(--text-muted)">🏛</td>
-      </tr>
-      <tr class="ikp-buildings-row" style="display:none">
-        <td colspan="11" style="padding:4px 8px 8px;background:var(--bg)">${bGrid}</td>
       </tr>`;
+    }).join('');
+
+    // ── Tabella edifici: una sezione per ogni polis ──
+    const buildingsSections = cities.map(c => {
+      const coords   = (c.islandX != null && c.islandY != null) ? `[${c.islandX}:${c.islandY}]` : '';
+      const buildings = c.buildings || [];
+      const occupied  = buildings.filter(b => b.building);
+      const emptyCount = buildings.filter(b => !b.building).length;
+
+      if (!occupied.length) return `
+        <div class="ikp-buildings-section">
+          <div class="ikp-buildings-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+            🏛 ${c.name || '—'} <span style="color:var(--text-muted);font-weight:400">${coords}</span>
+            <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">▼</span>
+          </div>
+          <div style="display:none;padding:10px;font-size:12px;color:var(--text-muted)">
+            Dati edifici non ancora disponibili. Visita questa città nel gioco.
+          </div>
+        </div>`;
+
+      const bRows = occupied.map(b => {
+        const icon  = BICONS[b.building] || '🏗';
+        const stato = b.isBusy ? '🔨 In costruzione'
+                    : b.isMaxLevel ? '⭐ Livello max'
+                    : b.canUpgrade ? '⬆️ Upgrade disp.'
+                    : '—';
+        return `<tr>
+          <td>${icon} ${b.name || b.building}</td>
+          <td style="text-align:center;font-weight:700">${b.level}</td>
+          <td>${stato}</td>
+        </tr>`;
+      }).join('');
+
+      const emptyRows = Array(emptyCount).fill(0).map(() =>
+        `<tr style="color:var(--text-muted)"><td>⬜ Slot vuoto</td><td style="text-align:center">—</td><td>—</td></tr>`
+      ).join('');
+
+      return `
+        <div class="ikp-buildings-section">
+          <div class="ikp-buildings-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+            🏛 ${c.name || '—'} <span style="color:var(--text-muted);font-weight:400">${coords}</span>
+            <span style="font-size:11px;color:var(--text-muted);font-weight:400">${occupied.length} edifici · ${emptyCount} slot vuoti</span>
+            <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">▼</span>
+          </div>
+          <div style="display:none">
+            <table class="ikp-db-table" style="margin-top:4px">
+              <thead><tr>
+                <th>Edificio</th>
+                <th style="text-align:center">Livello</th>
+                <th>Stato</th>
+              </tr></thead>
+              <tbody>${bRows}${emptyRows}</tbody>
+            </table>
+          </div>
+        </div>`;
     }).join('');
 
     list.innerHTML = summaryHtml + `
@@ -1113,16 +1134,20 @@
             <th style="text-align:right">Scienziati</th>
             <th style="text-align:right">Liberi</th>
             <th style="text-align:right">Occupati</th>
-            <th></th>
           </tr></thead>
-          <tbody>${rows}</tbody>
+          <tbody>${mainRows}</tbody>
           <tfoot><tr style="font-weight:600;border-top:2px solid var(--border)">
             <td colspan="6">Totale consumo vino</td>
             <td style="text-align:right">${Math.round(totalWine).toLocaleString('it')}</td>
-            <td colspan="4"></td>
+            <td colspan="3"></td>
           </tr></tfoot>
         </table>
       </div>
+
+      <div class="ikp-card-title" style="margin-top:16px;margin-bottom:8px">
+        🏛 Edifici per polis
+      </div>
+      <div>${buildingsSections}</div>
     ` + resetBtnHtml;
   }
 
