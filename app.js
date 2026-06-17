@@ -1040,8 +1040,7 @@
       crystalMine:'💎', sulfurPit:'🔥', safehouse:'🕵️',
     };
 
-    // ── Tabella principale: risorse / polis ──────────
-    const mainRows = cities.map(c => {
+    const rows = cities.map((c, idx) => {
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const tgName  = c.tgName || '—';
       const tgPerHr = (c.tgPerHour != null) ? c.tgPerHour.toLocaleString('it') : '—';
@@ -1054,7 +1053,56 @@
         citFree = Math.round(c.citizens).toLocaleString('it');
         citBusy = Math.round(c.population - c.citizens).toLocaleString('it');
       }
-      return `<tr>
+
+      // Tabella edifici espandibile
+      const buildings  = c.buildings || [];
+      const occupied   = buildings.filter(b => b.building);
+      const emptyCount = buildings.filter(b => !b.building).length;
+      const detailId   = `ikp-brow-${idx}`;
+
+      let bContent;
+      if (!occupied.length) {
+        bContent = `<td colspan="10" style="padding:10px;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili. Visita questa città nel gioco.</td>`;
+      } else {
+        const bRows = [
+          ...occupied.map(b => {
+            const icon  = BICONS[b.building] || '🏗';
+            const stato = b.isBusy      ? '🔨 In costruzione'
+                        : b.isMaxLevel  ? '⭐ Livello max'
+                        : b.canUpgrade  ? '⬆️ Upgrade disp.'
+                        : '';
+            return `<tr>
+              <td style="padding-left:28px">${icon} ${b.name || b.building}</td>
+              <td style="text-align:center;font-weight:700">${b.level}</td>
+              <td>${stato}</td>
+              <td colspan="7"></td>
+            </tr>`;
+          }),
+          ...Array(emptyCount).fill(0).map(() =>
+            `<tr style="color:var(--text-muted)">
+              <td style="padding-left:28px">⬜ Slot vuoto</td>
+              <td style="text-align:center">—</td>
+              <td></td>
+              <td colspan="7"></td>
+            </tr>`
+          ),
+        ].join('');
+        bContent = `<td colspan="10" style="padding:0">
+          <table class="ikp-db-table" style="border-top:none">
+            <thead><tr style="background:var(--bg)">
+              <th>Edificio</th>
+              <th style="text-align:center">Livello</th>
+              <th>Stato</th>
+              <th colspan="7" style="text-align:right;font-weight:400;font-size:11px;color:var(--text-muted)">
+                ${occupied.length} edifici · ${emptyCount} slot vuoti
+              </th>
+            </tr></thead>
+            <tbody>${bRows}</tbody>
+          </table>
+        </td>`;
+      }
+
+      return `<tr style="cursor:pointer" onclick="var r=document.getElementById('${detailId}');r.style.display=r.style.display==='none'?'table-row':'none'">
         <td>${c.cityId}</td>
         <td>${c.name || '—'}</td>
         <td>${coords}</td>
@@ -1065,62 +1113,10 @@
         <td style="text-align:right">${sciUp}</td>
         <td style="text-align:right">${citFree}</td>
         <td style="text-align:right">${citBusy}</td>
+      </tr>
+      <tr id="${detailId}" style="display:none;background:var(--bg)">
+        ${bContent}
       </tr>`;
-    }).join('');
-
-    // ── Tabella edifici: una sezione per ogni polis ──
-    const buildingsSections = cities.map(c => {
-      const coords   = (c.islandX != null && c.islandY != null) ? `[${c.islandX}:${c.islandY}]` : '';
-      const buildings = c.buildings || [];
-      const occupied  = buildings.filter(b => b.building);
-      const emptyCount = buildings.filter(b => !b.building).length;
-
-      if (!occupied.length) return `
-        <div class="ikp-buildings-section">
-          <div class="ikp-buildings-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-            🏛 ${c.name || '—'} <span style="color:var(--text-muted);font-weight:400">${coords}</span>
-            <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">▼</span>
-          </div>
-          <div style="display:none;padding:10px;font-size:12px;color:var(--text-muted)">
-            Dati edifici non ancora disponibili. Visita questa città nel gioco.
-          </div>
-        </div>`;
-
-      const bRows = occupied.map(b => {
-        const icon  = BICONS[b.building] || '🏗';
-        const stato = b.isBusy ? '🔨 In costruzione'
-                    : b.isMaxLevel ? '⭐ Livello max'
-                    : b.canUpgrade ? '⬆️ Upgrade disp.'
-                    : '—';
-        return `<tr>
-          <td>${icon} ${b.name || b.building}</td>
-          <td style="text-align:center;font-weight:700">${b.level}</td>
-          <td>${stato}</td>
-        </tr>`;
-      }).join('');
-
-      const emptyRows = Array(emptyCount).fill(0).map(() =>
-        `<tr style="color:var(--text-muted)"><td>⬜ Slot vuoto</td><td style="text-align:center">—</td><td>—</td></tr>`
-      ).join('');
-
-      return `
-        <div class="ikp-buildings-section">
-          <div class="ikp-buildings-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-            🏛 ${c.name || '—'} <span style="color:var(--text-muted);font-weight:400">${coords}</span>
-            <span style="font-size:11px;color:var(--text-muted);font-weight:400">${occupied.length} edifici · ${emptyCount} slot vuoti</span>
-            <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">▼</span>
-          </div>
-          <div style="display:none">
-            <table class="ikp-db-table" style="margin-top:4px">
-              <thead><tr>
-                <th>Edificio</th>
-                <th style="text-align:center">Livello</th>
-                <th>Stato</th>
-              </tr></thead>
-              <tbody>${bRows}${emptyRows}</tbody>
-            </table>
-          </div>
-        </div>`;
     }).join('');
 
     list.innerHTML = summaryHtml + `
@@ -1135,7 +1131,7 @@
             <th style="text-align:right">Liberi</th>
             <th style="text-align:right">Occupati</th>
           </tr></thead>
-          <tbody>${mainRows}</tbody>
+          <tbody>${rows}</tbody>
           <tfoot><tr style="font-weight:600;border-top:2px solid var(--border)">
             <td colspan="6">Totale consumo vino</td>
             <td style="text-align:right">${Math.round(totalWine).toLocaleString('it')}</td>
@@ -1143,11 +1139,6 @@
           </tr></tfoot>
         </table>
       </div>
-
-      <div class="ikp-card-title" style="margin-top:16px;margin-bottom:8px">
-        🏛 Edifici per polis
-      </div>
-      <div>${buildingsSections}</div>
     ` + resetBtnHtml;
   }
 
