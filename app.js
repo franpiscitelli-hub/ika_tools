@@ -330,16 +330,6 @@
 
         <!-- ══ MIE CITTÀ ══ -->
         <div class="ikp-section" id="ikp-tab-mycities">
-          <!-- Popup edifici -->
-          <div id="ikp-buildings-popup" style="display:none">
-            <div id="ikp-buildings-popup-inner">
-              <div id="ikp-buildings-popup-header">
-                <span id="ikp-buildings-popup-title">Edifici</span>
-                <button onclick="window.IkApp.closeBuildingsPopup()">✕</button>
-              </div>
-              <div id="ikp-buildings-popup-content"></div>
-            </div>
-          </div>
           <div class="ikp-card">
             <div class="ikp-card-title">
               🏠 Le mie città
@@ -1040,6 +1030,16 @@
 
     let totalWine = 0;
 
+    const BICONS = {
+      townHall:'🏛', warehouse:'🏪', tavern:'🍺', academy:'🎓',
+      shipyard:'⚓', barracks:'⚔️', wall:'🏰', museum:'🖼',
+      palace:'👑', branchOffice:'🏢', temple:'⛩', beautification:'🌸',
+      luxuryResidence:'🏠', embassy:'📜', carpenter:'🪚',
+      glassblower:'🫙', alchemistTower:'⚗️', gunpowderTower:'💣',
+      workshop:'🔧', forester:'🌲', vineyard:'🍇', quarry:'⛏',
+      crystalMine:'💎', sulfurPit:'🔥', safehouse:'🕵️',
+    };
+
     const rows = cities.map(c => {
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const tgName  = c.tgName || '—';
@@ -1053,7 +1053,38 @@
         citFree = Math.round(c.citizens).toLocaleString('it');
         citBusy = Math.round(c.population - c.citizens).toLocaleString('it');
       }
-      return `<tr style="cursor:pointer" onclick="window.IkApp.showBuildingsPopup(${c.cityId})">
+
+      // Griglia edifici inline
+      const buildings = c.buildings || [];
+      const occupied  = buildings.filter(b => b.building);
+      const emptyCount = buildings.filter(b => !b.building).length;
+
+      const bHasData = occupied.length > 0;
+      const bGrid = bHasData ? `
+        <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 0">
+          ${occupied.map(b => {
+            const icon = BICONS[b.building] || '🏗';
+            const busy = b.isBusy ? ' style="border-color:#ff9100"' : b.isMaxLevel ? ' style="border-color:#f5c842"' : '';
+            return `<div${busy} style="border:1px solid var(--border);border-radius:6px;padding:5px 7px;text-align:center;min-width:56px;font-size:11px;background:var(--bg)">
+              <div style="font-size:18px">${icon}</div>
+              <div style="color:var(--text-muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px">${b.name || b.building}</div>
+              <div style="font-weight:700">Lv${b.level}</div>
+              ${b.isBusy ? '<div style="font-size:9px">🔨</div>' : b.canUpgrade ? '<div style="font-size:9px">⬆️</div>' : b.isMaxLevel ? '<div style="font-size:9px">⭐</div>' : ''}
+            </div>`;
+          }).join('')}
+          ${Array(emptyCount).fill(0).map(() =>
+            `<div style="border:1px dashed var(--border);border-radius:6px;padding:5px 7px;text-align:center;min-width:56px;font-size:18px;color:var(--text-muted);background:var(--bg)">⬜</div>`
+          ).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);padding-bottom:6px">${occupied.length} edifici · ${emptyCount} slot vuoti</div>`
+      : `<div style="padding:10px 0;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili.<br>Visita questa città nel gioco.</div>`;
+
+      return `<tr style="cursor:pointer" onclick="(function(el){
+          const next=el.nextElementSibling;
+          if(next&&next.classList.contains('ikp-buildings-row')){
+            next.style.display=next.style.display==='none'?'':'none';
+          }
+        })(this)">
         <td>${c.cityId}</td>
         <td>${c.name || '—'}</td>
         <td>${coords}</td>
@@ -1064,7 +1095,10 @@
         <td style="text-align:right">${sciUp}</td>
         <td style="text-align:right">${citFree}</td>
         <td style="text-align:right">${citBusy}</td>
-        <td style="text-align:center">🏛</td>
+        <td style="text-align:center;color:var(--text-muted)">🏛</td>
+      </tr>
+      <tr class="ikp-buildings-row" style="display:none">
+        <td colspan="11" style="padding:4px 8px 8px;background:var(--bg)">${bGrid}</td>
       </tr>`;
     }).join('');
 
@@ -1085,81 +1119,13 @@
           <tfoot><tr style="font-weight:600;border-top:2px solid var(--border)">
             <td colspan="6">Totale consumo vino</td>
             <td style="text-align:right">${Math.round(totalWine).toLocaleString('it')}</td>
-            <td colspan="3"></td>
+            <td colspan="4"></td>
           </tr></tfoot>
         </table>
       </div>
     ` + resetBtnHtml;
   }
 
-  // ── POPUP EDIFICI CITTÀ ──────────────────────────
-  const BUILDING_ICONS = {
-    townHall:        '🏛', warehouse:       '🏪', tavern:         '🍺',
-    academy:         '🎓', shipyard:        '⚓', barracks:       '⚔️',
-    wall:            '🏰', museum:          '🖼', palace:         '👑',
-    branchOffice:    '🏢', temple:          '⛩', beautification: '🌸',
-    luxuryResidence: '🏠', embassy:         '📜', dump:           '🗑',
-    pirateFortress:  '🏴‍☠️', forester:       '🌲', vineyard:       '🍇',
-    quarry:          '⛏', crystalMine:     '💎', sulfurPit:      '🔥',
-    carpenter:       '🪚', glassblower:     '🫙', alchemistTower: '⚗️',
-    gunpowderTower:  '💣', workshop:        '🔧', architectOffice:'📐',
-    gynaeceum:       '🧵', safehouse:       '🕵️', highRiseTower:  '🏗',
-  };
-
-  async function showBuildingsPopup(cityId) {
-    const popup   = document.getElementById('ikp-buildings-popup');
-    const title   = document.getElementById('ikp-buildings-popup-title');
-    const content = document.getElementById('ikp-buildings-popup-content');
-    if (!popup || !content || !window.IkDB) return;
-
-    const city = await window.IkDB.get('my_cities', cityId);
-    if (!city) { toast('⚠️ Dati città non disponibili'); return; }
-
-    title.textContent = `${city.name || '?'} [${city.islandX}:${city.islandY}]`;
-
-    const buildings = city.buildings || [];
-    const occupied  = buildings.filter(b => b.building && b.building !== '');
-    const empty     = buildings.filter(b => !b.building || b.building === '');
-
-    const buildingHtml = occupied.map(b => {
-      const icon      = BUILDING_ICONS[b.building] || '🏗';
-      const statIcons = [
-        b.isBusy     ? '<span title="In costruzione">🔨</span>' : '',
-        b.canUpgrade  ? '<span title="Upgrade disponibile">⬆️</span>' : '',
-        b.isMaxLevel  ? '<span title="Livello massimo">⭐</span>' : '',
-      ].filter(Boolean).join('');
-      return `
-        <div class="ikp-building-card ${b.isBusy ? 'busy' : ''} ${b.isMaxLevel ? 'maxlvl' : ''}">
-          <div class="ikp-building-icon">${icon}</div>
-          <div class="ikp-building-name">${b.name || b.building}</div>
-          <div class="ikp-building-level">Lv ${b.level}</div>
-          ${statIcons ? `<div class="ikp-building-status">${statIcons}</div>` : ''}
-        </div>`;
-    }).join('');
-
-    const emptyHtml = empty.length ? `
-      <div style="margin-top:12px;font-size:12px;color:var(--text-muted);font-weight:600">
-        📭 Slot vuoti (${empty.length})
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
-        ${empty.map(() => `<div class="ikp-building-card empty">⬜</div>`).join('')}
-      </div>` : '';
-
-    content.innerHTML = `
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-        ${occupied.length} edifici · ${empty.length} slot vuoti
-      </div>
-      <div class="ikp-buildings-grid">${buildingHtml}</div>
-      ${emptyHtml}
-    `;
-
-    popup.style.display = 'flex';
-  }
-
-  function closeBuildingsPopup() {
-    const popup = document.getElementById('ikp-buildings-popup');
-    if (popup) popup.style.display = 'none';
-  }
 
   function startTimerTick() {
     stopTimerTick();
@@ -1765,7 +1731,6 @@
   function onIslandsUpdated(n)  { if (panelOpen && activeTab === 'map') loadMapData(); updateStatusBar(); }
   function onCitiesUpdated(id)  { if (panelOpen && activeTab === 'account') renderAccount(); }
   function onResourcesUpdated() {
-    if (window.IkNotifier) window.IkNotifier.scheduleWineTimers();
     if (!panelOpen) return;
     if (activeTab === 'account')  renderAccount();
     if (activeTab === 'timers')   renderWineTimers();
@@ -2036,7 +2001,6 @@
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
     renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
     renderMyCities, resetMyCities, renderWineTimers,
-    showBuildingsPopup, closeBuildingsPopup,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
   };
