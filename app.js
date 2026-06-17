@@ -7,6 +7,7 @@
 
   // ── STATO ───────────────────────────────────
   let panelOpen    = false;
+  let saveAllRaw   = false; // toggle: salva tutti i JSON intercettati in entries
   let activeTab    = 'map';
   let sessionCount = 0;
   let mapIslands   = [];
@@ -134,8 +135,29 @@
       const meta   = { date: new Date().toISOString() };
       const result = await window.IkParsers.parse(url, parsed, meta);
       log(`#${sessionCount} [${result.type}]`);
+
+      // Se "salva tutti i JSON grezzi" è attivo, salva anche quelli già parsati
+      if (saveAllRaw && window.IkDB && result.type !== 'raw') {
+        try {
+          let actions = null;
+          if (Array.isArray(parsed)) {
+            actions = [...new Set(
+              parsed.filter(it => Array.isArray(it)).map(it => String(it[0]))
+            )].join(', ');
+          }
+          await window.IkDB.add('entries', {
+            url, type: 'raw',
+            date:         meta.date,
+            server:       window.location.hostname,
+            data:         parsed,
+            _parserName:  result.type,
+            _parserCount: result.parsed || 0,
+            _actions:     actions,
+          });
+        } catch {}
+      }
+
       // Auto-cleanup: elimina raw entries più vecchie di 30 minuti
-      // I dati strutturati sono già nei rispettivi store
       if (sessionCount % 10 === 0 && window.IkDB) {
         window.IkDB.pruneRawByAge(30).catch(() => {});
       }
@@ -435,6 +457,21 @@
             <div id="ikp-import-log" style="display:none;margin-top:10px;padding:8px;
               background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
               max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px"></div>
+          </div>
+          <div class="ikp-card">
+            <div class="ikp-card-title">🗂 Cattura JSON</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+              Quando attivo, salva nel DB tutti i JSON intercettati (anche quelli già processati dai parser). Utile per analizzare nuovi tipi di dati. Disattiva quando hai finito per non riempire il DB.
+            </p>
+            <div style="display:flex;align-items:center;gap:10px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+                <input type="checkbox" id="ikp-save-all-raw"
+                  onchange="window.IkApp.toggleSaveAllRaw(this.checked)"
+                  style="width:18px;height:18px;cursor:pointer">
+                Salva tutti i JSON grezzi
+              </label>
+              <span id="ikp-save-all-status" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
           </div>
           <div class="ikp-card">
             <div class="ikp-card-title">💾 Storage</div>
@@ -1842,6 +1879,10 @@
     // 5. Vista iniziale mappa centrata
     mapView = { x: 50, y: 25, scale: 5 };
 
+    // Ripristina impostazioni utente
+    saveAllRaw = localStorage.getItem('ikp_save_all_raw') === '1';
+    if (saveAllRaw) log('⚠️ saveAllRaw ON — tutti i JSON verranno salvati');
+
     log('✅ Companion v3.2.5 pronto su', window.location.hostname);
   }
 
@@ -1859,7 +1900,26 @@
         : Notification.permission === 'denied'  ? '❌ Negate'
         : '⏳ Non impostate';
     }
+    // Ripristina stato toggle saveAllRaw
+    const cb = document.getElementById('ikp-save-all-raw');
+    if (cb) cb.checked = saveAllRaw;
+    updateSaveAllStatus();
     updateStorageInfo();
+  }
+
+  function toggleSaveAllRaw(enabled) {
+    saveAllRaw = enabled;
+    localStorage.setItem('ikp_save_all_raw', enabled ? '1' : '0');
+    updateSaveAllStatus();
+    toast(enabled ? '🗂 Cattura JSON attiva' : '🗂 Cattura JSON disattivata');
+    log(enabled ? '⚠️ saveAllRaw ON — tutti i JSON verranno salvati' : 'saveAllRaw OFF');
+  }
+
+  function updateSaveAllStatus() {
+    const el = document.getElementById('ikp-save-all-status');
+    if (!el) return;
+    el.textContent = saveAllRaw ? '🟠 Attiva — i JSON vengono salvati' : '⚫ Non attiva';
+    el.style.color  = saveAllRaw ? '#ff9100' : 'var(--text-muted)';
   }
 
   async function updateStorageInfo() {
@@ -2011,6 +2071,7 @@
     init, toggle, toast, drawMap, mapReset, mapZoom,
     applyFilters, clearFilters, goToMe,
     closePopup, saveMyId, askNotifPerm, pruneOld,
+    toggleSaveAllRaw,
     clearDB, clearChanges, importFiles, importLog,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
     dbSearch, clearRaw, renderAccount, selectCity,
