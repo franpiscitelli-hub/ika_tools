@@ -69,9 +69,7 @@
     // Avviso finale
     const handle = setTimeout(() => {
       notify(
-        type === 'fleet_enemy' ? '⚔️ ATTACCO IN ARRIVO' :
-        type === 'wine'        ? '🍷 VINO ESAURITO' :
-        '✅ Completato',
+        type === 'fleet_enemy' ? '⚔️ ATTACCO IN ARRIVO' : '✅ Completato',
         label,
         { id, urgent }
       );
@@ -97,9 +95,7 @@
   // ── LISTA TIMER ATTIVI ───────────────────────
   function getActive() {
     const now = Date.now();
-    return Array.from(pending.entries())
-      .filter(([id]) => !id.endsWith('_2h'))  // warn interni non visibili in UI
-      .map(([id, t]) => ({
+    return Array.from(pending.entries()).map(([id, t]) => ({
       id,
       label:   t.label,
       type:    t.type,
@@ -153,70 +149,8 @@
       }
 
       log(`Ripristinati: ${constructions.length} costruzioni, ${research.length} ricerche, ${fleets.filter(f=>f.isEnemy).length} flotte nemiche`);
-
-      // Ripristina anche timer vino
-      await scheduleWineTimers();
     } catch (e) {
       log('Errore ripristino timer:', e.message);
-    }
-  }
-
-  // ── TIMER VINO ───────────────────────────────
-  // Calcola per ogni polis quando finisce il vino e pianifica:
-  //   - notifica urgente a 2 ore dall'esaurimento
-  //   - notifica critica all'esaurimento
-  // Chiamato ogni volta che arrivano nuovi dati risorse da parser_globaldata.
-  async function scheduleWineTimers() {
-    if (!window.IkDB) return;
-    try {
-      let cities = await window.IkDB.getAll('my_cities');
-      // Filtra record validi con dati vino
-      cities = cities.filter(c =>
-        (c.name || c.islandX != null) &&
-        c.wine != null &&
-        c.wineSpendings > 0
-      );
-
-      for (const c of cities) {
-        const hoursLeft = c.wine / c.wineSpendings;
-        const endTime   = Date.now() + hoursLeft * 3600 * 1000;
-        const timerId   = `wine_${c.cityId}`;
-        const label     = `${c.name || `[${c.islandX}:${c.islandY}]`} — vino esaurito`;
-
-        // Cancella timer vino precedente per questa città
-        cancelTimer(timerId);
-        cancelTimer(timerId + '_2h');
-
-        // Notifica 2 ore prima (solo se mancano più di 2h)
-        if (hoursLeft > 2) {
-          const warn2hMs = (hoursLeft - 2) * 3600 * 1000;
-          const warn2h = setTimeout(() => {
-            notify('🍷 Vino quasi esaurito', `${c.name || `[${c.islandX}:${c.islandY}]`} — 2 ore rimaste`, {
-              id: timerId + '_2h', urgent: false,
-            });
-          }, warn2hMs);
-          timers.set(timerId + '_2h', warn2hMs > 0 ? warn2h : null);
-          pending.set(timerId + '_2h', {
-            label: `${c.name} — vino 2h`,
-            endTime: Date.now() + warn2hMs,
-            type: 'wine_warn',
-            urgent: false,
-          });
-        }
-
-        // Notifica critica all'esaurimento
-        scheduleTimer({
-          id:      timerId,
-          label,
-          endTime,
-          type:    'wine',
-          urgent:  true,
-        });
-
-        log(`Vino [${c.name}]: ${hoursLeft.toFixed(1)}h rimanenti`);
-      }
-    } catch (e) {
-      log('Errore timer vino:', e.message);
     }
   }
 
@@ -229,7 +163,6 @@
     getActive,
     formatTime,
     restoreTimers,
-    scheduleWineTimers,
   };
 
   log('Modulo caricato');
