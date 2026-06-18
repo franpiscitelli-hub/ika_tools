@@ -1016,8 +1016,40 @@
     let cities = await window.IkDB.getAll('my_cities');
     const summary = await window.IkDB.get('account_summary', 'main');
 
-    // Filtra record fantasma: senza nome e senza coordinate
-    // (es. cityId residui da fallback errati di versioni precedenti)
+    // Pre-carica building_data indicizzato per buildingType
+    const allBuildingData = await window.IkDB.getAll('building_data');
+    const buildingDataByType = new Map(allBuildingData.map(b => [b.buildingType, b]));
+
+    // Edifici che riducono il costo di costruzione (buildingType → risorsa ridotta)
+    const REDUCTION_MAP = {
+      carpenter:       'wood',       // carpenteria → legno
+      architectOffice: 'tradegood',  // ufficio architetto → marmo/bene
+      vineyard:        'wine',       // cantina → vino (non usato nelle costruzioni ma previsto)
+      glassblower:     'tradegood',  // ottico → cristallo (bene commerciale)
+      gunpowderTower:  'tradegood',  // zona pirotecnica → zolfo (bene commerciale)
+    };
+
+    // Calcola % riduzione per ogni risorsa dato l'elenco edifici di una città
+    function getReductions(buildings) {
+      const red = { wood: 0, tradegood: 0 };
+      for (const b of (buildings || [])) {
+        const resource = REDUCTION_MAP[b.building];
+        if (resource && b.level > 0) {
+          red[resource] = Math.min(50, red[resource] + b.level);
+        }
+      }
+      return red;
+    }
+
+    // Formatta numero grande
+    function fmtN(n) {
+      if (n == null || isNaN(n)) return '—';
+      if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
+      if (n >= 1e3) return Math.round(n).toLocaleString('it');
+      return String(Math.round(n));
+    }
+
+    // Filtra record fantasma
     cities = cities.filter(c => c.name || (c.islandX != null && c.islandY != null));
 
     if (!cities.length && !summary) {
@@ -1098,6 +1130,9 @@
       const emptyCount = buildings.filter(b => !b.building).length;
       const detailId   = `ikp-brow-${idx}`;
 
+      // Riduzioni costo per questa città
+      const red = getReductions(buildings);
+
       let bContent;
       if (!occupied.length) {
         bContent = `<td colspan="10" style="padding:10px;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili. Visita questa città nel gioco.</td>`;
@@ -1109,11 +1144,43 @@
                         : b.isMaxLevel  ? '⭐ Livello max'
                         : b.canUpgrade  ? '⬆️ Upgrade disp.'
                         : '';
+
+            // Costo prossimo livello da building_data
+            let costHtml = '<span style="color:var(--text-muted)">—</span>';
+            if (!b.isMaxLevel) {
+              const bd = buildingDataByType.get(b.building);
+              if (bd) {
+                const nextLevel = bd.levels?.find(l => l.level === b.level + 1);
+                if (nextLevel) {
+                  const woodBase = nextLevel.wood || 0;
+                  const tgBase   = nextLevel.tradegood || 0;
+                  // Applica riduzioni (mai sopra 50%)
+                  const woodFinal = woodBase * (1 - red.wood / 100);
+                  const tgFinal   = tgBase   * (1 - red.tradegood / 100);
+                  const parts = [];
+                  if (woodFinal > 0) {
+                    const reduced = red.wood > 0;
+                    parts.push(`🪵 ${fmtN(woodFinal)}${reduced ? ` <span style="color:#4caf50;font-size:10px">(-${red.wood}%)</span>` : ''}`);
+                  }
+                  if (tgFinal > 0) {
+                    const reduced = red.tradegood > 0;
+                    parts.push(`🔨 ${fmtN(tgFinal)}${reduced ? ` <span style="color:#4caf50;font-size:10px">(-${red.tradegood}%)</span>` : ''}`);
+                  }
+                  if (nextLevel.time) parts.push(`⏱ ${nextLevel.time}`);
+                  costHtml = parts.join(' &nbsp;');
+                } else if (bd.levels?.length > 0) {
+                  costHtml = '<span style="color:var(--text-muted);font-size:11px">Dati non disp.</span>';
+                }
+              } else {
+                costHtml = '<span style="color:var(--text-muted);font-size:11px">Apri aiuto edificio</span>';
+              }
+            }
+
             return `<tr>
               <td style="padding-left:28px">${icon} ${b.name || b.building}</td>
               <td style="text-align:center;font-weight:700">${b.level}</td>
               <td>${stato}</td>
-              <td colspan="7"></td>
+              <td style="font-size:12px">${costHtml}</td>
             </tr>`;
           }),
           ...Array(emptyCount).fill(0).map(() =>
@@ -1121,22 +1188,28 @@
               <td style="padding-left:28px">⬜ Slot vuoto</td>
               <td style="text-align:center">—</td>
               <td></td>
-              <td colspan="7"></td>
+              <td></td>
             </tr>`
           ),
         ].join('');
+
+        // Mostra riduzioni attive per questa città
+        const redNote = [
+          red.wood > 0      ? `🪵 legno -${red.wood}%` : '',
+          red.tradegood > 0 ? `🔨 bene -${red.tradegood}%` : '',
+        ].filter(Boolean).join(' · ');
+
         bContent = `<td colspan="10" style="padding:0">
           <table class="ikp-db-table" style="border-top:none">
             <thead><tr style="background:var(--bg)">
               <th>Edificio</th>
-              <th style="text-align:center">Livello</th>
+              <th style="text-align:center">Lv</th>
               <th>Stato</th>
-              <th colspan="7" style="text-align:right;font-weight:400;font-size:11px;color:var(--text-muted)">
-                ${occupied.length} edifici · ${emptyCount} slot vuoti
-              </th>
+              <th>Costo prossimo livello${redNote ? ` <span style="color:#4caf50;font-weight:400;font-size:10px">(${redNote})</span>` : ''}</th>
             </tr></thead>
             <tbody>${bRows}</tbody>
           </table>
+          <div style="font-size:11px;color:var(--text-muted);padding:4px 8px">${occupied.length} edifici · ${emptyCount} slot vuoti</div>
         </td>`;
       }
 
