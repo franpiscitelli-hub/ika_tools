@@ -395,7 +395,7 @@
         <div class="ikp-section" id="ikp-tab-db">
 
           <!-- Stats compatte -->
-          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;
+          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;
                gap:8px;margin-bottom:12px"></div>
 
           <!-- Ricerca -->
@@ -404,6 +404,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
               <select id="ikp-db-store" class="ikp-input" style="flex:1;min-width:140px"
                       onchange="window.IkApp.dbSearch()">
+                <option value="building_data">🏗 Dati edifici</option>
                 <option value="islands">🏝 Isole</option>
                 <option value="my_cities">🏠 Mie città</option>
                 <option value="account_summary">💰 Riepilogo account</option>
@@ -1496,6 +1497,14 @@
 
   // Configurazione colonne per ogni store
   const STORE_COLS = {
+    building_data: [
+      { k: 'buildingId',   label: 'ID' },
+      { k: 'name',         label: 'Edificio' },
+      { k: 'buildingType', label: 'Tipo' },
+      { k: 'levelCount',   label: 'Livelli' },
+      { k: 'requirement',  label: 'Requisito' },
+      { k: 'updated',      label: 'Agg.' },
+    ],
     islands: [
       { k: 'coords',      label: 'Coord' },
       { k: 'name',        label: 'Nome' },
@@ -1561,6 +1570,7 @@
   };
 
   const STORE_SEARCH = {
+    building_data: r => `${r.name} ${r.buildingType} ${r.requirement}`.toLowerCase(),
     islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
     my_cities:       r => `${r.name} ${r.cityId} ${r.islandX}:${r.islandY} ${r.tgName}`.toLowerCase(),
     enemy_buildings: r => `${r.cityName} ${r.ownerName} ${r.islandX}:${r.islandY}`.toLowerCase(),
@@ -1700,6 +1710,7 @@
     if (statsEl && window.IkDB) {
       const counts = await window.IkDB.countAll();
       const items = [
+        { icon: '🏗', label: 'Edifici',   val: counts.building_data },
         { icon: '🏝', label: 'Isole',     val: counts.islands },
         { icon: '🏠', label: 'Mie città', val: counts.my_cities },
         { icon: '🏢', label: 'Ed.nemici', val: counts.enemy_buildings },
@@ -1763,7 +1774,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();

@@ -44,6 +44,7 @@
       'parser_ikalogs.js',
       'parser_globaldata.js',
       'parser_ranking.js',
+      'parser_buildingdetail.js',
     ];
 
     for (const file of subParsers) {

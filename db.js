@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 7;
+  const DB_VERSION = 8;
   let db = null;
 
   function open() {
@@ -124,6 +124,14 @@
         // record unico, keyPath fisso 'id' = 'main'
         if (!d.objectStoreNames.contains('account_summary')) {
           d.createObjectStore('account_summary', { keyPath: 'id' });
+        }
+
+        // building_data — dati costruzione/caratteristiche edifici per livello
+        // keyPath: buildingId (numero intero, da URL buildingId=N)
+        if (!d.objectStoreNames.contains('building_data')) {
+          const s = d.createObjectStore('building_data', { keyPath: 'buildingId' });
+          s.createIndex('name',         'name',         { unique: false });
+          s.createIndex('buildingType', 'buildingType', { unique: false });
         }
       };
 
@@ -281,7 +289,7 @@
       'entries', 'islands', 'cities', 'resources',
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
-      'my_cities', 'enemy_buildings', 'account_summary',
+      'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
     ];
     const result = {};
     for (const s of stores) {
@@ -301,5 +309,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v7 caricato');
+  console.log('[IkDB] v8 caricato');
 })();
