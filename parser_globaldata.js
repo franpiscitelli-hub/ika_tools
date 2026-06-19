@@ -39,16 +39,48 @@
 
     for (const item of data) {
       if (!Array.isArray(item) || item.length < 2) continue;
-      if (item[0] !== 'updateGlobalData') continue;
-      const payload = item[1];
-      if (!payload || typeof payload !== 'object') continue;
 
-      if (payload.headerData)     count += await parseHeader(payload.headerData);
-      if (payload.backgroundData) count += await parseBackground(payload.backgroundData);
+      if (item[0] === 'updateGlobalData') {
+        const payload = item[1];
+        if (!payload || typeof payload !== 'object') continue;
+        if (payload.headerData)     count += await parseHeader(payload.headerData);
+        if (payload.backgroundData) count += await parseBackground(payload.backgroundData);
+      }
+
+      if (item[0] === 'changeView') {
+        count += parseChangeView(item[1]);
+      }
     }
 
     if (count === 0) return { parsed: 0, parserName: 'globaldata' };
     return { parsed: count, parserName: 'globaldata' };
+  }
+
+  // ── changeView: estrae nome player da optionsAccount ──
+  function parseChangeView(payload) {
+    // payload = [ viewName, htmlString, extras ]
+    if (!Array.isArray(payload) || payload[0] !== 'optionsAccount') return 0;
+    const html = typeof payload[1] === 'string' ? payload[1] : '';
+
+    // Estrae il nome dal campo input: name="name" value="..."
+    const nameMatch = html.match(/name=["']name["'][^>]*value=["']([^"']+)["']/);
+    if (!nameMatch) return 0;
+
+    const playerName = nameMatch[1].trim();
+    if (!playerName) return 0;
+
+    // Salva in localStorage (stessa chiave usata da saveMyId)
+    const existing = localStorage.getItem('ik_my_name');
+    if (!existing) {
+      // Solo se non già impostato manualmente dall'utente
+      localStorage.setItem('ik_my_name', playerName);
+      console.log('[parser_globaldata] Nome player auto-rilevato:', playerName);
+    }
+
+    // Notifica l'app per aggiornare la UI
+    window.IkApp?.onPlayerNameDetected?.(playerName);
+
+    return 1;
   }
 
   // ── headerData: città attiva (sempre propria) ───

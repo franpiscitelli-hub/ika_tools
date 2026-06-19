@@ -514,12 +514,16 @@
     mapCanvas.addEventListener('click',       onMapClick);
     mapCanvas.addEventListener('wheel',       e => { mapZoom(e.deltaY < 0 ? 1.15 : 0.87); }, { passive: true });
 
-    // Carica myPlayerId salvato
+    // Carica myPlayerId e myPlayerName salvati
     myPlayerId   = Number(localStorage.getItem('ik_my_pid')) || null;
     myPlayerName = localStorage.getItem('ik_my_name') || null;
     if (myPlayerId) {
       const el = document.getElementById('ikp-my-pid');
       if (el) el.value = myPlayerId;
+    }
+    if (myPlayerName) {
+      const el = document.getElementById('ikp-my-name');
+      if (el) el.value = myPlayerName;
     }
 
     log('UI pronta');
@@ -1974,7 +1978,7 @@
 
   function loadSettingsUI() {
     const nameEl = document.getElementById('ikp-my-name');
-    if (nameEl && myPlayerName) nameEl.value = myPlayerName;
+    if (nameEl && myPlayerName && !nameEl.value.trim()) nameEl.value = myPlayerName;
     const pidEl = document.getElementById('ikp-my-pid');
     if (pidEl && myPlayerId) pidEl.value = myPlayerId;
     const st = document.getElementById('ikp-notif-status');
@@ -2151,6 +2155,31 @@
     if (total > 0) toast('✅ Importati ' + total + ' record');
   }
 
+  // ── AUTOFILL PROFILO ─────────────────────────
+  // Chiamato dal parser quando rileva il nome dal menù optionsAccount
+  function onPlayerNameDetected(name) {
+    if (!name) return;
+
+    // Aggiorna stato interno solo se non già impostato dall'utente
+    if (!myPlayerName) {
+      myPlayerName = name;
+      log('✅ Nome player rilevato automaticamente: ' + name);
+    }
+
+    // Aggiorna il campo input nella UI se è visibile e vuoto
+    const nameEl = document.getElementById('ikp-my-name');
+    if (nameEl && !nameEl.value.trim()) {
+      nameEl.value = name;
+      // Mostra feedback visivo
+      const info = document.getElementById('ikp-my-pid-info');
+      if (info) {
+        info.textContent = '🔍 Nome rilevato automaticamente — premi Salva per confermare';
+        info.style.color = 'var(--orange, #ff9100)';
+      }
+      toast('🔍 Nome rilevato: ' + name + ' — premi Salva per confermare');
+    }
+  }
+
   window.IkApp = {
     init, toggle, toast, drawMap, mapReset, mapZoom,
     applyFilters, clearFilters, goToMe,
@@ -2164,6 +2193,7 @@
     renderMyCities, resetMyCities, renderWineTimers,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
+    onPlayerNameDetected,
   };
   log('Modulo caricato');
 })();
