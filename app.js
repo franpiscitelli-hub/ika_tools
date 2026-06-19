@@ -313,26 +313,28 @@
           <div id="ikp-map-wrap">
             <canvas id="ikp-map-canvas" height="575"></canvas>
           </div>
-          <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:10px;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px;flex-wrap:wrap">
             <button class="ikp-btn small" onclick="window.IkApp.mapReset()">⌂ Reset</button>
             <button class="ikp-btn small" onclick="window.IkApp.mapZoom(1.4)">＋ Zoom</button>
             <button class="ikp-btn small" onclick="window.IkApp.mapZoom(0.7)">－ Zoom</button>
             <button class="ikp-btn small outline" onclick="window.IkApp.goToMe()">📍 Vai a me</button>
           </div>
+          <!-- ── LEGENDA (tra mappa e popup) ── -->
+          <div class="ikp-map-legend">
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#c9b182"></div>Vuota</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#7a5c35"></div>Player</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00e676"></div>Mio</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#c6ff00"></div>Alleato</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff9100"></div>🟠&nbsp;Player</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#e91e8c"></div>🩷&nbsp;Alleanza</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#7c4dff"></div>🟣&nbsp;Rif.</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff1744"></div>🔴&nbsp;Entrambi</div>
+          </div>
+          <!-- ── POPUP POLIS ISOLA ── -->
           <div id="ikp-island-popup">
             <div id="ikp-popup-content">
               <div class="ikp-empty"><div class="ikp-empty-icon">🏝</div><p>Seleziona un'isola sulla mappa per vedere le sue polis.</p></div>
             </div>
-          </div>
-          <div class="ikp-map-legend">
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#c9b182"></div> Isola vuota</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#7a5c35"></div> Con player</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00e676"></div> Mio</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00bcd4"></div> Alleato</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff9100"></div> 🟠 Player/isola</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#e91e8c"></div> 🩷 Alleanza</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#7c4dff"></div> 🟣 Riferimento</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff1744"></div> 🔴 Entrambi</div>
           </div>
         </div>
 
@@ -516,16 +518,12 @@
     mapCanvas.addEventListener('click',       onMapClick);
     mapCanvas.addEventListener('wheel',       e => { mapZoom(e.deltaY < 0 ? 1.15 : 0.87); }, { passive: true });
 
-    // Carica myPlayerId e myPlayerName salvati
+    // Carica myPlayerId salvato
     myPlayerId   = Number(localStorage.getItem('ik_my_pid')) || null;
     myPlayerName = localStorage.getItem('ik_my_name') || null;
     if (myPlayerId) {
       const el = document.getElementById('ikp-my-pid');
       if (el) el.value = myPlayerId;
-    }
-    if (myPlayerName) {
-      const el = document.getElementById('ikp-my-name');
-      if (el) el.value = myPlayerName;
     }
 
     log('UI pronta');
@@ -657,18 +655,17 @@
 
   // ── DRAW MAP ─────────────────────────────────
   // Colori isola — tutti distinti su sfondo azzurro #6ec6e8
-  const COLOR_EMPTY        = '#c9b182';  // sabbia — isola vuota
-  const COLOR_CITY         = '#7a5c35';  // marrone scuro — con player
-  const COLOR_ME           = '#00e676';  // verde brillante — mia polis
-  const COLOR_ALLY         = '#00bcd4';  // ciano/turchese — alleato
-  const COLOR_FILTER_NAME  = '#ff9100';  // arancione — filtro player/isola
-  const COLOR_FILTER_ALLY  = '#e91e8c';  // magenta/rosa — filtro alleanza
-  const COLOR_REF          = '#7c4dff';  // viola — riferimento
-  const COLOR_BOTH         = '#ff1744';  // rosso — filtro + riferimento insieme
-  // Alias per compatibilità con la legenda esistente
-  const COLOR_FILTER = COLOR_FILTER_NAME;
+  const COLOR_EMPTY       = '#c9b182';  // sabbia         — isola vuota
+  const COLOR_CITY        = '#7a5c35';  // marrone scuro  — con player
+  const COLOR_ME          = '#00e676';  // verde brillante — mia polis
+  const COLOR_ALLY        = '#c6ff00';  // lime brillante — alleato
+  const COLOR_FILTER_NAME = '#ff9100';  // arancione       — filtro 🟠 player/isola
+  const COLOR_FILTER_ALLY = '#e91e8c';  // magenta/rosa    — filtro 🩷 alleanza
+  const COLOR_REF         = '#7c4dff';  // viola           — riferimento
+  const COLOR_BOTH        = '#ff1744';  // rosso           — filtro + rif. insieme
+  const COLOR_FILTER      = COLOR_FILTER_NAME; // alias legacy
 
-  // Restituisce l'alleanza del proprio account (stringa tag, lowercase)
+  // Restituisce il tag alleanza del proprio account (lowercase), o null
   function getMyAlly() {
     if (!myPlayerName) return null;
     const pl = mapPlayers.get(myPlayerName.toLowerCase());
@@ -707,7 +704,8 @@
       if (p?.name) nameToState.set(p.name.toLowerCase(), p.status || p.state || 'active');
     }
 
-    const myAlly  = getMyAlly();  // tag alleanza propria (lowercase) o null
+    const myNameLow = myPlayerName ? myPlayerName.toLowerCase() : null;
+    const myAlly    = getMyAlly(); // tag alleanza propria (lowercase) o null
     const r = Math.max(2, s * 0.45);
 
     for (const isl of mapIslands) {
@@ -718,57 +716,52 @@
       const hasCities = cities.length > 0;
 
       let isMe           = false;
-      let hasAlly        = false;   // alleato sulla stessa isola
-      let matchPlayerSrc = false;   // filtro 🟠 player/isola/stato (campo verde)
-      let matchAllySrc   = false;   // filtro 🩷 alleanza (campo verde — solo allyFilter)
-      let matchRef       = false;   // filtro 🟣 riferimento (campo azzurro)
+      let hasAlly        = false;  // almeno un alleato sulla isola (non mio)
+      let matchPlayerSrc = false;  // filtro 🟠 player/isola/stato
+      let matchAllySrc   = false;  // filtro 🩷 alleanza
+      let matchRef       = false;  // filtro 🟣 riferimento
 
       for (const city of cities) {
-        const pname  = (city.player_name || '').toLowerCase();
-        const ally   = (city.ally_name   || '').toLowerCase();
-        // Recupera ally aggiornato dal DB players (più affidabile di city.ally_name)
-        const pl     = mapPlayers.get(pname);
-        const allyDb = (pl?.ally || '').toLowerCase();
-        const effectiveAlly = allyDb || ally;
-        const pstate = nameToState.get(pname) || 'active';
+        const pname     = (city.player_name || '').toLowerCase();
+        const pl        = mapPlayers.get(pname);
+        const allyDb    = (pl?.ally || '').toLowerCase();
+        const allyRaw   = (city.ally_name || '').toLowerCase();
+        const allyEff   = allyDb || allyRaw; // preferisce DB (aggiornato da ranking)
+        const pstate    = nameToState.get(pname) || 'active';
 
-        // Mio player
-        if (myPlayerName && pname === myPlayerName.toLowerCase()) isMe = true;
+        if (myNameLow && pname === myNameLow)                     isMe = true;
+        if (myAlly && allyEff === myAlly && pname !== myNameLow)  hasAlly = true;
 
-        // Alleato (stessa alleanza del proprio account)
-        if (myAlly && effectiveAlly && effectiveAlly === myAlly && !isMe) hasAlly = true;
+        // Filtro 🟠 player/isola (campo "Player o isola")
+        if (searchFilter && (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter))) matchPlayerSrc = true;
+        if (stateFilter  && pstate === stateFilter)               matchPlayerSrc = true;
+        if (noAllyFilter && !allyEff)                             matchPlayerSrc = true;
 
-        // Filtro campo "player/isola" (verde) — player name + nome isola + stato
-        if (searchFilter) {
-          if (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter)) matchPlayerSrc = true;
-        }
-        if (stateFilter && pstate === stateFilter)  matchPlayerSrc = true;
-        if (noAllyFilter && !effectiveAlly)          matchPlayerSrc = true;
+        // Filtro 🩷 alleanza (campo "Alleanza")
+        if (allyFilter && allyEff === allyFilter)                 matchAllySrc = true;
 
-        // Filtro campo "alleanza" (verde) — solo tag alleanza esatto
-        if (allyFilter && effectiveAlly === allyFilter) matchAllySrc = true;
-
-        // Filtro riferimento (azzurro)
-        if (refFilter && (pname.includes(refFilter) || effectiveAlly.includes(refFilter))) matchRef = true;
+        // Filtro 🟣 riferimento (campo "Riferimento")
+        if (refFilter && (pname.includes(refFilter) || allyEff.includes(refFilter))) matchRef = true;
       }
 
-      // Determina colore con priorità: me > entrambi filtri > filtro-player > filtro-ally > ref > alleato > con-player > vuoto
       const matchFilter = matchPlayerSrc || matchAllySrc;
-      let color  = hasCities ? COLOR_CITY : COLOR_EMPTY;
-      let glow   = false;
+
+      // Priorità colore: me > entrambi-filtri > filtro-player > filtro-ally > rif. > alleato > city > vuota
+      let color = hasCities ? COLOR_CITY : COLOR_EMPTY;
+      let glow  = false;
 
       if (isMe) {
-        color = COLOR_ME; glow = true;
+        color = COLOR_ME;          glow = true;
       } else if (matchFilter && matchRef) {
-        color = COLOR_BOTH; glow = true;
+        color = COLOR_BOTH;        glow = true;
       } else if (matchPlayerSrc) {
         color = COLOR_FILTER_NAME; glow = true;
       } else if (matchAllySrc) {
         color = COLOR_FILTER_ALLY; glow = true;
       } else if (matchRef) {
-        color = COLOR_REF; glow = true;
+        color = COLOR_REF;         glow = true;
       } else if (hasAlly) {
-        color = COLOR_ALLY; glow = false;
+        color = COLOR_ALLY;        glow = true;
       }
 
       if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 10; }
@@ -870,8 +863,9 @@
   function showTooltip(sx, sy, isl) {
     const tt = document.getElementById('ikp-map-tooltip');
     if (!tt) return;
-    const cities = isl.cities || [];
-    const myAlly = getMyAlly();
+    const cities  = isl.cities || [];
+    const myAlly  = getMyAlly();
+    const myNameL = myPlayerName ? myPlayerName.toLowerCase() : null;
     tt.innerHTML = `
       <div class="tt-title">${isl.name || `[${isl.x}:${isl.y}]`} [${isl.x}:${isl.y}]</div>
       ${isl.tgName     ? `<div class="tt-row"><span class="tt-label">Risorsa</span><span class="tt-value">${isl.tgName}</span></div>` : ''}
@@ -879,16 +873,17 @@
       ${isl.woodLevel  ? `<div class="tt-row"><span class="tt-label">Falegnameria</span><span class="tt-value">Lv${isl.woodLevel}</span></div>` : ''}
       <div class="tt-row"><span class="tt-label">Polis</span><span class="tt-value">${cities.length}</span></div>
       ${cities.slice(0,5).map(c => {
-        const pl = mapPlayers.get((c.player_name||'').toLowerCase());
-        const stIcon = { active:'🟢', inactive:'🟡', vacation:'🔵', banned:'🔴' }[pl?.status||pl?.state] || '⚪';
-        const ally   = pl?.ally || c.ally_name || '—';
+        const pname   = (c.player_name||'').toLowerCase();
+        const pl      = mapPlayers.get(pname);
+        const stIcon  = { active:'🟢', inactive:'🟡', vacation:'🔵', banned:'🔴' }[pl?.status||pl?.state] || '⚪';
+        const ally    = pl?.ally || c.ally_name || '—';
         const allyLow = (pl?.ally || c.ally_name || '').toLowerCase();
-        const score  = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
+        const score   = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
         const scoreLabel = (score != null) ? Number(score).toLocaleString('it') : '—';
-        const isAlly = myAlly && allyLow === myAlly;
-        const isMe   = myPlayerName && (c.player_name||'').toLowerCase() === myPlayerName.toLowerCase();
-        const dotColor = isMe ? '#00e676' : isAlly ? '#00bcd4' : 'transparent';
-        return `<div class="tt-row" style="${dotColor !== 'transparent' ? `border-left:2px solid ${dotColor};padding-left:4px` : ''}">
+        const isMe    = myNameL && pname === myNameL;
+        const isAlly  = !isMe && myAlly && allyLow === myAlly;
+        const dot     = isMe ? '#00e676' : isAlly ? '#c6ff00' : null;
+        return `<div class="tt-row"${dot ? ` style="border-left:2px solid ${dot};padding-left:4px"` : ''}>
           <span class="tt-label">${stIcon} ${c.player_name||'?'}</span>
           <span class="tt-value">${ally} · 🏆${scoreLabel}</span>
         </div>`;
@@ -907,8 +902,8 @@
   // ── PANNELLO POLIS ISOLA (inline sotto la mappa) ──
   function showIslandPopup(isl) {
     popupIsland = isl;
-    const cities = isl.cities || [];
-    const el     = document.getElementById('ikp-popup-content');
+    const cities  = isl.cities || [];
+    const el      = document.getElementById('ikp-popup-content');
     if (!el) return;
 
     const stateColors = {
@@ -920,110 +915,222 @@
       vacation:'Vacanza', banned:'Bannato', deleted:'Eliminato',
     };
 
-    // Info isola
     const info = [
-      isl.tgName    ? `🎁 ${isl.tgName}`    : null,
-      isl.templeName? `⛩ ${isl.templeName}` : null,
-      isl.woodLevel ? `🪵 Lv${isl.woodLevel}` : null,
+      isl.tgName    ? `🎁 ${isl.tgName}`      : null,
+      isl.templeName? `⛩ ${isl.templeName}`   : null,
+      isl.woodLevel ? `🪵 Lv${isl.woodLevel}`  : null,
     ].filter(Boolean).join(' · ');
 
-    // Contesto del proprio account per evidenziazioni
-    const myNameLow = myPlayerName ? myPlayerName.toLowerCase() : null;
-    const myAlly    = getMyAlly();  // tag alleanza propria (lowercase) o null
-
-    // Isola del proprio account? (almeno una polis è mia)
+    const myNameLow  = myPlayerName ? myPlayerName.toLowerCase() : null;
+    const myAlly     = getMyAlly();
     const isMyIsland = myNameLow && cities.some(c => (c.player_name||'').toLowerCase() === myNameLow);
 
-    // Filtri attivi per evidenziazioni nel popup
-    const hasSearchFilter = !!(searchFilter || allyFilter || stateFilter || noAllyFilter || refFilter);
+    // Mappa stato per evidenziazioni filtro nel popup
+    const nameToState = new Map();
+    for (const [, p] of mapPlayers) {
+      if (p?.name) nameToState.set(p.name.toLowerCase(), p.status || 'active');
+    }
 
     el.innerHTML = `
-      <div class="pop-title">🏝 ${isl.name || `[${isl.x}:${isl.y}]`}${isMyIsland ? ' <span style="color:#00e676;font-size:12px">● mia isola</span>' : ''}</div>
+      <div class="pop-title">🏝 ${isl.name || `[${isl.x}:${isl.y}]`}${isMyIsland
+        ? ' <span style="color:#00e676;font-size:11px;font-weight:600">● mia isola</span>' : ''}</div>
       <div class="pop-sub">[${isl.x}:${isl.y}]${info ? ' · ' + info : ''}</div>
       ${cities.length === 0
         ? '<p style="color:var(--text-muted);font-size:13px;padding:8px 0">Nessuna città nel DB.<br>Visita ikalogs.ru per popolare i dati.</p>'
         : cities.map(c => {
-            const pname  = (c.player_name || '').toLowerCase();
-            const pl     = mapPlayers.get(pname);
-            const st     = pl?.status || pl?.state || 'active';
-            const sc     = stateColors[st] || '#aaa';
-            const slb    = stateLabels[st] || st;
+            const pname    = (c.player_name || '').toLowerCase();
+            const pl       = mapPlayers.get(pname);
+            const st       = pl?.status || pl?.state || 'active';
+            const sc       = stateColors[st] || '#aaa';
+            const slb      = stateLabels[st]  || st;
 
-            // Alleanza: preferisci DB (aggiornato da ranking), fallback city.ally_name
-            const allyTag   = pl?.ally || c.ally_name || '';
-            const allyLow   = allyTag.toLowerCase();
+            // Alleanza: DB (aggiornato da ranking) ha precedenza su city.ally_name
+            const allyTag  = pl?.ally || c.ally_name || '';
+            const allyLow  = allyTag.toLowerCase();
 
-            // Punteggio totale dal DB ranking
-            const score     = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
-            const scoreStr  = (score != null) ? Number(score).toLocaleString('it') : null;
+            // Punteggio e posizione dal ranking
+            const score    = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
+            const scoreStr = (score != null) ? Number(score).toLocaleString('it') : null;
+            const pos      = pl?.position?.score ?? null;
 
-            // Posizione in classifica (score principale)
-            const pos       = pl?.position?.score ?? null;
+            // Classificazione per evidenziazione
+            const isMyCity      = myNameLow && pname === myNameLow;
+            const isAllyCity    = !isMyCity && myAlly && allyLow && allyLow === myAlly;
+            const isOnMyIsland  = isMyIsland && !isMyCity; // altro player sulla mia isola
 
-            // Evidenziazione: polis sulla mia isola (proprietario altro player)
-            const isMyIslandOtherPlayer = isMyIsland && pname !== myNameLow;
-            // Evidenziazione: è il mio player
-            const isMyCity  = myNameLow && pname === myNameLow;
-            // Evidenziazione: alleato del proprietario
-            const isAllyCity = myAlly && allyLow && allyLow === myAlly && !isMyCity;
-
-            // Evidenziazione filtri attivi
-            const nameToState = new Map();
-            for (const [, p] of mapPlayers) {
-              if (p?.name) nameToState.set(p.name.toLowerCase(), p.status || 'active');
-            }
             const pstate = nameToState.get(pname) || 'active';
-            let matchesFilterName = false;
-            let matchesFilterAlly = false;
-            let matchesRef        = false;
-            if (searchFilter && (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter))) matchesFilterName = true;
-            if (stateFilter && pstate === stateFilter)   matchesFilterName = true;
-            if (noAllyFilter && !allyLow)                matchesFilterName = true;
-            if (allyFilter && allyLow === allyFilter)    matchesFilterAlly = true;
-            if (refFilter && (pname.includes(refFilter) || allyLow.includes(refFilter))) matchesRef = true;
+            let mFiltName = false, mFiltAlly = false, mRef = false;
+            if (searchFilter && (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter))) mFiltName = true;
+            if (stateFilter  && pstate === stateFilter)   mFiltName = true;
+            if (noAllyFilter && !allyLow)                 mFiltName = true;
+            if (allyFilter   && allyLow === allyFilter)   mFiltAlly = true;
+            if (refFilter && (pname.includes(refFilter) || allyLow.includes(refFilter))) mRef = true;
 
-            // Scegli stile bordo/sfondo per evidenziazione (priorità)
-            let rowStyle = '';
-            let badge    = '';
+            // Scegli bordo colorato (priorità)
+            let rowBorder = '', badge = '';
             if (isMyCity) {
-              rowStyle = 'border-left:3px solid #00e676;background:rgba(0,230,118,0.08)';
-              badge = '<span style="font-size:10px;color:#00e676;font-weight:700;margin-left:4px">● IO</span>';
-            } else if (matchesFilterName && matchesRef) {
-              rowStyle = 'border-left:3px solid #ff1744;background:rgba(255,23,68,0.08)';
-              badge = '<span style="font-size:10px;color:#ff1744;font-weight:700;margin-left:4px">🔴</span>';
-            } else if (matchesFilterName) {
-              rowStyle = 'border-left:3px solid #ff9100;background:rgba(255,145,0,0.08)';
-              badge = '<span style="font-size:10px;color:#ff9100;font-weight:700;margin-left:4px">🟠</span>';
-            } else if (matchesFilterAlly) {
-              rowStyle = 'border-left:3px solid #e91e8c;background:rgba(233,30,140,0.08)';
-              badge = '<span style="font-size:10px;color:#e91e8c;font-weight:700;margin-left:4px">🩷</span>';
-            } else if (matchesRef) {
-              rowStyle = 'border-left:3px solid #7c4dff;background:rgba(124,77,255,0.08)';
-              badge = '<span style="font-size:10px;color:#7c4dff;font-weight:700;margin-left:4px">🟣</span>';
+              rowBorder = 'border-left:3px solid #00e676;background:rgba(0,230,118,0.07)';
+              badge = '<span style="font-size:10px;color:#00e676;font-weight:700;margin-left:5px">● IO</span>';
+            } else if (mFiltName && mRef) {
+              rowBorder = 'border-left:3px solid #ff1744;background:rgba(255,23,68,0.07)';
+              badge = '<span style="font-size:10px;color:#ff1744;font-weight:700;margin-left:5px">🔴</span>';
+            } else if (mFiltName) {
+              rowBorder = 'border-left:3px solid #ff9100;background:rgba(255,145,0,0.07)';
+              badge = '<span style="font-size:10px;color:#ff9100;font-weight:700;margin-left:5px">🟠</span>';
+            } else if (mFiltAlly) {
+              rowBorder = 'border-left:3px solid #e91e8c;background:rgba(233,30,140,0.07)';
+              badge = '<span style="font-size:10px;color:#e91e8c;font-weight:700;margin-left:5px">🩷</span>';
+            } else if (mRef) {
+              rowBorder = 'border-left:3px solid #7c4dff;background:rgba(124,77,255,0.07)';
+              badge = '<span style="font-size:10px;color:#7c4dff;font-weight:700;margin-left:5px">🟣</span>';
             } else if (isAllyCity) {
-              rowStyle = 'border-left:3px solid #00bcd4;background:rgba(0,188,212,0.08)';
-              badge = '<span style="font-size:10px;color:#00bcd4;font-weight:700;margin-left:4px">● ALT</span>';
-            } else if (isMyIslandOtherPlayer) {
-              rowStyle = 'border-left:3px solid #ff9800;background:rgba(255,152,0,0.06)';
+              rowBorder = 'border-left:3px solid #c6ff00;background:rgba(198,255,0,0.10)';
+              badge = '<span style="font-size:10px;color:#c6ff00;font-weight:700;margin-left:5px">● ALT</span>';
+            } else if (isOnMyIsland) {
+              rowBorder = 'border-left:3px solid rgba(255,152,0,0.5);background:rgba(255,152,0,0.04)';
             }
 
-            return `<div class="pop-city" style="${rowStyle}">
+            const safePlayerName = (c.player_name || '').replace(/'/g, "\\'");
+
+            return `<div class="pop-city" style="${rowBorder}">
               <div class="pop-state" style="background:${sc}" title="${slb}"></div>
               <div style="flex:1;min-width:0">
                 <div class="pop-city-name">${c.city_name || '?'}${badge}
                   <span style="font-size:11px;color:var(--text-muted)"> Lv${c.city_level||'?'}</span>
                 </div>
-                <div class="pop-player" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <div class="pop-player" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
                   <span>👤 ${c.player_name || '?'}</span>
-                  ${allyTag ? `<span style="font-size:11px;color:var(--text-dim);background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">${allyTag}</span>` : ''}
+                  ${allyTag ? `<span style="font-size:11px;color:var(--text-dim);background:var(--bg);
+                    padding:0 4px;border-radius:3px;border:1px solid var(--border)">${allyTag}</span>` : ''}
                   <span style="font-size:11px;color:var(--text-muted)">${slb}</span>
                 </div>
                 ${scoreStr ? `<div style="font-size:11px;color:var(--text-dim);margin-top:1px">🏆 ${scoreStr}${pos ? ` · #${pos}` : ''}</div>` : ''}
               </div>
+              <button class="ikp-btn small outline" style="flex-shrink:0;padding:4px 7px;font-size:13px"
+                onclick="window.IkApp.showPlayerDetail('${safePlayerName}')" title="Dettagli player">📊</button>
             </div>`;
           }).join('')
       }
     `;
+  }
+
+  // ── DETTAGLIO PLAYER (aperto dal pulsante 📊 nel popup) ──
+  function showPlayerDetail(playerName) {
+    // Cerca il player nel DB (mapPlayers è indicizzato per nome lowercase)
+    const pl = mapPlayers.get(playerName.toLowerCase());
+
+    // Raccoglie tutte le polis di questo player su tutte le isole caricate
+    const polis = [];
+    for (const isl of mapIslands) {
+      for (const c of (isl.cities || [])) {
+        if ((c.player_name || '').toLowerCase() === playerName.toLowerCase()) {
+          polis.push({ ...c, islandX: isl.x, islandY: isl.y, islandName: isl.name || `[${isl.x}:${isl.y}]` });
+        }
+      }
+    }
+    polis.sort((a, b) => a.islandX - b.islandX || a.islandY - b.islandY);
+
+    const stateLabels = { active:'Attivo', inactive:'Inattivo', vacation:'Vacanza', banned:'Bannato', deleted:'Eliminato' };
+    const stateColors = { active:'#4caf50', inactive:'#ff9800', vacation:'#2196f3', banned:'#f44336', deleted:'#666' };
+    const st    = pl?.status || pl?.state || 'active';
+    const stLbl = stateLabels[st] || st;
+    const stCol = stateColors[st] || '#aaa';
+
+    // Punteggi dal DB ranking
+    const scores   = pl?.scores   || {};
+    const positions= pl?.position || {};
+    const scoreRows = Object.entries(scores).map(([k, v]) => {
+      const pos = positions[k];
+      const label = { score:'Totale', generals:'Generali', admirals:'Ammiragli', scientists:'Scienziati', builders:'Costruttori', diplomats:'Diplomatici' }[k] || k;
+      return `<tr>
+        <td style="color:var(--text-muted);padding:3px 8px 3px 0">${label}</td>
+        <td style="font-weight:600;text-align:right">${Number(v).toLocaleString('it')}</td>
+        <td style="color:var(--text-muted);text-align:right;padding-left:8px">${pos != null ? '#'+pos : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    const allyTag = pl?.ally || '';
+    const honor   = pl?.honorTitle || '';
+
+    // Mostra in un overlay/modal sopra il popup
+    const existing = document.getElementById('ikp-player-detail-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ikp-player-detail-overlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.55);
+      display:flex;align-items:flex-end;justify-content:center;
+    `;
+    overlay.innerHTML = `
+      <div style="
+        background:var(--bg-card);border-radius:14px 14px 0 0;
+        width:100%;max-width:520px;max-height:80vh;overflow-y:auto;
+        padding:16px 16px 24px;box-shadow:0 -4px 24px rgba(0,0,0,0.3);
+      ">
+        <!-- Header -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+          <div>
+            <div style="font-size:16px;font-weight:700;color:var(--text)">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                background:${stCol};margin-right:6px;vertical-align:middle"></span>
+              ${playerName}
+            </div>
+            ${allyTag ? `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">🛡 ${allyTag}</div>` : ''}
+            ${honor   ? `<div style="font-size:11px;color:var(--text-muted);font-style:italic">${honor}</div>` : ''}
+            <div style="font-size:11px;color:${stCol};margin-top:2px">${stLbl}</div>
+          </div>
+          <button onclick="document.getElementById('ikp-player-detail-overlay').remove()"
+            style="background:none;border:none;font-size:20px;color:var(--text-muted);cursor:pointer;padding:0 4px">✕</button>
+        </div>
+
+        ${scoreRows ? `
+        <!-- Punteggi classifica -->
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;
+          letter-spacing:.5px;margin-bottom:6px">🏆 Classifica</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
+          <thead>
+            <tr style="font-size:10px;color:var(--text-muted)">
+              <th style="text-align:left;padding-bottom:4px">Categoria</th>
+              <th style="text-align:right">Punti</th>
+              <th style="text-align:right;padding-left:8px">Posizione</th>
+            </tr>
+          </thead>
+          <tbody>${scoreRows}</tbody>
+        </table>` : `<div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+          ℹ️ Dati classifica non disponibili — naviga la classifica in gioco per caricarli.
+        </div>`}
+
+        <!-- Lista polis -->
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;
+          letter-spacing:.5px;margin-bottom:6px">🏛 Polis (${polis.length})</div>
+        ${polis.length === 0
+          ? `<div style="font-size:12px;color:var(--text-muted)">Nessuna polis nel DB — visita ikalogs.ru per popolare i dati.</div>`
+          : `<table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+                  <th style="text-align:left;padding-bottom:4px">Città</th>
+                  <th style="text-align:center">Lv</th>
+                  <th style="text-align:right">Coord</th>
+                  <th style="text-align:left;padding-left:8px">Isola</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${polis.map((p, i) => `
+                  <tr style="border-bottom:1px solid var(--border);${i % 2 === 0 ? 'background:var(--bg)' : ''}">
+                    <td style="padding:4px 4px 4px 0">${p.city_name || '?'}</td>
+                    <td style="text-align:center;color:var(--text-muted)">${p.city_level || '?'}</td>
+                    <td style="text-align:right;font-family:monospace;font-size:11px;color:var(--accent)">[${p.islandX}:${p.islandY}]</td>
+                    <td style="padding-left:8px;color:var(--text-dim);font-size:11px">${p.islandName}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    `;
+
+    // Chiudi toccando lo sfondo
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
   }
 
   function closePopup() {
@@ -1631,7 +1738,9 @@
   function onRankingUpdated(data) {
     lastRanking = data;
     if (panelOpen && activeTab === 'ranking') renderRanking();
-    // Notifica badge se ci sono cambi di stato
+    // Ricarica mapPlayers con dati alleanza/stato aggiornati dal ranking,
+    // poi ridisegna la mappa (colori alleati)
+    loadMapData();
     if (data.changes && data.changes.length > 0) {
       toast(`🏆 ${data.changes.length} cambi stato in classifica!`, 4000);
     }
@@ -2088,7 +2197,7 @@
 
   function loadSettingsUI() {
     const nameEl = document.getElementById('ikp-my-name');
-    if (nameEl && myPlayerName && !nameEl.value.trim()) nameEl.value = myPlayerName;
+    if (nameEl && myPlayerName) nameEl.value = myPlayerName;
     const pidEl = document.getElementById('ikp-my-pid');
     if (pidEl && myPlayerId) pidEl.value = myPlayerId;
     const st = document.getElementById('ikp-notif-status');
@@ -2265,31 +2374,6 @@
     if (total > 0) toast('✅ Importati ' + total + ' record');
   }
 
-  // ── AUTOFILL PROFILO ─────────────────────────
-  // Chiamato dal parser quando rileva il nome dal menù optionsAccount
-  function onPlayerNameDetected(name) {
-    if (!name) return;
-
-    // Aggiorna stato interno solo se non già impostato dall'utente
-    if (!myPlayerName) {
-      myPlayerName = name;
-      log('✅ Nome player rilevato automaticamente: ' + name);
-    }
-
-    // Aggiorna il campo input nella UI se è visibile e vuoto
-    const nameEl = document.getElementById('ikp-my-name');
-    if (nameEl && !nameEl.value.trim()) {
-      nameEl.value = name;
-      // Mostra feedback visivo
-      const info = document.getElementById('ikp-my-pid-info');
-      if (info) {
-        info.textContent = '🔍 Nome rilevato automaticamente — premi Salva per confermare';
-        info.style.color = 'var(--orange, #ff9100)';
-      }
-      toast('🔍 Nome rilevato: ' + name + ' — premi Salva per confermare');
-    }
-  }
-
   window.IkApp = {
     init, toggle, toast, drawMap, mapReset, mapZoom,
     applyFilters, clearFilters, goToMe,
@@ -2303,7 +2387,7 @@
     renderMyCities, resetMyCities, renderWineTimers,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
-    onPlayerNameDetected,
+    showPlayerDetail,
   };
   log('Modulo caricato');
 })();
