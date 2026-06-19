@@ -1159,24 +1159,41 @@
         list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer.</p></div>`;
       } else {
         const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
-        list.innerHTML = active.map(t => `
-          <div class="ikp-timer">
+        list.innerHTML = active.map(t => {
+          // Per i timer building, il label ha formato:
+          // "🏗 NomeCittà — NomeEdificio Lv X → Lv Y"
+          // Splittiamo per mostrare città e dettaglio su righe separate
+          let mainLabel = t.label;
+          let subLabel  = t.type;
+          if (t.type === 'building') {
+            const dashIdx = t.label.indexOf(' — ');
+            if (dashIdx !== -1) {
+              mainLabel = t.label.slice(0, dashIdx);   // "🏗 NomeCittà"
+              subLabel  = t.label.slice(dashIdx + 3);  // "NomeEdificio Lv X → Lv Y"
+            }
+          } else if (t.type === 'research') {
+            subLabel = 'Ricerca';
+          } else if (t.type === 'fleet_enemy') {
+            subLabel = '⚠️ Flotta nemica';
+          }
+          return `<div class="ikp-timer">
             <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
             <div class="ikp-timer-info">
-              <div class="ikp-timer-label">${t.label}</div>
-              <div class="ikp-timer-sub">${t.type}</div>
+              <div class="ikp-timer-label">${mainLabel}</div>
+              <div class="ikp-timer-sub">${subLabel}</div>
             </div>
             <div class="ikp-timer-time ${t.msLeft < 300000 ? 'urgent' : ''}" data-id="${t.id}">
               ${window.IkNotifier.formatTime(t.msLeft)}
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
       }
     }
     await renderWineTimers();
   }
 
   // ── ESAURIMENTO VINO ─────────────────────────────
-  // Stima per ogni polis: tempo rimanente = vino attuale / consumo orario
+  // Stima per ogni polis: tempo rimanente = vino attuale / consumo netto
   async function renderWineTimers() {
     const list = document.getElementById('ikp-wine-list');
     if (!list || !window.IkDB) return;
@@ -1192,25 +1209,30 @@
       return;
     }
 
-    // Calcola ore rimanenti, ordina dal più urgente
+    // Calcola ore rimanenti basandosi sul consumo NETTO (consumo - produzione)
     const rows = withWine.map(c => {
+      const prod     = c.wineProduction || 0;  // produzione oraria (solo se produce vino)
+      const spend    = c.wineSpendings  || 0;
+      const netSpend = Math.max(0, spend - prod); // consumo netto ≥ 0
+
       let hoursLeft = null;
-      if (c.wineSpendings > 0) {
-        hoursLeft = c.wine / c.wineSpendings;
-      } else if (c.wineSpendings === 0) {
-        hoursLeft = Infinity; // nessun consumo: non si esaurisce
+      if (netSpend <= 0) {
+        hoursLeft = Infinity; // produzione ≥ consumo: non si esaurisce mai
+      } else {
+        hoursLeft = c.wine / netSpend;
       }
-      return { ...c, hoursLeft };
+      return { ...c, hoursLeft, prod, netSpend };
     }).sort((a, b) => (a.hoursLeft ?? Infinity) - (b.hoursLeft ?? Infinity));
 
     list.innerHTML = rows.map(c => {
       const coords = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const wine   = Math.round(c.wine).toLocaleString('it');
       const spend  = c.wineSpendings.toLocaleString('it');
+      const prod   = c.prod > 0 ? ` · produzione +${c.prod.toLocaleString('it')}/h` : '';
 
       let timeLabel, urgent = false;
       if (c.hoursLeft === Infinity) {
-        timeLabel = '∞ (consumo nullo)';
+        timeLabel = '∞';
       } else {
         const totalMin = Math.round(c.hoursLeft * 60);
         const days  = Math.floor(totalMin / 1440);
@@ -1221,16 +1243,16 @@
         if (hours) parts.push(`${hours}h`);
         if (!days) parts.push(`${mins}m`);
         timeLabel = parts.join(' ');
-        urgent = c.hoursLeft < 6; // meno di 6 ore: evidenzia
+        urgent = c.hoursLeft < 6;
       }
 
       return `<div class="ikp-timer">
         <div class="ikp-timer-icon">🍷</div>
         <div class="ikp-timer-info">
           <div class="ikp-timer-label">${c.name || '?'} <span style="color:var(--text-muted);font-size:11px">[${coords}]</span></div>
-          <div class="ikp-timer-sub">${wine} vino · consumo ${spend}/h</div>
+          <div class="ikp-timer-sub">${wine} vino · consumo ${spend}/h${prod}</div>
         </div>
-        <div class="ikp-timer-time ${urgent ? 'urgent' : ''}">
+        <div class="ikp-timer-time ${urgent ? 'urgent' : ''}" style="${c.hoursLeft === Infinity ? 'font-size:22px;letter-spacing:-1px' : ''}">
           ${timeLabel}
         </div>
       </div>`;

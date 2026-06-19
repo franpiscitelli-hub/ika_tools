@@ -39,48 +39,16 @@
 
     for (const item of data) {
       if (!Array.isArray(item) || item.length < 2) continue;
+      if (item[0] !== 'updateGlobalData') continue;
+      const payload = item[1];
+      if (!payload || typeof payload !== 'object') continue;
 
-      if (item[0] === 'updateGlobalData') {
-        const payload = item[1];
-        if (!payload || typeof payload !== 'object') continue;
-        if (payload.headerData)     count += await parseHeader(payload.headerData);
-        if (payload.backgroundData) count += await parseBackground(payload.backgroundData);
-      }
-
-      if (item[0] === 'changeView') {
-        count += parseChangeView(item[1]);
-      }
+      if (payload.headerData)     count += await parseHeader(payload.headerData);
+      if (payload.backgroundData) count += await parseBackground(payload.backgroundData);
     }
 
     if (count === 0) return { parsed: 0, parserName: 'globaldata' };
     return { parsed: count, parserName: 'globaldata' };
-  }
-
-  // ── changeView: estrae nome player da optionsAccount ──
-  function parseChangeView(payload) {
-    // payload = [ viewName, htmlString, extras ]
-    if (!Array.isArray(payload) || payload[0] !== 'optionsAccount') return 0;
-    const html = typeof payload[1] === 'string' ? payload[1] : '';
-
-    // Estrae il nome dal campo input: name="name" value="..."
-    const nameMatch = html.match(/name=["']name["'][^>]*value=["']([^"']+)["']/);
-    if (!nameMatch) return 0;
-
-    const playerName = nameMatch[1].trim();
-    if (!playerName) return 0;
-
-    // Salva in localStorage (stessa chiave usata da saveMyId)
-    const existing = localStorage.getItem('ik_my_name');
-    if (!existing) {
-      // Solo se non già impostato manualmente dall'utente
-      localStorage.setItem('ik_my_name', playerName);
-      console.log('[parser_globaldata] Nome player auto-rilevato:', playerName);
-    }
-
-    // Notifica l'app per aggiornare la UI
-    window.IkApp?.onPlayerNameDetected?.(playerName);
-
-    return 1;
   }
 
   // ── headerData: città attiva (sempre propria) ───
@@ -152,6 +120,9 @@
       producedTradegood:Number(hd.producedTradegood    || 0),
       tgName:           TG[hd.producedTradegood]       || '?',
       wineSpendings:    Number(hd.wineSpendings        || 0),
+      wineProduction:   Number(hd.producedTradegood) === 1
+                          ? Math.round((hd.tradegoodProduction || 0) * 3600)
+                          : 0,
       badTaxAccountant: Number(hd.badTaxAccountant     || 0),
       maxActionPoints:  Number(hd.maxActionPoints      || 0),
     };
@@ -243,9 +214,23 @@
               updated: new Date().toISOString(),
             });
           } catch {}
+          // Cerca l'edificio in costruzione tra le posizioni
+          const busyPos = Array.isArray(bd.position)
+            ? bd.position.find(p => p && p.isBusy)
+            : null;
+          const bName  = busyPos?.name       || '';
+          const bLevel = Number(busyPos?.level || 0);
+          let timerLabel;
+          if (bName && bLevel > 0) {
+            timerLabel = `🏗 ${bd.name || 'Città'} — ${bName} Lv${bLevel} → Lv${bLevel + 1}`;
+          } else if (bName) {
+            timerLabel = `🏗 ${bd.name || 'Città'} — ${bName}`;
+          } else {
+            timerLabel = `🏗 ${bd.name || 'Città'} — ${bd.underConstruction||'?'} costruzioni`;
+          }
           window.IkNotifier?.scheduleTimer({
             id:      `build_${cityId}`,
-            label:   `🏗 ${bd.name || 'Città'} — ${bd.underConstruction||'?'} costruzioni`,
+            label:   timerLabel,
             endTime: endMs,
             type:    'building',
           });
