@@ -1059,15 +1059,19 @@
     const overlay = document.createElement('div');
     overlay.id = 'ikp-player-detail-overlay';
     overlay.style.cssText = `
-      position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.55);
+      position:fixed;bottom:0;left:0;right:0;z-index:2147483647;
       display:flex;align-items:flex-end;justify-content:center;
+      pointer-events:none;
     `;
     overlay.innerHTML = `
       <div style="
         background:var(--bg-card);border-radius:14px 14px 0 0;
-        width:100%;max-width:520px;max-height:80vh;overflow-y:auto;
-        padding:16px 16px 24px;box-shadow:0 -4px 24px rgba(0,0,0,0.3);
+        width:100%;max-width:520px;max-height:75vh;overflow-y:auto;
+        padding:12px 16px 28px;box-shadow:0 -4px 24px rgba(0,0,0,0.35);
+        pointer-events:all;
       ">
+        <!-- Maniglia -->
+        <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 12px"></div>
         <!-- Header -->
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
           <div>
@@ -1128,9 +1132,12 @@
       </div>
     `;
 
-    // Chiudi toccando lo sfondo
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-    // Appende direttamente in body con z-index massimo, sopra tutto (incluso #ikp-panel)
+    // Swipe down sul foglio per chiudere
+    let touchStartY = 0;
+    overlay.addEventListener('touchstart', e => { touchStartY = e.touches[0].clientY; }, { passive: true });
+    overlay.addEventListener('touchend', e => {
+      if (e.changedTouches[0].clientY - touchStartY > 60) overlay.remove();
+    }, { passive: true });
     document.body.appendChild(overlay);
   }
 
