@@ -1059,7 +1059,7 @@
     const overlay = document.createElement('div');
     overlay.id = 'ikp-player-detail-overlay';
     overlay.style.cssText = `
-      position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.55);
+      position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.55);
       display:flex;align-items:flex-end;justify-content:center;
     `;
     overlay.innerHTML = `
@@ -1130,6 +1130,7 @@
 
     // Chiudi toccando lo sfondo
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    // Appende direttamente in body con z-index massimo, sopra tutto (incluso #ikp-panel)
     document.body.appendChild(overlay);
   }
 
