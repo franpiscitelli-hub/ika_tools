@@ -287,10 +287,10 @@
         <div class="ikp-section active" id="ikp-tab-map">
           <div class="ikp-map-filters">
             <input class="ikp-filter-input" id="ikp-f-search"
-              placeholder="🟢 Player o isola..."
+              placeholder="🟠 Player o isola..."
               oninput="window.IkApp.applyFilters()">
             <input class="ikp-filter-input" id="ikp-f-ally"
-              placeholder="🟢 Alleanza (tag esatto)..."
+              placeholder="🩷 Alleanza (tag esatto)..."
               oninput="window.IkApp.applyFilters()">
             <select id="ikp-f-state" class="ikp-filter-input"
               onchange="window.IkApp.applyFilters()">
@@ -326,9 +326,11 @@
           </div>
           <div class="ikp-map-legend">
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#c9b182"></div> Isola vuota</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#a8895c"></div> Con player</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#7a5c35"></div> Con player</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00e676"></div> Mio</div>
-            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff9100"></div> 🟠 Filtro</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#00bcd4"></div> Alleato</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff9100"></div> 🟠 Player/isola</div>
+            <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#e91e8c"></div> 🩷 Alleanza</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#7c4dff"></div> 🟣 Riferimento</div>
             <div class="ikp-legend-item"><div class="ikp-legend-dot" style="background:#ff1744"></div> 🔴 Entrambi</div>
           </div>
@@ -654,13 +656,25 @@
   }
 
   // ── DRAW MAP ─────────────────────────────────
-  // Logica colori basata su map_filters.js (versione collaudata)
-  const COLOR_FILTER  = '#ff9100';  // arancione acceso — filtro
-  const COLOR_REF     = '#7c4dff';  // viola acceso — riferimento
-  const COLOR_BOTH    = '#ff1744';  // rosso acceso — entrambi
-  const COLOR_ME      = '#00e676';  // verde — il mio
-  const COLOR_CITY    = '#a8895c';
-  const COLOR_EMPTY   = '#c9b182';
+  // Colori isola — tutti distinti su sfondo azzurro #6ec6e8
+  const COLOR_EMPTY        = '#c9b182';  // sabbia — isola vuota
+  const COLOR_CITY         = '#7a5c35';  // marrone scuro — con player
+  const COLOR_ME           = '#00e676';  // verde brillante — mia polis
+  const COLOR_ALLY         = '#00bcd4';  // ciano/turchese — alleato
+  const COLOR_FILTER_NAME  = '#ff9100';  // arancione — filtro player/isola
+  const COLOR_FILTER_ALLY  = '#e91e8c';  // magenta/rosa — filtro alleanza
+  const COLOR_REF          = '#7c4dff';  // viola — riferimento
+  const COLOR_BOTH         = '#ff1744';  // rosso — filtro + riferimento insieme
+  // Alias per compatibilità con la legenda esistente
+  const COLOR_FILTER = COLOR_FILTER_NAME;
+
+  // Restituisce l'alleanza del proprio account (stringa tag, lowercase)
+  function getMyAlly() {
+    if (!myPlayerName) return null;
+    const pl = mapPlayers.get(myPlayerName.toLowerCase());
+    const tag = pl?.ally || '';
+    return tag ? tag.toLowerCase() : null;
+  }
 
   function drawMap() {
     if (!mapCtx || !mapCanvas) return;
@@ -690,58 +704,77 @@
     // nameToState: player_name → status (per filtro stato)
     const nameToState = new Map();
     for (const [, p] of mapPlayers) {
-      nameToState.set((p.name || '').toLowerCase(), p.status || p.state || 'active');
+      if (p?.name) nameToState.set(p.name.toLowerCase(), p.status || p.state || 'active');
     }
 
+    const myAlly  = getMyAlly();  // tag alleanza propria (lowercase) o null
     const r = Math.max(2, s * 0.45);
 
     for (const isl of mapIslands) {
       const { cx, cy } = worldToCanvas(isl.x, isl.y);
       if (cx < -r*3 || cx > W+r*3 || cy < -r*3 || cy > H+r*3) continue;
 
-      // cities[] salvato da parser_ikalogs (player_name, ally_name, city_name, city_level)
       const cities    = isl.cities || [];
       const hasCities = cities.length > 0;
 
-      let matchFilter = false;
-      let matchRef    = false;
-      let isMe        = false;
+      let isMe           = false;
+      let hasAlly        = false;   // alleato sulla stessa isola
+      let matchPlayerSrc = false;   // filtro 🟠 player/isola/stato (campo verde)
+      let matchAllySrc   = false;   // filtro 🩷 alleanza (campo verde — solo allyFilter)
+      let matchRef       = false;   // filtro 🟣 riferimento (campo azzurro)
 
       for (const city of cities) {
         const pname  = (city.player_name || '').toLowerCase();
-        const ally   = (city.ally_name  || '').toLowerCase();
+        const ally   = (city.ally_name   || '').toLowerCase();
+        // Recupera ally aggiornato dal DB players (più affidabile di city.ally_name)
+        const pl     = mapPlayers.get(pname);
+        const allyDb = (pl?.ally || '').toLowerCase();
+        const effectiveAlly = allyDb || ally;
         const pstate = nameToState.get(pname) || 'active';
 
-        // Il mio player
+        // Mio player
         if (myPlayerName && pname === myPlayerName.toLowerCase()) isMe = true;
 
-        // Filtro verde
-        if (searchFilter && (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter))) matchFilter = true;
-        if (allyFilter   && ally === allyFilter)   matchFilter = true;
-        if (stateFilter  && pstate === stateFilter) matchFilter = true;
-        if (noAllyFilter && !ally)                  matchFilter = true;
+        // Alleato (stessa alleanza del proprio account)
+        if (myAlly && effectiveAlly && effectiveAlly === myAlly && !isMe) hasAlly = true;
 
-        // Filtro azzurro (riferimento)
-        if (refFilter && (pname.includes(refFilter) || ally.includes(refFilter))) matchRef = true;
+        // Filtro campo "player/isola" (verde) — player name + nome isola + stato
+        if (searchFilter) {
+          if (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter)) matchPlayerSrc = true;
+        }
+        if (stateFilter && pstate === stateFilter)  matchPlayerSrc = true;
+        if (noAllyFilter && !effectiveAlly)          matchPlayerSrc = true;
+
+        // Filtro campo "alleanza" (verde) — solo tag alleanza esatto
+        if (allyFilter && effectiveAlly === allyFilter) matchAllySrc = true;
+
+        // Filtro riferimento (azzurro)
+        if (refFilter && (pname.includes(refFilter) || effectiveAlly.includes(refFilter))) matchRef = true;
       }
 
-      // Isole tutte della stessa dimensione, colore diverso per occupate/vuote
+      // Determina colore con priorità: me > entrambi filtri > filtro-player > filtro-ally > ref > alleato > con-player > vuoto
+      const matchFilter = matchPlayerSrc || matchAllySrc;
       let color  = hasCities ? COLOR_CITY : COLOR_EMPTY;
-      let radius = r;
-      let alpha  = 1.0;
       let glow   = false;
 
-      if (isMe)                        { color = COLOR_ME;     alpha = 1; glow = true; }
-      else if (matchFilter && matchRef){ color = COLOR_BOTH;   alpha = 1; glow = true; }
-      else if (matchFilter)            { color = COLOR_FILTER; alpha = 1; glow = true; }
-      else if (matchRef)               { color = COLOR_REF;    alpha = 1; glow = true; }
+      if (isMe) {
+        color = COLOR_ME; glow = true;
+      } else if (matchFilter && matchRef) {
+        color = COLOR_BOTH; glow = true;
+      } else if (matchPlayerSrc) {
+        color = COLOR_FILTER_NAME; glow = true;
+      } else if (matchAllySrc) {
+        color = COLOR_FILTER_ALLY; glow = true;
+      } else if (matchRef) {
+        color = COLOR_REF; glow = true;
+      } else if (hasAlly) {
+        color = COLOR_ALLY; glow = false;
+      }
 
-      ctx.globalAlpha = alpha;
-      if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 8; }
+      if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 10; }
       ctx.fillStyle = color;
-      ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
       if (glow) ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1.0;
     }
 
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
@@ -838,24 +871,29 @@
     const tt = document.getElementById('ikp-map-tooltip');
     if (!tt) return;
     const cities = isl.cities || [];
+    const myAlly = getMyAlly();
     tt.innerHTML = `
       <div class="tt-title">${isl.name || `[${isl.x}:${isl.y}]`} [${isl.x}:${isl.y}]</div>
       ${isl.tgName     ? `<div class="tt-row"><span class="tt-label">Risorsa</span><span class="tt-value">${isl.tgName}</span></div>` : ''}
       ${isl.templeName ? `<div class="tt-row"><span class="tt-label">Tempio</span><span class="tt-value">${isl.templeName} Lv${isl.templeLevel||'?'}</span></div>` : ''}
       ${isl.woodLevel  ? `<div class="tt-row"><span class="tt-label">Falegnameria</span><span class="tt-value">Lv${isl.woodLevel}</span></div>` : ''}
       <div class="tt-row"><span class="tt-label">Polis</span><span class="tt-value">${cities.length}</span></div>
-      ${cities.slice(0,4).map(c => {
+      ${cities.slice(0,5).map(c => {
         const pl = mapPlayers.get((c.player_name||'').toLowerCase());
         const stIcon = { active:'🟢', inactive:'🟡', vacation:'🔵', banned:'🔴' }[pl?.status||pl?.state] || '⚪';
-        const ally  = pl?.ally || c.ally_name || '—';
-        const score = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
+        const ally   = pl?.ally || c.ally_name || '—';
+        const allyLow = (pl?.ally || c.ally_name || '').toLowerCase();
+        const score  = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
         const scoreLabel = (score != null) ? Number(score).toLocaleString('it') : '—';
-        return `<div class="tt-row">
+        const isAlly = myAlly && allyLow === myAlly;
+        const isMe   = myPlayerName && (c.player_name||'').toLowerCase() === myPlayerName.toLowerCase();
+        const dotColor = isMe ? '#00e676' : isAlly ? '#00bcd4' : 'transparent';
+        return `<div class="tt-row" style="${dotColor !== 'transparent' ? `border-left:2px solid ${dotColor};padding-left:4px` : ''}">
           <span class="tt-label">${stIcon} ${c.player_name||'?'}</span>
           <span class="tt-value">${ally} · 🏆${scoreLabel}</span>
         </div>`;
       }).join('')}
-      ${cities.length > 4 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center">+${cities.length-4} altri</div>` : ''}
+      ${cities.length > 5 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center">+${cities.length-5} altri</div>` : ''}
     `;
     tt.style.display = 'block';
     tt.style.left    = (sx + 14) + 'px';
@@ -869,7 +907,6 @@
   // ── PANNELLO POLIS ISOLA (inline sotto la mappa) ──
   function showIslandPopup(isl) {
     popupIsland = isl;
-    // Usa direttamente isl.cities[] salvato da parser_ikalogs
     const cities = isl.cities || [];
     const el     = document.getElementById('ikp-popup-content');
     if (!el) return;
@@ -890,26 +927,99 @@
       isl.woodLevel ? `🪵 Lv${isl.woodLevel}` : null,
     ].filter(Boolean).join(' · ');
 
+    // Contesto del proprio account per evidenziazioni
+    const myNameLow = myPlayerName ? myPlayerName.toLowerCase() : null;
+    const myAlly    = getMyAlly();  // tag alleanza propria (lowercase) o null
+
+    // Isola del proprio account? (almeno una polis è mia)
+    const isMyIsland = myNameLow && cities.some(c => (c.player_name||'').toLowerCase() === myNameLow);
+
+    // Filtri attivi per evidenziazioni nel popup
+    const hasSearchFilter = !!(searchFilter || allyFilter || stateFilter || noAllyFilter || refFilter);
+
     el.innerHTML = `
-      <div class="pop-title">🏝 ${isl.name || `[${isl.x}:${isl.y}]`}</div>
+      <div class="pop-title">🏝 ${isl.name || `[${isl.x}:${isl.y}]`}${isMyIsland ? ' <span style="color:#00e676;font-size:12px">● mia isola</span>' : ''}</div>
       <div class="pop-sub">[${isl.x}:${isl.y}]${info ? ' · ' + info : ''}</div>
       ${cities.length === 0
         ? '<p style="color:var(--text-muted);font-size:13px;padding:8px 0">Nessuna città nel DB.<br>Visita ikalogs.ru per popolare i dati.</p>'
         : cities.map(c => {
-            // Recupera stato dal DB players se disponibile
-            const pl  = mapPlayers.get((c.player_name||'').toLowerCase());
-            const st  = pl?.status || pl?.state || 'active';
-            const sc  = stateColors[st] || '#aaa';
-            const slb = stateLabels[st] || st;
-            return `<div class="pop-city">
+            const pname  = (c.player_name || '').toLowerCase();
+            const pl     = mapPlayers.get(pname);
+            const st     = pl?.status || pl?.state || 'active';
+            const sc     = stateColors[st] || '#aaa';
+            const slb    = stateLabels[st] || st;
+
+            // Alleanza: preferisci DB (aggiornato da ranking), fallback city.ally_name
+            const allyTag   = pl?.ally || c.ally_name || '';
+            const allyLow   = allyTag.toLowerCase();
+
+            // Punteggio totale dal DB ranking
+            const score     = pl?.scores?.score ?? Object.values(pl?.scores || {})[0];
+            const scoreStr  = (score != null) ? Number(score).toLocaleString('it') : null;
+
+            // Posizione in classifica (score principale)
+            const pos       = pl?.position?.score ?? null;
+
+            // Evidenziazione: polis sulla mia isola (proprietario altro player)
+            const isMyIslandOtherPlayer = isMyIsland && pname !== myNameLow;
+            // Evidenziazione: è il mio player
+            const isMyCity  = myNameLow && pname === myNameLow;
+            // Evidenziazione: alleato del proprietario
+            const isAllyCity = myAlly && allyLow && allyLow === myAlly && !isMyCity;
+
+            // Evidenziazione filtri attivi
+            const nameToState = new Map();
+            for (const [, p] of mapPlayers) {
+              if (p?.name) nameToState.set(p.name.toLowerCase(), p.status || 'active');
+            }
+            const pstate = nameToState.get(pname) || 'active';
+            let matchesFilterName = false;
+            let matchesFilterAlly = false;
+            let matchesRef        = false;
+            if (searchFilter && (pname.includes(searchFilter) || (isl.name||'').toLowerCase().includes(searchFilter))) matchesFilterName = true;
+            if (stateFilter && pstate === stateFilter)   matchesFilterName = true;
+            if (noAllyFilter && !allyLow)                matchesFilterName = true;
+            if (allyFilter && allyLow === allyFilter)    matchesFilterAlly = true;
+            if (refFilter && (pname.includes(refFilter) || allyLow.includes(refFilter))) matchesRef = true;
+
+            // Scegli stile bordo/sfondo per evidenziazione (priorità)
+            let rowStyle = '';
+            let badge    = '';
+            if (isMyCity) {
+              rowStyle = 'border-left:3px solid #00e676;background:rgba(0,230,118,0.08)';
+              badge = '<span style="font-size:10px;color:#00e676;font-weight:700;margin-left:4px">● IO</span>';
+            } else if (matchesFilterName && matchesRef) {
+              rowStyle = 'border-left:3px solid #ff1744;background:rgba(255,23,68,0.08)';
+              badge = '<span style="font-size:10px;color:#ff1744;font-weight:700;margin-left:4px">🔴</span>';
+            } else if (matchesFilterName) {
+              rowStyle = 'border-left:3px solid #ff9100;background:rgba(255,145,0,0.08)';
+              badge = '<span style="font-size:10px;color:#ff9100;font-weight:700;margin-left:4px">🟠</span>';
+            } else if (matchesFilterAlly) {
+              rowStyle = 'border-left:3px solid #e91e8c;background:rgba(233,30,140,0.08)';
+              badge = '<span style="font-size:10px;color:#e91e8c;font-weight:700;margin-left:4px">🩷</span>';
+            } else if (matchesRef) {
+              rowStyle = 'border-left:3px solid #7c4dff;background:rgba(124,77,255,0.08)';
+              badge = '<span style="font-size:10px;color:#7c4dff;font-weight:700;margin-left:4px">🟣</span>';
+            } else if (isAllyCity) {
+              rowStyle = 'border-left:3px solid #00bcd4;background:rgba(0,188,212,0.08)';
+              badge = '<span style="font-size:10px;color:#00bcd4;font-weight:700;margin-left:4px">● ALT</span>';
+            } else if (isMyIslandOtherPlayer) {
+              rowStyle = 'border-left:3px solid #ff9800;background:rgba(255,152,0,0.06)';
+            }
+
+            return `<div class="pop-city" style="${rowStyle}">
               <div class="pop-state" style="background:${sc}" title="${slb}"></div>
-              <div style="flex:1">
-                <div class="pop-city-name">${c.city_name || '?'}
-                  <span style="font-size:11px;color:var(--text-muted)">Lv${c.city_level||'?'}</span>
+              <div style="flex:1;min-width:0">
+                <div class="pop-city-name">${c.city_name || '?'}${badge}
+                  <span style="font-size:11px;color:var(--text-muted)"> Lv${c.city_level||'?'}</span>
                 </div>
-                <div class="pop-player">👤 ${c.player_name || '?'} · ${slb}</div>
+                <div class="pop-player" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  <span>👤 ${c.player_name || '?'}</span>
+                  ${allyTag ? `<span style="font-size:11px;color:var(--text-dim);background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">${allyTag}</span>` : ''}
+                  <span style="font-size:11px;color:var(--text-muted)">${slb}</span>
+                </div>
+                ${scoreStr ? `<div style="font-size:11px;color:var(--text-dim);margin-top:1px">🏆 ${scoreStr}${pos ? ` · #${pos}` : ''}</div>` : ''}
               </div>
-              ${c.ally_name ? `<div class="pop-ally">${c.ally_name}</div>` : ''}
             </div>`;
           }).join('')
       }
