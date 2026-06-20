@@ -72,7 +72,8 @@
         type === 'fleet_enemy' ? '⚔️ ATTACCO IN ARRIVO' :
         type === 'transport'   ? '🚛 Trasporto completato' :
         type === 'deploy'      ? '🪖 Schieramento completato' :
-        type === 'deployfleet' ? '⛴ Flotta stazionata' : '✅ Completato',
+        type === 'deployfleet' ? '⛴ Flotta stazionata' :
+        type === 'shrine'      ? '⛩ Favore divino in scadenza' : '✅ Completato',
         label,
         { id, urgent }
       );
@@ -111,6 +112,7 @@
     // restoreTimers() non lo ripianta più al prossimo avvio
     try {
       if (type === 'building')    await window.IkDB.deleteRecord('constructions', id);
+      if (type === 'shrine')      await window.IkDB.deleteRecord('constructions', id);
       if (type === 'research')    await window.IkDB.deleteRecord('research', id.replace(/^research_/, ''));
       if (type === 'fleet_enemy') await window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, ''));
       if (type === 'transport')   await window.IkDB.deleteRecord('fleets', id);
@@ -130,6 +132,7 @@
     pending.delete(id);
     if (removePersisted && t && window.IkDB) {
       if (t.type === 'building')    window.IkDB.deleteRecord('constructions', id).catch(()=>{});
+      if (t.type === 'shrine')      window.IkDB.deleteRecord('constructions', id).catch(()=>{});
       if (t.type === 'research')    window.IkDB.deleteRecord('research', id.replace(/^research_/, '')).catch(()=>{});
       if (t.type === 'fleet_enemy') window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, '')).catch(()=>{});
       if (t.type === 'transport')   window.IkDB.deleteRecord('fleets', id).catch(()=>{});
@@ -192,7 +195,7 @@
       for (const c of constructions) {
         if (c.endTime) scheduleTimer({
           id: String(c.id), label: c.label || `${c.cityName || 'Città'} — ${c.building || 'Costruzione'}`,
-          endTime: c.endTime, type: 'building',
+          endTime: c.endTime, type: c.type || 'building',
         });
       }
 

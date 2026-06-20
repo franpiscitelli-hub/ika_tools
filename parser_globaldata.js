@@ -51,6 +51,10 @@
         count += parseChangeView(item[1]);
         count += await parseMilitaryAdvisor(item[1]);
       }
+
+      if (item[0] === 'updateTemplateData') {
+        count += await parseShrineOfOlympus(item[1]);
+      }
     }
 
     if (count === 0) return { parsed: 0, parserName: 'globaldata' };
@@ -493,14 +497,105 @@
     return 0;
   }
 
+  // ── SANTUARIO DEGLI DEI: favore divinità con countdown ──
+  // updateTemplateData contiene chiavi tipo:
+  //   "shrineOfOlympus .god_plutus .gracePeriod" = "1G 13h"  (testo countdown, '-' se non attivo)
+  //   "shrineOfOlympus .god_plutus .bar"          = { style: { width: "100%" } }
+  //   "shrineOfOlympus .god_plutus .progressbar .text" = 1000 (valore donato)
+  // Solo il dio attivo (venerato) ha gracePeriod diverso da '-'.
+  const GOD_NAMES = {
+    pan: 'Pan', dionysus: 'Dioniso', tyche: 'Tiche', plutus: 'Pluto',
+    theia: 'Tela', hephaestos: 'Efesto', zeus: 'Zeus', ares: 'Ares',
+    poseidon: 'Poseidone', hera: 'Era', athena: 'Atena', hermes: 'Ermes',
+  };
+
+  // "1G 13h" / "13h 45m" / "45m" → millisecondi
+  function parseGracePeriodToMs(text) {
+    if (!text || text === '-') return 0;
+    let ms = 0;
+    const dMatch = text.match(/(\d+)\s*G/i);
+    const hMatch = text.match(/(\d+)\s*h/i);
+    const mMatch = text.match(/(\d+)\s*m(?!s)/i);
+    if (dMatch) ms += Number(dMatch[1]) * 86400000;
+    if (hMatch) ms += Number(hMatch[1]) * 3600000;
+    if (mMatch) ms += Number(mMatch[1]) * 60000;
+    return ms;
+  }
+
+  async function parseShrineOfOlympus(payload) {
+    if (!payload || typeof payload !== 'object') return 0;
+
+    const cityId = Number(payload.cityId);
+    if (!cityId) return 0;
+
+    // Trova il dio con gracePeriod attivo (≠ '-')
+    let activeGodKey = null, graceText = null;
+    for (const key of Object.keys(payload)) {
+      const m = key.match(/^shrineOfOlympus \.god_(\w+) \.gracePeriod$/);
+      if (m && payload[key] && payload[key] !== '-') {
+        activeGodKey = m[1];
+        graceText    = payload[key];
+        break;
+      }
+    }
+
+    const timerId = `shrine_${cityId}`;
+
+    if (!activeGodKey) {
+      // Nessun dio attivo con countdown: rimuovi eventuale timer residuo
+      try { await window.IkDB?.deleteRecord?.('constructions', timerId); } catch {}
+      window.IkNotifier?.cancelTimer?.(timerId, true);
+      return 0;
+    }
+
+    const msLeft = parseGracePeriodToMs(graceText);
+    if (msLeft <= 0) return 0;
+    const endMs = Date.now() + msLeft;
+
+    // Percentuale donazioni dalla barra di progresso (style.width: "100%")
+    const barStyle = payload[`shrineOfOlympus .god_${activeGodKey} .bar`]?.style?.width;
+    const percent   = barStyle ? parseInt(barStyle, 10) : null;
+
+    const godName = GOD_NAMES[activeGodKey] || activeGodKey;
+    const label = `⛩ ${godName}${percent != null ? ` — ${percent}%` : ''}`;
+
+    try {
+      await window.IkDB?.put?.('constructions', {
+        id:       timerId,
+        cityId,
+        cityName: '',
+        building: godName,
+        endTime:  endMs,
+        label,
+        type:     'shrine',
+        updated:  new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('[parser_globaldata] shrine persist error:', e.message);
+    }
+
+    window.IkNotifier?.scheduleTimer({
+      id:      timerId,
+      label,
+      endTime: endMs,
+      type:    'shrine',
+    });
+
+    return 1;
+  }
+
   window.IkParsers?.registerParser('globaldata', {
     match: (url, data) => {
       if (!Array.isArray(data)) return false;
-      return data.some(item =>
-        Array.isArray(item) && item[0] === 'updateGlobalData'
-        && item[1] && typeof item[1] === 'object'
-        && (item[1].headerData || item[1].backgroundData)
-      );
+      return data.some(item => {
+        if (!Array.isArray(item)) return false;
+        if (item[0] === 'updateGlobalData' && item[1] && typeof item[1] === 'object'
+            && (item[1].headerData || item[1].backgroundData)) return true;
+        if (item[0] === 'changeView') return true;
+        if (item[0] === 'updateTemplateData' && item[1]
+            && Object.keys(item[1]).some(k => k.startsWith('shrineOfOlympus'))) return true;
+        return false;
+      });
     },
     parse,
   });

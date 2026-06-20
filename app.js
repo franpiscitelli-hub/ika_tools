@@ -1161,7 +1161,7 @@
       if (!active.length) {
         list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>`;
       } else {
-        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴' };
+        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴', shrine:'⛩' };
         list.innerHTML = active.map(t => {
           // Label building ha formato: "🏗 NomeCittà — NomeEdificio LvX → LvY"
           // Label transport/deploy ha formato: "🚛/🪖 Origine → Target (N navi) — dettaglio carico"
@@ -1185,6 +1185,15 @@
             } else {
               subLabel = t.type === 'deploy' ? 'Schieramento truppe'
                        : t.type === 'deployfleet' ? 'Trasferimento flotta' : 'Trasporto merci';
+            }
+          } else if (t.type === 'shrine') {
+            // Label formato: "⛩ NomeDio — XX%" (o senza percentuale se non disponibile)
+            const dashIdx = t.label.indexOf(' — ');
+            if (dashIdx !== -1) {
+              mainLabel = t.label.slice(0, dashIdx);
+              subLabel  = `Favore divino: ${t.label.slice(dashIdx + 3)}`;
+            } else {
+              subLabel = 'Favore divino';
             }
           }
           const endStr = window.IkNotifier.formatEndDateTime(t.endTime);
@@ -1217,10 +1226,10 @@
       return;
     }
 
-    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴' };
+    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴', shrine:'⛩' };
     list.innerHTML = completed.map(t => {
       let mainLabel = t.label, subLabel = '';
-      if (t.type === 'building' || t.type === 'transport' || t.type === 'deploy' || t.type === 'deployfleet') {
+      if (t.type === 'building' || t.type === 'transport' || t.type === 'deploy' || t.type === 'deployfleet' || t.type === 'shrine') {
         const dashIdx = (t.label || '').indexOf(' — ');
         if (dashIdx !== -1) {
           mainLabel = t.label.slice(0, dashIdx);
