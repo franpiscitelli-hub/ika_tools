@@ -49,6 +49,7 @@
 
       if (item[0] === 'changeView') {
         count += parseChangeView(item[1]);
+        count += await parseMilitaryAdvisor(item[1]);
       }
     }
 
@@ -81,6 +82,89 @@
     window.IkApp?.onPlayerNameDetected?.(playerName);
 
     return 1;
+  }
+
+  // ── changeView: estrae trasporti merci da militaryAdvisor ──
+  // payload = [ 'militaryAdvisor', htmlString, { viewScriptParams: { militaryAndFleetMovements: [...] } } ]
+  // Ogni evento con event.missionIconClass === 'transport' rappresenta una nave
+  // trasporto propria, in due possibili fasi:
+  //   missionState 1 → "Trasporto (Caricamento)": eventTime = fine caricamento (partenza)
+  //   missionState 2 → "Trasporto (in corso)":     eventTime = arrivo a destinazione
+  const RESOURCE_ICON_NAMES = {
+    wood: '🪵 Legno', marble: '🪨 Marmo', glass: '🔷 Cristallo',
+    sulfur: '🟡 Zolfo', wine: '🍷 Vino', resource_icon: 'Risorsa',
+  };
+  function resourceIconToName(cssClass) {
+    if (!cssClass) return 'Risorsa';
+    for (const key of Object.keys(RESOURCE_ICON_NAMES)) {
+      if (key !== 'resource_icon' && cssClass.includes(key)) return RESOURCE_ICON_NAMES[key];
+    }
+    return 'Risorsa';
+  }
+  // "15.000" → 15000 (il gioco usa il punto come separatore migliaia in IT)
+  function parseGameAmount(str) {
+    if (typeof str !== 'string') return Number(str) || 0;
+    return Number(str.replace(/\./g, '').replace(',', '.')) || 0;
+  }
+
+  async function parseMilitaryAdvisor(payload) {
+    if (!Array.isArray(payload) || payload[0] !== 'militaryAdvisor') return 0;
+    const extras = payload[2];
+    const events  = extras?.viewScriptParams?.militaryAndFleetMovements;
+    if (!Array.isArray(events)) return 0;
+
+    let count = 0;
+    for (const ev of events) {
+      const event = ev?.event;
+      if (!event || event.missionIconClass !== 'transport') continue;
+      if (!ev.isOwnArmyOrFleet) continue; // solo i propri trasporti
+
+      const state    = Number(event.missionState);
+      const endMs     = Number(ev.eventTime) * 1000;
+      if (!endMs || endMs <= Date.now()) continue;
+
+      const origin    = ev.origin?.name || '?';
+      const target     = ev.target?.name || '?';
+      const shipCount  = ev.fleet?.amount || 0;
+
+      // Lista merci trasportate: "15.000 🔷 Cristallo"
+      const cargo = Array.isArray(ev.resources)
+        ? ev.resources.map(r => `${Math.round(parseGameAmount(r.amount)).toLocaleString('it')} ${resourceIconToName(r.cssClass)}`).join(', ')
+        : '';
+
+      const phaseLabel = state === 1 ? 'Caricamento' : 'In viaggio';
+      const arrow       = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
+      const label = `🚛 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${cargo ? ` — ${cargo}` : ''}`;
+
+      const timerId = `transport_${event.id}_${state}`;
+
+      try {
+        await window.IkDB?.put?.('fleets', {
+          id:          timerId,
+          eventId:     event.id,
+          missionState: state,
+          phase:       phaseLabel,
+          origin, target,
+          shipCount,
+          cargo,
+          endTime:     endMs,
+          isEnemy:     false,
+          updated:     new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error('[parser_globaldata] fleets persist error:', e.message);
+      }
+
+      window.IkNotifier?.scheduleTimer({
+        id:      timerId,
+        label,
+        endTime: endMs,
+        type:    'transport',
+      });
+
+      count++;
+    }
+    return count;
   }
 
   // ── headerData: città attiva (sempre propria) ───

@@ -1161,9 +1161,10 @@
       if (!active.length) {
         list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>`;
       } else {
-        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
+        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛' };
         list.innerHTML = active.map(t => {
           // Label building ha formato: "🏗 NomeCittà — NomeEdificio LvX → LvY"
+          // Label transport ha formato: "🚛 Origine → Target (N navi) — merce1, merce2"
           let mainLabel = t.label;
           let subLabel  = t.type;
           if (t.type === 'building') {
@@ -1176,6 +1177,14 @@
             subLabel = 'Ricerca';
           } else if (t.type === 'fleet_enemy') {
             subLabel = '⚠️ Flotta nemica';
+          } else if (t.type === 'transport') {
+            const dashIdx = t.label.indexOf(' — ');
+            if (dashIdx !== -1) {
+              mainLabel = t.label.slice(0, dashIdx);
+              subLabel  = t.label.slice(dashIdx + 3); // merci trasportate, o vuoto se non note
+            } else {
+              subLabel = 'Trasporto merci';
+            }
           }
           return `<div class="ikp-timer">
             <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
@@ -1205,10 +1214,10 @@
       return;
     }
 
-    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
+    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛' };
     list.innerHTML = completed.map(t => {
       let mainLabel = t.label, subLabel = '';
-      if (t.type === 'building') {
+      if (t.type === 'building' || t.type === 'transport') {
         const dashIdx = (t.label || '').indexOf(' — ');
         if (dashIdx !== -1) {
           mainLabel = t.label.slice(0, dashIdx);
@@ -1217,7 +1226,7 @@
       }
       const ago = formatAgo(Date.now() - (t.completedAt || 0));
       return `<div class="ikp-timer" style="opacity:0.7">
-        <div class="ikp-timer-icon">✅</div>
+        <div class="ikp-timer-icon">${icons[t.type] || '✅'}</div>
         <div class="ikp-timer-info">
           <div class="ikp-timer-label">${mainLabel}</div>
           <div class="ikp-timer-sub">${subLabel || t.type}</div>

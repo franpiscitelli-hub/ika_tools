@@ -69,7 +69,8 @@
     // Avviso finale
     const handle = setTimeout(() => {
       notify(
-        type === 'fleet_enemy' ? '⚔️ ATTACCO IN ARRIVO' : '✅ Completato',
+        type === 'fleet_enemy' ? '⚔️ ATTACCO IN ARRIVO' :
+        type === 'transport'   ? '🚛 Trasporto completato' : '✅ Completato',
         label,
         { id, urgent }
       );
@@ -110,6 +111,7 @@
       if (type === 'building')    await window.IkDB.deleteRecord('constructions', id);
       if (type === 'research')    await window.IkDB.deleteRecord('research', id.replace(/^research_/, ''));
       if (type === 'fleet_enemy') await window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, ''));
+      if (type === 'transport')   await window.IkDB.deleteRecord('fleets', id);
     } catch {}
   }
 
@@ -126,6 +128,7 @@
       if (t.type === 'building')    window.IkDB.deleteRecord('constructions', id).catch(()=>{});
       if (t.type === 'research')    window.IkDB.deleteRecord('research', id.replace(/^research_/, '')).catch(()=>{});
       if (t.type === 'fleet_enemy') window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, '')).catch(()=>{});
+      if (t.type === 'transport')   window.IkDB.deleteRecord('fleets', id).catch(()=>{});
     }
   }
 
@@ -183,9 +186,14 @@
           id: `fleet_${f.id}`, label: `Flotta da ${f.origin}`,
           endTime: f.arrivalTime, type: 'fleet_enemy', urgent: true,
         });
+        // Trasporti propri (caricamento merci o viaggio in corso)
+        if (!f.isEnemy && f.missionState != null && f.endTime) scheduleTimer({
+          id: f.id, label: f.label || `🚛 ${f.origin} → ${f.target}`,
+          endTime: f.endTime, type: 'transport',
+        });
       }
 
-      log(`Ripristinati: ${constructions.length} costruzioni, ${research.length} ricerche, ${fleets.filter(f=>f.isEnemy).length} flotte nemiche`);
+      log(`Ripristinati: ${constructions.length} costruzioni, ${research.length} ricerche, ${fleets.filter(f=>f.isEnemy).length} flotte nemiche, ${fleets.filter(f=>!f.isEnemy && f.missionState!=null).length} trasporti`);
 
       // Pulizia automatica timer completati più vecchi di 24h
       const pruned = await window.IkDB.pruneCompletedTimers(24);
