@@ -71,7 +71,8 @@
       notify(
         type === 'fleet_enemy' ? '⚔️ ATTACCO IN ARRIVO' :
         type === 'transport'   ? '🚛 Trasporto completato' :
-        type === 'deploy'      ? '🪖 Schieramento completato' : '✅ Completato',
+        type === 'deploy'      ? '🪖 Schieramento completato' :
+        type === 'deployfleet' ? '⛴ Flotta stazionata' : '✅ Completato',
         label,
         { id, urgent }
       );
@@ -114,6 +115,7 @@
       if (type === 'fleet_enemy') await window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, ''));
       if (type === 'transport')   await window.IkDB.deleteRecord('fleets', id);
       if (type === 'deploy')      await window.IkDB.deleteRecord('fleets', id);
+      if (type === 'deployfleet') await window.IkDB.deleteRecord('fleets', id);
     } catch {}
   }
 
@@ -132,6 +134,7 @@
       if (t.type === 'fleet_enemy') window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, '')).catch(()=>{});
       if (t.type === 'transport')   window.IkDB.deleteRecord('fleets', id).catch(()=>{});
       if (t.type === 'deploy')      window.IkDB.deleteRecord('fleets', id).catch(()=>{});
+      if (t.type === 'deployfleet') window.IkDB.deleteRecord('fleets', id).catch(()=>{});
     }
   }
 
@@ -207,7 +210,8 @@
         });
         // Trasporti/schieramenti propri (caricamento o viaggio in corso)
         if (!f.isEnemy && f.missionState != null && f.endTime) {
-          const restoredType = f.missionClass === 'deployarmy' ? 'deploy' : 'transport';
+          const restoredType = f.missionClass === 'deployarmy' ? 'deploy'
+                              : f.missionClass === 'deployfleet' ? 'deployfleet' : 'transport';
           scheduleTimer({
             id: f.id, label: f.label || `${f.origin} → ${f.target}`,
             endTime: f.endTime, type: restoredType,

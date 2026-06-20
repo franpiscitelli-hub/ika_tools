@@ -121,6 +121,20 @@
     return UNIT_ICON_NAMES[cssClass] || `⚔️ ${cssClass}`;
   }
 
+  // Mappa cssClass navi → nome italiano leggibile (per deployfleet)
+  const SHIP_ICON_NAMES = {
+    ship_transport: '🚢 Trasporto', ship_paddlespeedship: '🛶 Battello a remi rapido',
+    ship_steamfrigate: '🚂 Fregata a vapore', ship_ram: '🛳 Sperone',
+    ship_catapultship: '💣 Nave catapulta', ship_diving_boat: '🤿 Nave da sommozzatore',
+    ship_balloon_carrier: '🎈 Nave portapallone', ship_destroyer: '⚓ Cacciatorpediniere',
+    ship_brigantine: '⛵ Brigantino', ship_demoship: '💥 Nave da demolizione',
+    ship_paddlespeedboat: '🛶 Vedetta a remi',
+  };
+  function shipIconToName(cssClass) {
+    if (!cssClass) return 'Nave';
+    return SHIP_ICON_NAMES[cssClass] || `🚢 ${cssClass}`;
+  }
+
   async function parseMilitaryAdvisor(payload) {
     if (!Array.isArray(payload) || payload[0] !== 'militaryAdvisor') return 0;
     const extras = payload[2];
@@ -134,7 +148,7 @@
       if (!ev.isOwnArmyOrFleet) continue; // solo i propri movimenti
 
       const missionClass = event.missionIconClass;
-      if (missionClass !== 'transport' && missionClass !== 'deployarmy') continue;
+      if (missionClass !== 'transport' && missionClass !== 'deployarmy' && missionClass !== 'deployfleet') continue;
 
       const state    = Number(event.missionState);
       const endMs     = Number(ev.eventTime) * 1000;
@@ -154,7 +168,7 @@
         const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
         label = `🚛 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${cargo ? ` — ${cargo}` : ''}`;
         timerPrefix = 'transport';
-      } else {
+      } else if (missionClass === 'deployarmy') {
         // deployarmy: schieramento truppe — mostra le unità trasportate
         const units = Array.isArray(ev.army?.units)
           ? ev.army.units.map(u => `${Math.round(parseGameAmount(u.amount)).toLocaleString('it')} ${unitIconToName(u.cssClass)}`).join(', ')
@@ -162,6 +176,14 @@
         const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
         label = `🪖 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${units ? ` — ${units}` : ''}`;
         timerPrefix = 'deploy';
+      } else {
+        // deployfleet: trasferimento navi militari — mostra le navi trasferite
+        const ships = Array.isArray(ev.fleet?.ships)
+          ? ev.fleet.ships.map(s => `${Math.round(parseGameAmount(s.amount)).toLocaleString('it')} ${shipIconToName(s.cssClass)}`).join(', ')
+          : '';
+        const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
+        label = `⛴ ${arrow}${ships ? ` — ${ships}` : ''}`;
+        timerPrefix = 'deployfleet';
       }
 
       const timerId = `${timerPrefix}_${event.id}_${state}`;
@@ -187,7 +209,8 @@
         id:      timerId,
         label,
         endTime: endMs,
-        type:    missionClass === 'transport' ? 'transport' : 'deploy',
+        type:    missionClass === 'transport' ? 'transport'
+                : missionClass === 'deployarmy' ? 'deploy' : 'deployfleet',
       });
 
       count++;

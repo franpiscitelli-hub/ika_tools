@@ -1161,7 +1161,7 @@
       if (!active.length) {
         list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>`;
       } else {
-        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖' };
+        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴' };
         list.innerHTML = active.map(t => {
           // Label building ha formato: "🏗 NomeCittà — NomeEdificio LvX → LvY"
           // Label transport/deploy ha formato: "🚛/🪖 Origine → Target (N navi) — dettaglio carico"
@@ -1177,13 +1177,14 @@
             subLabel = 'Ricerca';
           } else if (t.type === 'fleet_enemy') {
             subLabel = '⚠️ Flotta nemica';
-          } else if (t.type === 'transport' || t.type === 'deploy') {
+          } else if (t.type === 'transport' || t.type === 'deploy' || t.type === 'deployfleet') {
             const dashIdx = t.label.indexOf(' — ');
             if (dashIdx !== -1) {
               mainLabel = t.label.slice(0, dashIdx);
-              subLabel  = t.label.slice(dashIdx + 3); // carico/truppe, o vuoto se non note
+              subLabel  = t.label.slice(dashIdx + 3); // carico/truppe/navi, o vuoto se non note
             } else {
-              subLabel = t.type === 'deploy' ? 'Schieramento truppe' : 'Trasporto merci';
+              subLabel = t.type === 'deploy' ? 'Schieramento truppe'
+                       : t.type === 'deployfleet' ? 'Trasferimento flotta' : 'Trasporto merci';
             }
           }
           const endStr = window.IkNotifier.formatEndDateTime(t.endTime);
@@ -1216,10 +1217,10 @@
       return;
     }
 
-    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖' };
+    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴' };
     list.innerHTML = completed.map(t => {
       let mainLabel = t.label, subLabel = '';
-      if (t.type === 'building' || t.type === 'transport' || t.type === 'deploy') {
+      if (t.type === 'building' || t.type === 'transport' || t.type === 'deploy' || t.type === 'deployfleet') {
         const dashIdx = (t.label || '').indexOf(' — ');
         if (dashIdx !== -1) {
           mainLabel = t.label.slice(0, dashIdx);
