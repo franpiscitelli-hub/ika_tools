@@ -107,6 +107,20 @@
     return Number(str.replace(/\./g, '').replace(',', '.')) || 0;
   }
 
+  // Mappa cssClass unità militari → nome italiano leggibile
+  const UNIT_ICON_NAMES = {
+    swordsman: '⚔️ Spadaccino', hoplite: '🛡 Opliti', spearman: '🔱 Lanciere',
+    slinger: '🪨 Frombolieri', archer: '🏹 Arciere', mortar: '💣 Mortaio',
+    catapult: '🎯 Catapulta', balliste: '🏹 Balestra', ram: '🪵 Ariete',
+    swordfighter: '⚔️ Spadaccino', gyrocopter: '🚁 Girocottero',
+    cannon: '💥 Cannone', steamGiant: '🤖 Gigante a vapore',
+    spy: '🕵️ Spia', settler: '🚩 Colono',
+  };
+  function unitIconToName(cssClass) {
+    if (!cssClass) return 'Unità';
+    return UNIT_ICON_NAMES[cssClass] || `⚔️ ${cssClass}`;
+  }
+
   async function parseMilitaryAdvisor(payload) {
     if (!Array.isArray(payload) || payload[0] !== 'militaryAdvisor') return 0;
     const extras = payload[2];
@@ -116,8 +130,11 @@
     let count = 0;
     for (const ev of events) {
       const event = ev?.event;
-      if (!event || event.missionIconClass !== 'transport') continue;
-      if (!ev.isOwnArmyOrFleet) continue; // solo i propri trasporti
+      if (!event) continue;
+      if (!ev.isOwnArmyOrFleet) continue; // solo i propri movimenti
+
+      const missionClass = event.missionIconClass;
+      if (missionClass !== 'transport' && missionClass !== 'deployarmy') continue;
 
       const state    = Number(event.missionState);
       const endMs     = Number(ev.eventTime) * 1000;
@@ -127,26 +144,37 @@
       const target     = ev.target?.name || '?';
       const shipCount  = ev.fleet?.amount || 0;
 
-      // Lista merci trasportate: "15.000 🔷 Cristallo"
-      const cargo = Array.isArray(ev.resources)
-        ? ev.resources.map(r => `${Math.round(parseGameAmount(r.amount)).toLocaleString('it')} ${resourceIconToName(r.cssClass)}`).join(', ')
-        : '';
+      let label, timerPrefix;
 
-      const phaseLabel = state === 1 ? 'Caricamento' : 'In viaggio';
-      const arrow       = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
-      const label = `🚛 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${cargo ? ` — ${cargo}` : ''}`;
+      if (missionClass === 'transport') {
+        // Lista merci trasportate: "15.000 🔷 Cristallo"
+        const cargo = Array.isArray(ev.resources)
+          ? ev.resources.map(r => `${Math.round(parseGameAmount(r.amount)).toLocaleString('it')} ${resourceIconToName(r.cssClass)}`).join(', ')
+          : '';
+        const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
+        label = `🚛 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${cargo ? ` — ${cargo}` : ''}`;
+        timerPrefix = 'transport';
+      } else {
+        // deployarmy: schieramento truppe — mostra le unità trasportate
+        const units = Array.isArray(ev.army?.units)
+          ? ev.army.units.map(u => `${Math.round(parseGameAmount(u.amount)).toLocaleString('it')} ${unitIconToName(u.cssClass)}`).join(', ')
+          : '';
+        const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
+        label = `🪖 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${units ? ` — ${units}` : ''}`;
+        timerPrefix = 'deploy';
+      }
 
-      const timerId = `transport_${event.id}_${state}`;
+      const timerId = `${timerPrefix}_${event.id}_${state}`;
 
       try {
         await window.IkDB?.put?.('fleets', {
           id:          timerId,
           eventId:     event.id,
+          missionClass,
           missionState: state,
-          phase:       phaseLabel,
           origin, target,
           shipCount,
-          cargo,
+          label,
           endTime:     endMs,
           isEnemy:     false,
           updated:     new Date().toISOString(),
@@ -159,7 +187,7 @@
         id:      timerId,
         label,
         endTime: endMs,
-        type:    'transport',
+        type:    missionClass === 'transport' ? 'transport' : 'deploy',
       });
 
       count++;

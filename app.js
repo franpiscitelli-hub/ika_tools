@@ -1161,10 +1161,10 @@
       if (!active.length) {
         list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>`;
       } else {
-        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛' };
+        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖' };
         list.innerHTML = active.map(t => {
           // Label building ha formato: "🏗 NomeCittà — NomeEdificio LvX → LvY"
-          // Label transport ha formato: "🚛 Origine → Target (N navi) — merce1, merce2"
+          // Label transport/deploy ha formato: "🚛/🪖 Origine → Target (N navi) — dettaglio carico"
           let mainLabel = t.label;
           let subLabel  = t.type;
           if (t.type === 'building') {
@@ -1177,20 +1177,22 @@
             subLabel = 'Ricerca';
           } else if (t.type === 'fleet_enemy') {
             subLabel = '⚠️ Flotta nemica';
-          } else if (t.type === 'transport') {
+          } else if (t.type === 'transport' || t.type === 'deploy') {
             const dashIdx = t.label.indexOf(' — ');
             if (dashIdx !== -1) {
               mainLabel = t.label.slice(0, dashIdx);
-              subLabel  = t.label.slice(dashIdx + 3); // merci trasportate, o vuoto se non note
+              subLabel  = t.label.slice(dashIdx + 3); // carico/truppe, o vuoto se non note
             } else {
-              subLabel = 'Trasporto merci';
+              subLabel = t.type === 'deploy' ? 'Schieramento truppe' : 'Trasporto merci';
             }
           }
+          const endStr = window.IkNotifier.formatEndDateTime(t.endTime);
           return `<div class="ikp-timer">
             <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
             <div class="ikp-timer-info">
               <div class="ikp-timer-label">${mainLabel}</div>
               <div class="ikp-timer-sub">${subLabel}</div>
+              <div class="ikp-timer-sub" style="opacity:0.7">🕐 termina ${endStr}</div>
             </div>
             <div class="ikp-timer-time ${t.msLeft < 300000 ? 'urgent' : ''}" data-id="${t.id}">
               ${window.IkNotifier.formatTime(t.msLeft)}
@@ -1214,10 +1216,10 @@
       return;
     }
 
-    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛' };
+    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖' };
     list.innerHTML = completed.map(t => {
       let mainLabel = t.label, subLabel = '';
-      if (t.type === 'building' || t.type === 'transport') {
+      if (t.type === 'building' || t.type === 'transport' || t.type === 'deploy') {
         const dashIdx = (t.label || '').indexOf(' — ');
         if (dashIdx !== -1) {
           mainLabel = t.label.slice(0, dashIdx);
@@ -1288,7 +1290,7 @@
       const spend  = c.wineSpendings.toLocaleString('it');
       const prodLabel = c.prod > 0 ? ` · produzione +${c.prod.toLocaleString('it')}/h` : '';
 
-      let timeLabel, urgent = false;
+      let timeLabel, urgent = false, endStr = '';
       if (c.hoursLeft === Infinity) {
         timeLabel = '∞';
       } else {
@@ -1302,6 +1304,7 @@
         if (!days) parts.push(`${mins}m`);
         timeLabel = parts.join(' ');
         urgent = c.hoursLeft < 6; // meno di 6 ore: evidenzia
+        endStr = window.IkNotifier?.formatEndDateTime?.(Date.now() + c.hoursLeft * 3600000) || '';
       }
 
       return `<div class="ikp-timer">
@@ -1309,6 +1312,7 @@
         <div class="ikp-timer-info">
           <div class="ikp-timer-label">${c.name || '?'} <span style="color:var(--text-muted);font-size:11px">[${coords}]</span></div>
           <div class="ikp-timer-sub">${wine} vino · consumo ${spend}/h${prodLabel}</div>
+          ${endStr ? `<div class="ikp-timer-sub" style="opacity:0.7">🕐 esaurito ${endStr}</div>` : ''}
         </div>
         <div class="ikp-timer-time ${urgent ? 'urgent' : ''}" style="${c.hoursLeft === Infinity ? 'font-size:22px;letter-spacing:-1px' : ''}">
           ${timeLabel}

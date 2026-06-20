@@ -70,7 +70,8 @@
     const handle = setTimeout(() => {
       notify(
         type === 'fleet_enemy' ? '⚔️ ATTACCO IN ARRIVO' :
-        type === 'transport'   ? '🚛 Trasporto completato' : '✅ Completato',
+        type === 'transport'   ? '🚛 Trasporto completato' :
+        type === 'deploy'      ? '🪖 Schieramento completato' : '✅ Completato',
         label,
         { id, urgent }
       );
@@ -112,6 +113,7 @@
       if (type === 'research')    await window.IkDB.deleteRecord('research', id.replace(/^research_/, ''));
       if (type === 'fleet_enemy') await window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, ''));
       if (type === 'transport')   await window.IkDB.deleteRecord('fleets', id);
+      if (type === 'deploy')      await window.IkDB.deleteRecord('fleets', id);
     } catch {}
   }
 
@@ -129,6 +131,7 @@
       if (t.type === 'research')    window.IkDB.deleteRecord('research', id.replace(/^research_/, '')).catch(()=>{});
       if (t.type === 'fleet_enemy') window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, '')).catch(()=>{});
       if (t.type === 'transport')   window.IkDB.deleteRecord('fleets', id).catch(()=>{});
+      if (t.type === 'deploy')      window.IkDB.deleteRecord('fleets', id).catch(()=>{});
     }
   }
 
@@ -154,6 +157,22 @@
     const sec = s % 60;
     if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;
     return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
+  // ── FORMATO GIORNO+ORA DI FINE ────────────────
+  // Restituisce es. "18:42" se il completamento è oggi, oppure
+  // "lun 22 giu, 18:42" se è un altro giorno (anche passato, per coerenza)
+  function formatEndDateTime(endMs) {
+    if (!endMs) return '';
+    const end   = new Date(endMs);
+    const now   = new Date();
+    const sameDay = end.getFullYear() === now.getFullYear()
+                 && end.getMonth()    === now.getMonth()
+                 && end.getDate()     === now.getDate();
+    const timeStr = end.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    if (sameDay) return timeStr;
+    const dateStr = end.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+    return `${dateStr}, ${timeStr}`;
   }
 
   // ── RIPRISTINO DA DB ─────────────────────────
@@ -186,14 +205,17 @@
           id: `fleet_${f.id}`, label: `Flotta da ${f.origin}`,
           endTime: f.arrivalTime, type: 'fleet_enemy', urgent: true,
         });
-        // Trasporti propri (caricamento merci o viaggio in corso)
-        if (!f.isEnemy && f.missionState != null && f.endTime) scheduleTimer({
-          id: f.id, label: f.label || `🚛 ${f.origin} → ${f.target}`,
-          endTime: f.endTime, type: 'transport',
-        });
+        // Trasporti/schieramenti propri (caricamento o viaggio in corso)
+        if (!f.isEnemy && f.missionState != null && f.endTime) {
+          const restoredType = f.missionClass === 'deployarmy' ? 'deploy' : 'transport';
+          scheduleTimer({
+            id: f.id, label: f.label || `${f.origin} → ${f.target}`,
+            endTime: f.endTime, type: restoredType,
+          });
+        }
       }
 
-      log(`Ripristinati: ${constructions.length} costruzioni, ${research.length} ricerche, ${fleets.filter(f=>f.isEnemy).length} flotte nemiche, ${fleets.filter(f=>!f.isEnemy && f.missionState!=null).length} trasporti`);
+      log(`Ripristinati: ${constructions.length} costruzioni, ${research.length} ricerche, ${fleets.filter(f=>f.isEnemy).length} flotte nemiche, ${fleets.filter(f=>!f.isEnemy && f.missionState!=null).length} movimenti truppe/merci`);
 
       // Pulizia automatica timer completati più vecchi di 24h
       const pruned = await window.IkDB.pruneCompletedTimers(24);
@@ -223,6 +245,7 @@
     getActive,
     getCompleted,
     formatTime,
+    formatEndDateTime,
     restoreTimers,
   };
 
