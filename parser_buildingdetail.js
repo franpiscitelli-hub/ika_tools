@@ -53,7 +53,28 @@
     { key: 'unit',        label: 'Unità sbloccata', test: /permett|unlock|unit/i },
   ];
 
-  // Pulisce un numero HTML duplicato (es. "191.463191.463" → "191.463")
+  // ── MAPPA HASH ICONA → RISORSA (verificata su HTML reale) ──
+  // Le icone <th class="costs"><img src="..."> NON hanno alt-text nel
+  // markup reale del gioco — solo un URL con hash CDN. L'hash però è
+  // STABILE per ogni risorsa in tutte le pagine, quindi lo usiamo come
+  // identificatore primario (più affidabile dell'alt-text, spesso assente).
+  // Hash verificati su Municipio, Accademia, Magazzino, Taverna, Palazzo.
+  const ICON_HASH_MAP = {
+    'c3527b2f694fb882563c04df6d8972': { key: 'wood',    label: 'Legno' },
+    '94ddfda045a8f5ced3397d791fd064': { key: 'wine',    label: 'Vino' },
+    'fc258b990c1a2a36c5aeb9872fc08a': { key: 'marble',  label: 'Marmo' },
+    '417b4059940b2ae2680c070a197d8c': { key: 'crystal', label: 'Cristallo' },
+    '5578a7dfa3e98124439cca4a387a61': { key: 'sulfur',  label: 'Zolfo' },
+    '465f0358d2cb09c07cd0f5a53e38eb': { key: 'time',    label: 'Tempo' },
+  };
+  // Estrae l'hash identificativo da un URL icona CDN
+  // (es. "//gf2.geo.gfsrv.net/cdn19/c3527b2f694fb882563c04df6d8972.png" → hash)
+  function iconUrlHash(url) {
+    const m = url.match(/\/([a-f0-9]{20,})\.png/i);
+    return m ? m[1] : null;
+  }
+
+
   function cleanNum(raw) {
     raw = raw.trim();
     const half = Math.floor(raw.length / 2);
@@ -63,6 +84,24 @@
     const numeric = raw.replace(/\./g, '').replace(',', '.');
     const n = parseFloat(numeric);
     return isNaN(n) ? raw : n;
+  }
+
+  // Estrae il valore numerico preciso da un <td>. Il gioco abbrevia i numeri
+  // grandi nel testo visibile (es. "434,26M", "73,64M" per milioni) e mette
+  // il valore ESATTO in uno di due posti, a seconda del tipo di colonna:
+  //   - colonne "costs" (risorse):  <div class="tooltip">434.262.891</div>
+  //   - colonne "allow" (extra):    attributo title="73.637.056" sul <td> stesso
+  // Diamo sempre priorità al valore preciso quando presente.
+  function extractNumericValue(tdInnerHtml, tdFullHtml) {
+    const tooltipMatch = tdInnerHtml.match(/<div class="tooltip">([^<]+)<\/div>/);
+    if (tooltipMatch) return cleanNum(tooltipMatch[1]);
+
+    if (tdFullHtml) {
+      const titleMatch = tdFullHtml.match(/title="([^"]+)"/);
+      if (titleMatch) return cleanNum(titleMatch[1]);
+    }
+
+    return cleanNum(stripHtml(tdInnerHtml));
   }
 
   function stripHtml(s) {
@@ -86,53 +125,76 @@
     return txt || null;
   }
 
-  // Classifica una colonna in base al testo/icona dell'header.
-  // Ritorna { key, label } — se non riconosciuta, genera una chiave dal testo grezzo.
+  // Classifica una colonna in base a (in ordine di priorità):
+  // 1. Hash icona CDN (identificatore più affidabile, sempre presente per risorse)
+  // 2. Freccia "▶" nell'header (colonne soddisfazione composte)
+  // 3. alt-text dell'icona o classe CSS semantica
+  // 4. Testo puro dell'header (es. "Capacità", "Scienziati")
   function classifyColumn(thHtml, index, usedKeys) {
-    // PRIORITÀ: colonne "doppia icona ▶ smile" (Taverna/Museo) si riconoscono
-    // dalla presenza della freccia (▶) nell'header stesso, PRIMA di provare
-    // a matchare per nome risorsa (altrimenti "vino ▶ smile" verrebbe
-    // scambiato per la colonna "Vino" normale).
-    if (/▶|<i[^>]*arrow/i.test(thHtml)) {
-      // Prova a distinguere le due varianti: soddisfazione da edificio
-      // (icona cittadini/edificio ▶ smile) vs da bene consumato (vino/cultura ▶ smile)
-      const isBuildingSrc = /cittadin|building|tavern|museum/i.test(thHtml);
-      let key = isBuildingSrc ? 'satisfactionBuilding' : 'satisfactionGood';
-      if (usedKeys.has(key)) {
+    function reserveKey(key) {
+      let k = key;
+      if (usedKeys.has(k)) {
         let n = 2;
-        while (usedKeys.has(`${key}_${n}`)) n++;
-        key = `${key}_${n}`;
+        while (usedKeys.has(`${k}_${n}`)) n++;
+        k = `${k}_${n}`;
       }
-      usedKeys.add(key);
+      usedKeys.add(k);
+      return k;
+    }
+
+    // 0. Header con testo esplicito + icone decorative interne (es. Magazzino:
+    // <th class="warehouseCapacity"><div>Capacità</div><img alt="Legno".../>...)
+    // Va riconosciuto PRIMA dello scan hash, altrimenti le icone Legno/Vino/...
+    // dentro l'header verrebbero erroneamente matchate come risorsa singola.
+    const divTextMatch = thHtml.match(/<div[^>]*>([^<]+)<\/div>/);
+    if (divTextMatch) {
+      const divText = divTextMatch[1].trim();
+      for (const hint of COLUMN_HINTS) {
+        if (hint.test.test(divText)) {
+          return { key: reserveKey(hint.key), label: hint.label };
+        }
+      }
+    }
+
+    // 1. Hash icona CDN — identifica risorse standard anche senza alt-text
+    const imgSrcs = thHtml.match(/<img[^>]*src="([^"]+)"/g) || [];
+    for (const imgTag of imgSrcs) {
+      const srcMatch = imgTag.match(/src="([^"]+)"/);
+      if (!srcMatch) continue;
+      const hash = iconUrlHash(srcMatch[1]);
+      if (hash && ICON_HASH_MAP[hash]) {
+        const { key, label } = ICON_HASH_MAP[hash];
+        return { key: reserveKey(key), label };
+      }
+    }
+
+    // 2. Colonne "doppia icona ▶ smile" (rare; nei dati reali osservati finora
+    // queste colonne hanno invece alt-text leggibile, ma manteniamo il check
+    // come fallback per varianti non ancora viste)
+    if (/▶|<i[^>]*arrow/i.test(thHtml)) {
+      const isBuildingSrc = /cittadin|building|tavern|museum/i.test(thHtml);
+      const key = reserveKey(isBuildingSrc ? 'satisfactionBuilding' : 'satisfactionGood');
       return { key, label: isBuildingSrc ? 'Soddisfazione edificio' : 'Soddisfazione bene' };
     }
 
+    // 3. alt-text o classe CSS (colonne con testo leggibile tipo
+    // "Bonus soddisfazione di base", "numero massimo di cittadini")
     const meaning = thMeaning(thHtml);
     for (const hint of COLUMN_HINTS) {
       if (hint.test.test(meaning)) {
-        let key = hint.key;
-        if (usedKeys.has(key)) {
-          let n = 2;
-          while (usedKeys.has(`${key}_${n}`)) n++;
-          key = `${key}_${n}`;
-        }
-        usedKeys.add(key);
-        return { key, label: hint.label };
+        return { key: reserveKey(hint.key), label: hint.label };
       }
     }
+
+    // 4. Testo puro dell'header come fallback finale (es. "Capacità" dentro
+    // <div>, "Vino max.", "Scienziati")
     const label = thLabel(thHtml) || `col${index}`;
     let key = label
       .toLowerCase()
       .replace(/\s+/g, '_')
       .replace(/[^a-z0-9_]/g, '')
       .slice(0, 30) || `col${index}`;
-    if (usedKeys.has(key)) {
-      let n = 2;
-      while (usedKeys.has(`${key}_${n}`)) n++;
-      key = `${key}_${n}`;
-    }
-    usedKeys.add(key);
-    return { key, label };
+    return { key: reserveKey(key), label };
   }
 
   function findBuildingDetailHtml(data) {
@@ -231,9 +293,7 @@
         // numerico finale (es. "<img>484"). Estraiamo solo il numero.
         if (key === 'satisfactionBuilding' || key === 'satisfactionGood'
             || key.startsWith('satisfactionBuilding_') || key.startsWith('satisfactionGood_')) {
-          const nums = inner.match(/[\d.,]+/g) || [];
-          const lastNum = nums.length ? nums[nums.length - 1] : null;
-          levelObj[key] = lastNum != null ? cleanNum(lastNum) : null;
+          levelObj[key] = extractNumericValue(inner, tdHtml);
           return;
         }
 
@@ -241,7 +301,7 @@
         if (txt === '' || txt === '-') {
           levelObj[key] = null;
         } else {
-          levelObj[key] = cleanNum(txt);
+          levelObj[key] = extractNumericValue(inner, tdHtml);
         }
       });
 
