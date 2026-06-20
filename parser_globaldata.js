@@ -39,16 +39,48 @@
 
     for (const item of data) {
       if (!Array.isArray(item) || item.length < 2) continue;
-      if (item[0] !== 'updateGlobalData') continue;
-      const payload = item[1];
-      if (!payload || typeof payload !== 'object') continue;
 
-      if (payload.headerData)     count += await parseHeader(payload.headerData);
-      if (payload.backgroundData) count += await parseBackground(payload.backgroundData);
+      if (item[0] === 'updateGlobalData') {
+        const payload = item[1];
+        if (!payload || typeof payload !== 'object') continue;
+        if (payload.headerData)     count += await parseHeader(payload.headerData);
+        if (payload.backgroundData) count += await parseBackground(payload.backgroundData);
+      }
+
+      if (item[0] === 'changeView') {
+        count += parseChangeView(item[1]);
+      }
     }
 
     if (count === 0) return { parsed: 0, parserName: 'globaldata' };
     return { parsed: count, parserName: 'globaldata' };
+  }
+
+  // ── changeView: estrae nome player da optionsAccount ──
+  function parseChangeView(payload) {
+    // payload = [ viewName, htmlString, extras ]
+    if (!Array.isArray(payload) || payload[0] !== 'optionsAccount') return 0;
+    const html = typeof payload[1] === 'string' ? payload[1] : '';
+
+    // Estrae il nome dal campo input: name="name" value="..."
+    const nameMatch = html.match(/name=["']name["'][^>]*value=["']([^"']+)["']/);
+    if (!nameMatch) return 0;
+
+    const playerName = nameMatch[1].trim();
+    if (!playerName) return 0;
+
+    // Salva in localStorage (stessa chiave usata da saveMyId)
+    const existing = localStorage.getItem('ik_my_name');
+    if (!existing) {
+      // Solo se non già impostato manualmente dall'utente
+      localStorage.setItem('ik_my_name', playerName);
+      console.log('[parser_globaldata] Nome player auto-rilevato:', playerName);
+    }
+
+    // Notifica l'app per aggiornare la UI
+    window.IkApp?.onPlayerNameDetected?.(playerName);
+
+    return 1;
   }
 
   // ── headerData: città attiva (sempre propria) ───
@@ -197,43 +229,70 @@
         console.error('[parser_globaldata] my_cities (background) error:', e.message);
       }
 
-      // Timer costruzioni → tab Timer (IkNotifier)
-      const endDate = bd.constructionListEndDate || bd.endUpgradeTime;
-      if (endDate && endDate > 0) {
-        const endMs = endDate * 1000;
-        if (endMs > Date.now()) {
-          try {
-            const prev = await window.IkDB.get('my_cities', cityId);
-            await window.IkDB.put('my_cities', {
-              ...(prev || {}),
-              cityId,
-              constructionEndTime:   endMs,
-              constructionStartTime:(bd.constructionListStartDate || 0) * 1000,
-              constructionCount:     Number(bd.underConstruction || 1),
-              speedupState:          Number(bd.speedupState || 0),
-              updated: new Date().toISOString(),
+      // Timer costruzioni → tab Timer (IkNotifier) + persistenza in store 'constructions'
+      // L'edificio in costruzione si riconosce dal campo "building" che termina
+      // con " constructionSite" (es. "townHall constructionSite"). Quell'elemento
+      // ha "name" (nome edificio), "level" (livello DI PARTENZA) e "completed"
+      // (timestamp Unix di fine lavori). isBusy resta false per questo elemento.
+      if (Array.isArray(bd.position)) {
+        const buildingSite = bd.position.find(pos =>
+          pos && typeof pos.building === 'string' && pos.building.endsWith(' constructionSite')
+        );
+
+        if (buildingSite && buildingSite.completed) {
+          const endMs = Number(buildingSite.completed) * 1000;
+          if (endMs > Date.now()) {
+            const fromLevel = Number(buildingSite.level || 0);
+            const toLevel   = fromLevel + 1;
+            const bName     = buildingSite.name || buildingSite.building.replace(' constructionSite', '');
+            const timerId   = `build_${cityId}`;
+            const label      = `🏗 ${bd.name || 'Città'} — ${bName} Lv${fromLevel} → Lv${toLevel}`;
+
+            try {
+              const prev = await window.IkDB.get('my_cities', cityId);
+              await window.IkDB.put('my_cities', {
+                ...(prev || {}),
+                cityId,
+                constructionEndTime:   endMs,
+                constructionBuilding:  bName,
+                constructionFromLevel: fromLevel,
+                constructionToLevel:   toLevel,
+                speedupState:          Number(bd.speedupState || 0),
+                updated: new Date().toISOString(),
+              });
+            } catch {}
+
+            // Persiste in 'constructions' per sopravvivere al reload
+            // (notifier.restoreTimers legge da qui all'avvio dell'app)
+            try {
+              await window.IkDB.put('constructions', {
+                id:        timerId,
+                cityId,
+                cityName:  bd.name || '',
+                building:  bName,
+                fromLevel,
+                toLevel,
+                endTime:   endMs,
+                label,
+                updated:   new Date().toISOString(),
+              });
+            } catch(e) {
+              console.error('[parser_globaldata] constructions persist error:', e.message);
+            }
+
+            window.IkNotifier?.scheduleTimer({
+              id:      timerId,
+              label,
+              endTime: endMs,
+              type:    'building',
             });
-          } catch {}
-          // Cerca l'edificio in costruzione tra le posizioni
-          const busyPos = Array.isArray(bd.position)
-            ? bd.position.find(p => p && p.isBusy)
-            : null;
-          const bName  = busyPos?.name       || '';
-          const bLevel = Number(busyPos?.level || 0);
-          let timerLabel;
-          if (bName && bLevel > 0) {
-            timerLabel = `🏗 ${bd.name || 'Città'} — ${bName} Lv${bLevel} → Lv${bLevel + 1}`;
-          } else if (bName) {
-            timerLabel = `🏗 ${bd.name || 'Città'} — ${bName}`;
-          } else {
-            timerLabel = `🏗 ${bd.name || 'Città'} — ${bd.underConstruction||'?'} costruzioni`;
           }
-          window.IkNotifier?.scheduleTimer({
-            id:      `build_${cityId}`,
-            label:   timerLabel,
-            endTime: endMs,
-            type:    'building',
-          });
+        } else {
+          // Nessuna costruzione in corso in questa città: rimuovi eventuale
+          // timer/record residuo per non mostrare dati stantii
+          const timerId = `build_${cityId}`;
+          try { await window.IkDB.deleteRecord('constructions', timerId); } catch {}
+          window.IkNotifier?.cancelTimer?.(timerId, true);
         }
       }
 

@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 8;
+  const DB_VERSION = 9;
   let db = null;
 
   function open() {
@@ -132,6 +132,15 @@
           const s = d.createObjectStore('building_data', { keyPath: 'buildingId' });
           s.createIndex('name',         'name',         { unique: false });
           s.createIndex('buildingType', 'buildingType', { unique: false });
+        }
+
+        // completed_timers — timer scaduti (costruzioni/ricerche/flotte completate)
+        // spostati qui da scheduleTimer/notifier quando msLeft arriva a 0.
+        // Rimossi automaticamente dopo 24h (vedi pruneCompletedTimers).
+        if (!d.objectStoreNames.contains('completed_timers')) {
+          const s = d.createObjectStore('completed_timers', { keyPath: 'id' });
+          s.createIndex('completedAt', 'completedAt', { unique: false });
+          s.createIndex('type',        'type',        { unique: false });
         }
       };
 
@@ -282,6 +291,15 @@
     return old.length;
   }
 
+  // Elimina completed_timers più vecchi di N ore (default 24h)
+  async function pruneCompletedTimers(hours = 24) {
+    const cutoff = Date.now() - hours * 3600000;
+    const all    = await getAll('completed_timers');
+    const old    = all.filter(t => (t.completedAt || 0) < cutoff);
+    for (const t of old) await deleteRecord('completed_timers', t.id);
+    return old.length;
+  }
+
   // ── Conteggio tutti gli store ─────────────────
 
   async function countAll() {
@@ -290,6 +308,7 @@
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
       'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
+      'completed_timers',
     ];
     const result = {};
     for (const s of stores) {
@@ -305,9 +324,9 @@
     add, put, putMany, get, getAll, count, clear,
     deleteRecord, getLast,
     storageInfo,
-    pruneEntries, clearRawEntries, pruneRawByAge,
+    pruneEntries, clearRawEntries, pruneRawByAge, pruneCompletedTimers,
     countAll,
   };
 
-  console.log('[IkDB] v8 caricato');
+  console.log('[IkDB] v9 caricato');
 })();

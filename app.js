@@ -347,6 +347,16 @@
             </div>
           </div>
           <div class="ikp-card">
+            <div class="ikp-card-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center"
+              onclick="var b=document.getElementById('ikp-completed-list');b.style.display=b.style.display==='none'?'block':'none';this.querySelector('.ikp-chev').textContent=b.style.display==='none'?'▸':'▾'">
+              <span>✅ Completati (24h)</span>
+              <span class="ikp-chev" style="font-size:11px;color:var(--text-muted)">▸</span>
+            </div>
+            <div id="ikp-completed-list" style="display:none">
+              <div class="ikp-empty" style="padding:12px 0"><p style="font-size:12px;color:var(--text-muted)">Nessun timer completato nelle ultime 24h.</p></div>
+            </div>
+          </div>
+          <div class="ikp-card">
             <div class="ikp-card-title">🍷 Esaurimento vino</div>
             <div id="ikp-wine-list">
               <div class="ikp-empty"><div class="ikp-empty-icon">🍷</div><p>Naviga le tue città per popolare questa stima.</p></div>
@@ -1149,27 +1159,90 @@
     if (list && window.IkNotifier) {
       const active = window.IkNotifier.getActive();
       if (!active.length) {
-        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer.</p></div>`;
+        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>`;
       } else {
         const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
-        list.innerHTML = active.map(t => `
-          <div class="ikp-timer">
+        list.innerHTML = active.map(t => {
+          // Label building ha formato: "🏗 NomeCittà — NomeEdificio LvX → LvY"
+          let mainLabel = t.label;
+          let subLabel  = t.type;
+          if (t.type === 'building') {
+            const dashIdx = t.label.indexOf(' — ');
+            if (dashIdx !== -1) {
+              mainLabel = t.label.slice(0, dashIdx);
+              subLabel  = t.label.slice(dashIdx + 3);
+            }
+          } else if (t.type === 'research') {
+            subLabel = 'Ricerca';
+          } else if (t.type === 'fleet_enemy') {
+            subLabel = '⚠️ Flotta nemica';
+          }
+          return `<div class="ikp-timer">
             <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
             <div class="ikp-timer-info">
-              <div class="ikp-timer-label">${t.label}</div>
-              <div class="ikp-timer-sub">${t.type}</div>
+              <div class="ikp-timer-label">${mainLabel}</div>
+              <div class="ikp-timer-sub">${subLabel}</div>
             </div>
             <div class="ikp-timer-time ${t.msLeft < 300000 ? 'urgent' : ''}" data-id="${t.id}">
               ${window.IkNotifier.formatTime(t.msLeft)}
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
       }
     }
+    await renderCompletedTimers();
     await renderWineTimers();
   }
 
+  // ── TIMER COMPLETATI (ultime 24h) ─────────────
+  async function renderCompletedTimers() {
+    const list = document.getElementById('ikp-completed-list');
+    if (!list || !window.IkNotifier) return;
+
+    const completed = await window.IkNotifier.getCompleted();
+    if (!completed.length) {
+      list.innerHTML = `<div class="ikp-empty" style="padding:12px 0"><p style="font-size:12px;color:var(--text-muted)">Nessun timer completato nelle ultime 24h.</p></div>`;
+      return;
+    }
+
+    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️' };
+    list.innerHTML = completed.map(t => {
+      let mainLabel = t.label, subLabel = '';
+      if (t.type === 'building') {
+        const dashIdx = (t.label || '').indexOf(' — ');
+        if (dashIdx !== -1) {
+          mainLabel = t.label.slice(0, dashIdx);
+          subLabel  = t.label.slice(dashIdx + 3);
+        }
+      }
+      const ago = formatAgo(Date.now() - (t.completedAt || 0));
+      return `<div class="ikp-timer" style="opacity:0.7">
+        <div class="ikp-timer-icon">✅</div>
+        <div class="ikp-timer-info">
+          <div class="ikp-timer-label">${mainLabel}</div>
+          <div class="ikp-timer-sub">${subLabel || t.type}</div>
+        </div>
+        <div class="ikp-timer-time" style="font-size:11px;color:var(--text-muted)">
+          ${ago}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Formatta "quanto tempo fa" in italiano breve
+  function formatAgo(ms) {
+    const min = Math.floor(ms / 60000);
+    if (min < 1)  return 'ora';
+    if (min < 60) return `${min}m fa`;
+    const h = Math.floor(min / 60);
+    if (h < 24)   return `${h}h fa`;
+    return `${Math.floor(h/24)}g fa`;
+  }
+
   // ── ESAURIMENTO VINO ─────────────────────────────
-  // Stima per ogni polis: tempo rimanente = vino attuale / consumo orario
+  // Stima per ogni polis: tempo rimanente = vino attuale / consumo NETTO
+  // (consumo - produzione). Se la polis produce vino (tradegood=vino) e la
+  // produzione oraria copre o supera il consumo, il vino non si esaurisce mai (∞).
   async function renderWineTimers() {
     const list = document.getElementById('ikp-wine-list');
     if (!list || !window.IkDB) return;
@@ -1185,25 +1258,30 @@
       return;
     }
 
-    // Calcola ore rimanenti, ordina dal più urgente
+    // Calcola consumo netto = consumo - produzione (mai sotto zero)
     const rows = withWine.map(c => {
-      let hoursLeft = null;
-      if (c.wineSpendings > 0) {
-        hoursLeft = c.wine / c.wineSpendings;
-      } else if (c.wineSpendings === 0) {
-        hoursLeft = Infinity; // nessun consumo: non si esaurisce
+      const prod     = c.wineProduction || 0;  // produzione oraria (solo se la polis produce vino)
+      const spend    = c.wineSpendings  || 0;
+      const netSpend = Math.max(0, spend - prod);
+
+      let hoursLeft;
+      if (netSpend <= 0) {
+        hoursLeft = Infinity; // produzione ≥ consumo: non si esaurisce mai
+      } else {
+        hoursLeft = c.wine / netSpend;
       }
-      return { ...c, hoursLeft };
+      return { ...c, hoursLeft, prod, netSpend };
     }).sort((a, b) => (a.hoursLeft ?? Infinity) - (b.hoursLeft ?? Infinity));
 
     list.innerHTML = rows.map(c => {
       const coords = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const wine   = Math.round(c.wine).toLocaleString('it');
       const spend  = c.wineSpendings.toLocaleString('it');
+      const prodLabel = c.prod > 0 ? ` · produzione +${c.prod.toLocaleString('it')}/h` : '';
 
       let timeLabel, urgent = false;
       if (c.hoursLeft === Infinity) {
-        timeLabel = '∞ (consumo nullo)';
+        timeLabel = '∞';
       } else {
         const totalMin = Math.round(c.hoursLeft * 60);
         const days  = Math.floor(totalMin / 1440);
@@ -1221,9 +1299,9 @@
         <div class="ikp-timer-icon">🍷</div>
         <div class="ikp-timer-info">
           <div class="ikp-timer-label">${c.name || '?'} <span style="color:var(--text-muted);font-size:11px">[${coords}]</span></div>
-          <div class="ikp-timer-sub">${wine} vino · consumo ${spend}/h</div>
+          <div class="ikp-timer-sub">${wine} vino · consumo ${spend}/h${prodLabel}</div>
         </div>
-        <div class="ikp-timer-time ${urgent ? 'urgent' : ''}">
+        <div class="ikp-timer-time ${urgent ? 'urgent' : ''}" style="${c.hoursLeft === Infinity ? 'font-size:22px;letter-spacing:-1px' : ''}">
           ${timeLabel}
         </div>
       </div>`;
@@ -1336,8 +1414,7 @@
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const tgName  = c.tgName || '—';
       const tgPerHr = (c.tgPerHour != null) ? c.tgPerHour.toLocaleString('it') : '—';
-      const woodPerHr = (c.woodPerHour != null) ? c.woodPerHour.toLocaleString('it') : '—';
-      const maxStorage = (c.maxStorage != null) ? Math.round(c.maxStorage).toLocaleString('it') : '—';
+      const wood    = (c.wood != null) ? Math.round(c.wood).toLocaleString('it') : '—';
       const sciUp   = (c.scientistsUpkeep != null) ? c.scientistsUpkeep.toLocaleString('it') : '—';
       const wineSp  = (c.wineSpendings != null) ? c.wineSpendings.toLocaleString('it') : '—';
       if (c.wineSpendings != null) totalWine += c.wineSpendings;
@@ -1358,7 +1435,7 @@
 
       let bContent;
       if (!occupied.length) {
-        bContent = `<td colspan="11" style="padding:10px;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili. Visita questa città nel gioco.</td>`;
+        bContent = `<td colspan="10" style="padding:10px;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili. Visita questa città nel gioco.</td>`;
       } else {
         const bRows = [
           ...occupied.map(b => {
@@ -1422,7 +1499,7 @@
           red.tradegood > 0 ? `🔨 bene -${red.tradegood}%` : '',
         ].filter(Boolean).join(' · ');
 
-        bContent = `<td colspan="11" style="padding:0">
+        bContent = `<td colspan="10" style="padding:0">
           <table class="ikp-db-table" style="border-top:none">
             <thead><tr style="background:var(--bg)">
               <th>Edificio</th>
@@ -1438,12 +1515,11 @@
 
       return `<tr style="cursor:pointer" onclick="var r=document.getElementById('${detailId}');r.style.display=r.style.display==='none'?'table-row':'none'">
         <td>${c.cityId}</td>
-        <td>${coords}</td>
         <td>${c.name || '—'}</td>
-        <td style="text-align:right">${woodPerHr}</td>
+        <td>${coords}</td>
         <td>${tgName}</td>
         <td style="text-align:right">${tgPerHr}</td>
-        <td style="text-align:right">${maxStorage}</td>
+        <td style="text-align:right">${wood}</td>
         <td style="text-align:right">${wineSp}</td>
         <td style="text-align:right">${sciUp}</td>
         <td style="text-align:right">${citFree}</td>
@@ -1458,11 +1534,9 @@
       <div style="overflow-x:auto">
         <table class="ikp-db-table">
           <thead><tr>
-            <th>ID</th><th>X:Y</th><th>Nome</th>
-            <th style="text-align:right">🪵 Legno/h</th>
-            <th>Bene</th>
+            <th>ID</th><th>Nome</th><th>X:Y</th><th>Bene</th>
             <th style="text-align:right">Bene/h</th>
-            <th style="text-align:right">📦 Max magazzino</th>
+            <th style="text-align:right">🪵 Legno</th>
             <th style="text-align:right">🍷 Consumo vino</th>
             <th style="text-align:right">Scienziati</th>
             <th style="text-align:right">Liberi</th>
@@ -1470,7 +1544,7 @@
           </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr style="font-weight:600;border-top:2px solid var(--border)">
-            <td colspan="7">Totale consumo vino</td>
+            <td colspan="6">Totale consumo vino</td>
             <td style="text-align:right">${Math.round(totalWine).toLocaleString('it')}</td>
             <td colspan="3"></td>
           </tr></tfoot>

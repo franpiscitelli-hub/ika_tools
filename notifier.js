@@ -75,6 +75,11 @@
       );
       timers.delete(id);
       pending.delete(id);
+
+      // Sposta il timer in completed_timers (persistente, auto-pulito dopo 24h)
+      // e rimuove il record "in corso" originale (constructions/research/fleets)
+      moveToCompleted({ id, label, endTime: end, type }).catch(() => {});
+
       window.IkApp?.onTimerExpired?.(id, type);
     }, msLeft);
 
@@ -85,11 +90,43 @@
     window.IkApp?.onTimerAdded?.({ id, label, endTime: end, type, urgent, msLeft });
   }
 
+  // ── SPOSTA TIMER SCADUTO IN completed_timers ──
+  async function moveToCompleted({ id, label, endTime, type }) {
+    if (!window.IkDB) return;
+    try {
+      await window.IkDB.put('completed_timers', {
+        id,
+        label,
+        type,
+        endTime,
+        completedAt: Date.now(),
+      });
+    } catch (e) {
+      log('Errore salvataggio completed_timers:', e.message);
+    }
+    // Rimuove il record "in corso" dallo store di origine così
+    // restoreTimers() non lo ripianta più al prossimo avvio
+    try {
+      if (type === 'building')    await window.IkDB.deleteRecord('constructions', id);
+      if (type === 'research')    await window.IkDB.deleteRecord('research', id.replace(/^research_/, ''));
+      if (type === 'fleet_enemy') await window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, ''));
+    } catch {}
+  }
+
   // ── CANCELLA TIMER ───────────────────────────
-  function cancelTimer(id) {
+  // Se removePersisted è true (default), rimuove anche il record persistito
+  // nello store di origine (constructions/research/fleets) — utile quando
+  // il parser rileva che una costruzione non è più in corso (es. annullata).
+  function cancelTimer(id, removePersisted = false) {
     if (timers.has(id)) { clearTimeout(timers.get(id)); timers.delete(id); }
     if (timers.has(id+'_warn5')) { clearTimeout(timers.get(id+'_warn5')); timers.delete(id+'_warn5'); }
+    const t = pending.get(id);
     pending.delete(id);
+    if (removePersisted && t && window.IkDB) {
+      if (t.type === 'building')    window.IkDB.deleteRecord('constructions', id).catch(()=>{});
+      if (t.type === 'research')    window.IkDB.deleteRecord('research', id.replace(/^research_/, '')).catch(()=>{});
+      if (t.type === 'fleet_enemy') window.IkDB.deleteRecord('fleets', id.replace(/^fleet_/, '')).catch(()=>{});
+    }
   }
 
   // ── LISTA TIMER ATTIVI ───────────────────────
@@ -129,14 +166,14 @@
 
       for (const c of constructions) {
         if (c.endTime) scheduleTimer({
-          id: String(c.id), label: `${c.name} completata`,
+          id: String(c.id), label: c.label || `${c.cityName || 'Città'} — ${c.building || 'Costruzione'}`,
           endTime: c.endTime, type: 'building',
         });
       }
 
       for (const r of research) {
         if (r.endTime) scheduleTimer({
-          id: `research_${r.id}`, label: `Ricerca: ${r.name}`,
+          id: `research_${r.id}`, label: r.label || `Ricerca: ${r.name}`,
           endTime: r.endTime, type: 'research',
         });
       }
@@ -149,8 +186,23 @@
       }
 
       log(`Ripristinati: ${constructions.length} costruzioni, ${research.length} ricerche, ${fleets.filter(f=>f.isEnemy).length} flotte nemiche`);
+
+      // Pulizia automatica timer completati più vecchi di 24h
+      const pruned = await window.IkDB.pruneCompletedTimers(24);
+      if (pruned) log(`Puliti ${pruned} timer completati >24h`);
     } catch (e) {
       log('Errore ripristino timer:', e.message);
+    }
+  }
+
+  // ── LISTA TIMER COMPLETATI (ultime 24h) ───────
+  async function getCompleted() {
+    if (!window.IkDB) return [];
+    try {
+      const all = await window.IkDB.getAll('completed_timers');
+      return all.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    } catch {
+      return [];
     }
   }
 
@@ -161,6 +213,7 @@
     scheduleTimer,
     cancelTimer,
     getActive,
+    getCompleted,
     formatTime,
     restoreTimers,
   };
