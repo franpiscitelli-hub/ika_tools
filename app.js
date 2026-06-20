@@ -1336,8 +1336,8 @@
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const tgName  = c.tgName || '—';
       const tgPerHr = (c.tgPerHour != null) ? c.tgPerHour.toLocaleString('it') : '—';
-      const wood    = (c.wood != null) ? Math.round(c.wood).toLocaleString('it') : '—';
       const woodPerHr = (c.woodPerHour != null) ? c.woodPerHour.toLocaleString('it') : '—';
+      const maxStorage = (c.maxStorage != null) ? Math.round(c.maxStorage).toLocaleString('it') : '—';
       const sciUp   = (c.scientistsUpkeep != null) ? c.scientistsUpkeep.toLocaleString('it') : '—';
       const wineSp  = (c.wineSpendings != null) ? c.wineSpendings.toLocaleString('it') : '—';
       if (c.wineSpendings != null) totalWine += c.wineSpendings;
@@ -1438,12 +1438,12 @@
 
       return `<tr style="cursor:pointer" onclick="var r=document.getElementById('${detailId}');r.style.display=r.style.display==='none'?'table-row':'none'">
         <td>${c.cityId}</td>
-        <td>${c.name || '—'}</td>
         <td>${coords}</td>
+        <td>${c.name || '—'}</td>
+        <td style="text-align:right">${woodPerHr}</td>
         <td>${tgName}</td>
         <td style="text-align:right">${tgPerHr}</td>
-        <td style="text-align:right">${wood}</td>
-        <td style="text-align:right">${woodPerHr}</td>
+        <td style="text-align:right">${maxStorage}</td>
         <td style="text-align:right">${wineSp}</td>
         <td style="text-align:right">${sciUp}</td>
         <td style="text-align:right">${citFree}</td>
@@ -1458,10 +1458,11 @@
       <div style="overflow-x:auto">
         <table class="ikp-db-table">
           <thead><tr>
-            <th>ID</th><th>Nome</th><th>X:Y</th><th>Bene</th>
-            <th style="text-align:right">Bene/h</th>
-            <th style="text-align:right">🪵 Legno</th>
+            <th>ID</th><th>X:Y</th><th>Nome</th>
             <th style="text-align:right">🪵 Legno/h</th>
+            <th>Bene</th>
+            <th style="text-align:right">Bene/h</th>
+            <th style="text-align:right">📦 Max magazzino</th>
             <th style="text-align:right">🍷 Consumo vino</th>
             <th style="text-align:right">Scienziati</th>
             <th style="text-align:right">Liberi</th>
