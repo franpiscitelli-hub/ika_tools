@@ -435,6 +435,7 @@
 
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="ikp-btn danger small" onclick="window.IkApp.clearDB()">🗑 Svuota DB</button>
+            <button class="ikp-btn danger small outline" onclick="window.IkApp.clearDbSection()" title="Svuota solo la sezione selezionata sopra">🗑 Svuota sezione</button>
             <button class="ikp-btn outline small" onclick="window.IkApp.renderDB()">↻ Aggiorna</button>
             <button class="ikp-btn outline small" onclick="window.IkApp.clearRaw()" title="Elimina JSON raw">🧹 Raw</button>
             <button class="ikp-btn outline small" onclick="window.IkApp.downloadSearchResults()" title="Scarica risultati visibili">⬇ Scarica</button>
@@ -2179,6 +2180,43 @@
     toast('🗑 DB svuotato');
   }
 
+  // Etichette leggibili per ciascuno store, riusate per conferma/toast
+  const STORE_LABELS = {
+    building_data:   '🏗 Dati edifici',
+    islands:         '🏝 Isole',
+    my_cities:       '🏠 Mie città',
+    account_summary: '💰 Riepilogo account',
+    enemy_buildings: '🏢 Edifici nemici',
+    players:         '👤 Players',
+    state_changes:   '🔔 Cambi stato',
+    entries:         '📋 JSON raw',
+  };
+
+  // Svuota solo la sezione attualmente selezionata nella tendina di ricerca DB
+  async function clearDbSection() {
+    const store = document.getElementById('ikp-db-store')?.value;
+    if (!store || !window.IkDB) return;
+    const label = STORE_LABELS[store] || store;
+
+    if (!confirm(`Svuotare solo la sezione "${label}"?\nQuesta azione non può essere annullata.`)) return;
+
+    try {
+      await window.IkDB.clear(store);
+
+      // Sincronizza stato in-memory se la sezione svuotata influisce sulla mappa
+      if (store === 'islands') mapIslands = [];
+      if (store === 'players') mapPlayers = new Map();
+      if (store === 'my_cities') mapCities = [];
+
+      await renderDB();
+      refreshActiveTab();
+      updateStatusBar();
+      toast(`🗑 Sezione "${label}" svuotata`);
+    } catch (e) {
+      toast('⚠️ Errore durante lo svuotamento: ' + e.message);
+    }
+  }
+
   // Reset solo dati polis (my_cities + account_summary).
   // Mantiene isole, players, cambi stato, edifici nemici.
   async function resetMyCities() {
@@ -2481,7 +2519,7 @@
     applyFilters, clearFilters, goToMe,
     closePopup, saveMyId, askNotifPerm, pruneOld,
     toggleSaveAllRaw,
-    clearDB, clearChanges, importFiles, importLog,
+    clearDB, clearDbSection, clearChanges, importFiles, importLog,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
     dbSearch, clearRaw, renderAccount, selectCity,
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
