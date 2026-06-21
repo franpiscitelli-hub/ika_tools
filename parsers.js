@@ -46,6 +46,7 @@
       'parser_ranking.js',
       'parser_buildingdetail.js',
       'parser_unitdescription.js',
+      'parser_workshop.js',
     ];
 
     for (const file of subParsers) {
