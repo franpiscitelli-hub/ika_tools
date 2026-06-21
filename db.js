@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 9;
+  const DB_VERSION = 10;
   let db = null;
 
   function open() {
@@ -132,6 +132,15 @@
           const s = d.createObjectStore('building_data', { keyPath: 'buildingId' });
           s.createIndex('name',         'name',         { unique: false });
           s.createIndex('buildingType', 'buildingType', { unique: false });
+        }
+
+        // unit_data — dati truppe/navi (attacco, difesa, costo, requisiti)
+        // keyPath: id composito "unit_301" / "ship_201" per evitare collisioni
+        // tra unitId e shipId che condividono lo stesso spazio numerico.
+        if (!d.objectStoreNames.contains('unit_data')) {
+          const s = d.createObjectStore('unit_data', { keyPath: 'id' });
+          s.createIndex('kind', 'kind', { unique: false }); // 'unit' | 'ship'
+          s.createIndex('name', 'name', { unique: false });
         }
 
         // completed_timers — timer scaduti (costruzioni/ricerche/flotte completate)
@@ -308,7 +317,7 @@
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
       'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
-      'completed_timers',
+      'completed_timers', 'unit_data',
     ];
     const result = {};
     for (const s of stores) {
@@ -328,5 +337,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v9 caricato');
+  console.log('[IkDB] v10 caricato');
 })();
