@@ -45,6 +45,7 @@
       'parser_globaldata.js',
       'parser_ranking.js',
       'parser_buildingdetail.js',
+      'parser_unitdescription.js',
     ];
 
     for (const file of subParsers) {
