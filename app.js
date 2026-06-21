@@ -2434,6 +2434,12 @@
       log('❌ IkDB non trovato!');
     }
 
+    // 1b. Applica valori di default "Punti Generale" alle unità già presenti
+    if (window.IkUnitGenerals) {
+      const { applied } = await window.IkUnitGenerals.applyGeneralsDefaults();
+      if (applied) log(`✅ Generali default applicati a ${applied} unità`);
+    }
+
     // 2. Carica sotto-parser (usa _gmFetch già impostato dal TM)
     if (window.IkParsers) {
       await window.IkParsers.loadSubParsers();

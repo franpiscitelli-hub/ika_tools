@@ -209,6 +209,16 @@
 
     try {
       const existing = await window.IkDB.get('unit_data', id);
+
+      // Applica il default "Punti Generale" solo se non già impostato
+      // (preserva un eventuale valore reale o un default già applicato)
+      let generalsFields = {};
+      if (existing?.generals == null && window.IkUnitGenerals) {
+        const table = kind === 'ship' ? window.IkUnitGenerals.SHIP_GENERALS : window.IkUnitGenerals.UNIT_GENERALS;
+        const value = table[numId];
+        if (value != null) generalsFields = { generals: value, generalsIsDefault: true };
+      }
+
       await window.IkDB.put('unit_data', {
         ...(existing || {}),
         id,
@@ -224,6 +234,7 @@
         weapons,
         requirement,
         updated: meta.date || new Date().toISOString(),
+        ...generalsFields,
       });
       console.log(`[parser_unitdescription] ${name} (${id}): ${weapons.length} arma/i, ranged=${isRanged}`);
     } catch (e) {

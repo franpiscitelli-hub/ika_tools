@@ -106,10 +106,19 @@
 
       try {
         const existing = await window.IkDB.get('unit_data', id);
+
+        let generalsFields = {};
+        if (existing?.generals == null && window.IkUnitGenerals) {
+          const table = kind === 'ship' ? window.IkUnitGenerals.SHIP_GENERALS : window.IkUnitGenerals.UNIT_GENERALS;
+          const value = table[numId];
+          if (value != null) generalsFields = { generals: value, generalsIsDefault: true };
+        }
+
         await window.IkDB.put('unit_data', {
           ...(existing || { id, kind, unitId: numId }),
           upgrades,
           upgradesUpdated: meta.date || new Date().toISOString(),
+          ...generalsFields,
         });
         count++;
       } catch (e) {
