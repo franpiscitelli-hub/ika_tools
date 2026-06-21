@@ -419,6 +419,7 @@
               <select id="ikp-db-store" class="ikp-input" style="flex:1;min-width:140px"
                       onchange="window.IkApp.dbSearch()">
                 <option value="building_data">🏗 Dati edifici</option>
+                <option value="unit_data">⚔️ Truppe/Navi</option>
                 <option value="islands">🏝 Isole</option>
                 <option value="my_cities">🏠 Mie città</option>
                 <option value="account_summary">💰 Riepilogo account</option>
@@ -1999,6 +2000,16 @@
       { k: 'requirement',  label: 'Requisito' },
       { k: 'updated',      label: 'Agg.' },
     ],
+    unit_data: [
+      { k: 'unitId',     label: 'ID' },
+      { k: 'kind',       label: 'Tipo' },
+      { k: 'name',       label: 'Nome' },
+      { k: 'type',       label: 'Classe' },
+      { k: 'isRanged',   label: 'Distanza' },
+      { k: 'cost',       label: 'Costo' },
+      { k: 'stats',      label: 'Stats' },
+      { k: 'requirement',label: 'Requisito' },
+    ],
     islands: [
       { k: 'coords',      label: 'Coord' },
       { k: 'name',        label: 'Nome' },
@@ -2065,6 +2076,7 @@
 
   const STORE_SEARCH = {
     building_data: r => `${r.name} ${r.buildingType} ${r.requirement}`.toLowerCase(),
+    unit_data:     r => `${r.name} ${r.kind} ${r.type}`.toLowerCase(),
     islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
     my_cities:       r => `${r.name} ${r.cityId} ${r.islandX}:${r.islandY} ${r.tgName}`.toLowerCase(),
     enemy_buildings: r => `${r.cityName} ${r.ownerName} ${r.islandX}:${r.islandY}`.toLowerCase(),
@@ -2097,6 +2109,25 @@
       return `<span class="ikp-state-badge ${cls[v]||''}">${lbl[v]||v}</span>`;
     }
     if (key === 'isBusy') return v ? '🔴' : '🟢';
+    if (key === 'isRanged') return v ? '🏹 Sì' : '⚔️ No';
+    if (key === 'kind') return v === 'ship' ? '⛴ Nave' : '🪖 Truppa';
+    if (key === 'cost' && v && typeof v === 'object') {
+      const ICONS = { wood:'🪵', wine:'🍷', marble:'🪨', crystal:'🔷', sulfur:'🟡', citizens:'👤', upkeep:'🪙' };
+      const parts = Object.entries(v)
+        .filter(([k]) => ICONS[k])
+        .map(([k, val]) => `${ICONS[k]}${typeof val === 'number' ? val.toLocaleString('it') : val}`);
+      return parts.join(' ') || '—';
+    }
+    if (key === 'stats' && v && typeof v === 'object') {
+      const parts = [];
+      if (v.hp    != null) parts.push(`❤️${v.hp}`);
+      if (v.speed != null) parts.push(`⚡${v.speed}`);
+      if (v.armor != null) parts.push(`🛡${v.armor}`);
+      return parts.join(' ') || '—';
+    }
+    if (key === 'requirement' && v && typeof v === 'object' && v.building) {
+      return `${v.building}${v.level != null ? ` (Lv${v.level})` : ''}`;
+    }
     if (key === 'url') {
       try { const u = new URL(v); return u.searchParams.get('action')||u.searchParams.get('view')||u.pathname.slice(-20); } catch {}
     }
@@ -2205,6 +2236,7 @@
       const counts = await window.IkDB.countAll();
       const items = [
         { icon: '🏗', label: 'Edifici',   val: counts.building_data },
+        { icon: '⚔️', label: 'Truppe/Navi', val: counts.unit_data },
         { icon: '🏝', label: 'Isole',     val: counts.islands },
         { icon: '🏠', label: 'Mie città', val: counts.my_cities },
         { icon: '🏢', label: 'Ed.nemici', val: counts.enemy_buildings },
@@ -2268,7 +2300,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -2278,6 +2310,7 @@
   // Etichette leggibili per ciascuno store, riusate per conferma/toast
   const STORE_LABELS = {
     building_data:   '🏗 Dati edifici',
+    unit_data:       '⚔️ Truppe/Navi',
     islands:         '🏝 Isole',
     my_cities:       '🏠 Mie città',
     account_summary: '💰 Riepilogo account',
