@@ -1346,11 +1346,15 @@
 
     // Edifici che riducono il costo di costruzione (buildingType → risorsa ridotta)
     const REDUCTION_MAP = {
-      carpenter:       'wood',       // carpenteria → legno
-      architectOffice: 'tradegood',  // ufficio architetto → marmo/bene
-      vineyard:        'wine',       // cantina → vino (non usato nelle costruzioni ma previsto)
-      glassblower:     'tradegood',  // ottico → cristallo (bene commerciale)
-      gunpowderTower:  'tradegood',  // zona pirotecnica → zolfo (bene commerciale)
+      carpentering:  'wood',       // carpenteria → legno
+      architect:     'tradegood',  // ufficio architetto → marmo/bene
+      vineyard:      'wine',       // cantina → vino (non usato nelle costruzioni ma previsto)
+      optician:      'tradegood',  // ottico → cristallo (bene commerciale)
+      fireworker:    'tradegood',  // officina/zona pirotecnica → zolfo (bene commerciale)
+      stonemason:    'tradegood',  // tagliapietra → marmo (bene commerciale)
+      forester:      'wood',       // casa guardiaboschi → legno
+      glassblowing:  'tradegood',  // vetraio → cristallo (bene commerciale)
+      winegrower:    'wine',       // torchio → vino
     };
 
     // Calcola % riduzione per ogni risorsa dato l'elenco edifici di una città
@@ -1379,7 +1383,7 @@
     // Indicatori a pallino per edifici "da monitorare" nella tabella espandibile:
     //  - Nascondiglio: 🔴 se livello ≤ municipio (vulnerabile a spionaggio), 🟢 altrimenti
     //  - Carpenteria/Ufficio Architetto/Cantina/Officina/Ottico: 🟡 se livello < 50, 🟢 altrimenti
-    const YELLOW_THRESHOLD_TYPES = new Set(['carpenter', 'architectOffice', 'vineyard', 'gunpowderTower', 'glassblower']);
+    const YELLOW_THRESHOLD_TYPES = new Set(['carpentering', 'architect', 'vineyard', 'fireworker', 'optician']);
     function buildingDot(b, townHallLevel) {
       if (b.building === 'safehouse') {
         const ok = townHallLevel == null || b.level > townHallLevel;
@@ -1468,18 +1472,18 @@
     const BICONS = {
       townHall:'🏛', warehouse:'🏪', tavern:'🍺', academy:'🎓',
       shipyard:'⚓', barracks:'⚔️', wall:'🏰', museum:'🖼',
-      palace:'👑', branchOffice:'🏢', temple:'⛩', beautification:'🌸',
-      luxuryResidence:'🏠', embassy:'📜', carpenter:'🪚',
-      glassblower:'🫙', alchemistTower:'⚗️', gunpowderTower:'💣',
-      workshop:'🔧', forester:'🌲', vineyard:'🍇', quarry:'⛏',
-      crystalMine:'💎', sulfurPit:'🔥', safehouse:'🕵️',
+      palace:'👑', palaceColony:'👑', branchOffice:'🏢', temple:'⛩', beautification:'🌸',
+      luxuryResidence:'🏠', embassy:'📜', carpentering:'🪚',
+      optician:'🫙', glassblowing:'💎', alchemistTower:'⚗️', fireworker:'💣',
+      workshop:'🔧', forester:'🌲', vineyard:'🍇', winegrower:'🍇', stonemason:'⛏',
+      port:'⚓', dump:'🗑', architect:'📐', safehouse:'🕵️',
     };
 
     const rows = cities.map((c, idx) => {
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
       const tgName  = c.tgName || '—';
       const tgPerHr = (c.tgPerHour != null) ? c.tgPerHour.toLocaleString('it') : '—';
-      const wood    = (c.wood != null) ? Math.round(c.wood).toLocaleString('it') : '—';
+      const wood    = (c.woodPerHour != null) ? Math.round(c.woodPerHour).toLocaleString('it') : '—';
       const sciUp   = (c.scientistsUpkeep != null) ? c.scientistsUpkeep.toLocaleString('it') : '—';
       const wineSp  = (c.wineSpendings != null) ? c.wineSpendings.toLocaleString('it') : '—';
       if (c.wineSpendings != null) totalWine += c.wineSpendings;
@@ -1650,7 +1654,7 @@
             <th style="text-align:center" title="Cantiere Navale">⚓ Cant.</th>
             <th>Bene</th>
             <th style="text-align:right">Bene/h</th>
-            <th style="text-align:right">🪵 Legno</th>
+            <th style="text-align:right">🪵 Legno/h</th>
             <th style="text-align:right">🍷 Consumo vino</th>
             <th style="text-align:right">Scienziati</th>
             <th style="text-align:right">Liberi</th>
@@ -1851,12 +1855,13 @@
 
   function buildingIcon(building) {
     const icons = {
-      townHall:'🏛', academy:'🎓', warehouse:'🏪', hideout:'🏚',
+      townHall:'🏛', academy:'🎓', warehouse:'🏪', hideout:'🏚', safehouse:'🏠',
       tavern:'🍺', museum:'🏛', port:'⚓', shipyard:'🚢',
-      barracks:'⚔️', wall:'🏯', carpenter:'🪵', glassblowing:'💎',
-      alchemist:'🔥', winegrower:'🍷', quarry:'🪨', palace:'👑',
+      barracks:'⚔️', wall:'🏯', carpentering:'🪵', glassblowing:'💎',
+      alchemist:'🔥', winegrower:'🍷', vineyard:'🍷', stonemason:'🪨', palace:'👑', palaceColony:'👑',
       branchOffice:'🏢', temple:'⛩', oracle:'🔮', lighthouse:'🔦',
-      safehouse:'🏠', embassy:'🤝', workshop:'🔧', pirateFortress:'☠️',
+      embassy:'🤝', workshop:'🔧', pirateFortress:'☠️',
+      architect:'📐', optician:'🫙', fireworker:'💣', forester:'🌲', dump:'🗑',
     };
     return icons[building] || '🏠';
   }
