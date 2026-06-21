@@ -1365,12 +1365,53 @@
       return red;
     }
 
+    // Estrae i livelli degli edifici "chiave" da mostrare in tabella principale
+    function getKeyLevels(buildings) {
+      const byType = new Map((buildings || []).map(b => [b.building, b]));
+      return {
+        townHall: byType.get('townHall')?.level ?? null,
+        wall:     byType.get('wall')?.level ?? null,
+        barracks: byType.get('barracks')?.level ?? null,
+        shipyard: byType.get('shipyard')?.level ?? null,
+      };
+    }
+
+    // Indicatori a pallino per edifici "da monitorare" nella tabella espandibile:
+    //  - Nascondiglio: 🔴 se livello ≤ municipio (vulnerabile a spionaggio), 🟢 altrimenti
+    //  - Carpenteria/Ufficio Architetto/Cantina/Officina/Ottico: 🟡 se livello < 50, 🟢 altrimenti
+    const YELLOW_THRESHOLD_TYPES = new Set(['carpenter', 'architectOffice', 'vineyard', 'gunpowderTower', 'glassblower']);
+    function buildingDot(b, townHallLevel) {
+      if (b.building === 'safehouse') {
+        const ok = townHallLevel == null || b.level > townHallLevel;
+        return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+          background:${ok ? '#4caf50' : '#f44336'};margin-right:5px" title="${ok ? 'OK' : 'Livello ≤ Municipio: vulnerabile'}"></span>`;
+      }
+      if (YELLOW_THRESHOLD_TYPES.has(b.building)) {
+        const ok = b.level >= 50;
+        return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+          background:${ok ? '#4caf50' : '#ffc107'};margin-right:5px" title="${ok ? 'Lv 50 raggiunto' : 'Sotto Lv 50'}"></span>`;
+      }
+      return '';
+    }
+
     // Formatta numero grande
     function fmtN(n) {
       if (n == null || isNaN(n)) return '—';
       if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
       if (n >= 1e3) return Math.round(n).toLocaleString('it');
       return String(Math.round(n));
+    }
+
+    // Formatta una durata in ms come "Xg Yh", "Xh Ym" o "Xm" compatto
+    function fmtDuration(ms) {
+      if (!ms || ms <= 0) return '0m';
+      const totalMin = Math.ceil(ms / 60000);
+      const days  = Math.floor(totalMin / 1440);
+      const hours = Math.floor((totalMin % 1440) / 60);
+      const mins  = totalMin % 60;
+      if (days)  return `${days}g ${hours}h`;
+      if (hours) return `${hours}h ${mins}m`;
+      return `${mins}m`;
     }
 
     // Filtra record fantasma
@@ -1457,41 +1498,84 @@
       // Riduzioni costo per questa città
       const red = getReductions(buildings);
 
+      // Livelli edifici chiave per la tabella principale
+      const keyLevels = getKeyLevels(buildings);
+
+      // Quantità risorse disponibili in questa città, per il check "sufficiente"
+      const TG_NAME_TO_KEY = { vino: 'wine', marmo: 'marble', cristallo: 'crystal', zolfo: 'sulfur' };
+      const tgKey = TG_NAME_TO_KEY[(c.tgName || '').toLowerCase()] || null;
+      const available = {
+        wood:      c.wood ?? 0,
+        tradegood: tgKey ? (c[tgKey] ?? null) : null,
+      };
+      // Produzione oraria, per calcolare il tempo di attesa se le risorse non bastano
+      const production = {
+        wood:      c.woodPerHour ?? 0,
+        tradegood: c.tgPerHour   ?? 0,
+      };
+
       let bContent;
       if (!occupied.length) {
-        bContent = `<td colspan="10" style="padding:10px;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili. Visita questa città nel gioco.</td>`;
+        bContent = `<td colspan="14" style="padding:10px;font-size:12px;color:var(--text-muted)">Dati edifici non ancora disponibili. Visita questa città nel gioco.</td>`;
       } else {
         const bRows = [
           ...occupied.map(b => {
-            const icon  = BICONS[b.building] || '🏗';
-            const stato = b.isBusy      ? '🔨 In costruzione'
-                        : b.isMaxLevel  ? '⭐ Livello max'
-                        : b.canUpgrade  ? '⬆️ Upgrade disp.'
-                        : '';
+            const icon = BICONS[b.building] || '🏗';
+            const dot  = buildingDot(b, keyLevels.townHall);
 
-            // Costo prossimo livello da building_data
+            // Costo prossimo livello da building_data (chiavi reali: wood/wine/marble/crystal/sulfur)
             let costHtml = '<span style="color:var(--text-muted)">—</span>';
+            let rowHighlight = '';
             if (!b.isMaxLevel) {
               const bd = buildingDataByType.get(b.building);
               if (bd) {
                 const nextLevel = bd.levels?.find(l => l.level === b.level + 1);
                 if (nextLevel) {
-                  const woodBase = nextLevel.wood || 0;
-                  const tgBase   = nextLevel.tradegood || 0;
-                  // Applica riduzioni (mai sopra 50%)
-                  const woodFinal = woodBase * (1 - red.wood / 100);
-                  const tgFinal   = tgBase   * (1 - red.tradegood / 100);
+                  // Trova tutte le colonne-risorsa richieste da questo edificio (wood/wine/marble/crystal/sulfur)
+                  const RESOURCE_KEYS = ['wood', 'wine', 'marble', 'crystal', 'sulfur'];
+                  const RESOURCE_ICONS = { wood:'🪵', wine:'🍷', marble:'🪨', crystal:'🔷', sulfur:'🟡' };
                   const parts = [];
-                  if (woodFinal > 0) {
-                    const reduced = red.wood > 0;
-                    parts.push(`🪵 ${fmtN(woodFinal)}${reduced ? ` <span style="color:#4caf50;font-size:10px">(-${red.wood}%)</span>` : ''}`);
+                  let allSufficient = true;
+                  let maxWaitMs = 0;
+                  let hasAnyCost = false;
+
+                  for (const rk of RESOURCE_KEYS) {
+                    const base = nextLevel[rk];
+                    if (base == null || base === 0) continue;
+                    hasAnyCost = true;
+                    // Riduzione: 'wood' usa red.wood, le altre 4 risorse (bene commerciale)
+                    // usano red.tradegood se è quella prodotta dalla città
+                    const reduction = rk === 'wood' ? red.wood : (rk === tgKey ? red.tradegood : 0);
+                    const final = base * (1 - reduction / 100);
+
+                    const haveQty = rk === 'wood' ? available.wood : (rk === tgKey ? available.tradegood : null);
+                    const sufficient = haveQty != null && haveQty >= final;
+                    if (!sufficient) allSufficient = false;
+
+                    // Tempo di attesa se la città produce questa risorsa e non basta ancora
+                    let waitLabel = '';
+                    if (!sufficient && haveQty != null) {
+                      const prodRate = rk === 'wood' ? production.wood : (rk === tgKey ? production.tradegood : 0);
+                      if (prodRate > 0) {
+                        const missing = final - haveQty;
+                        const waitMs  = (missing / prodRate) * 3600000;
+                        maxWaitMs = Math.max(maxWaitMs, waitMs);
+                        waitLabel = ` <span style="color:#ff9100;font-size:10px">⏳${fmtDuration(waitMs)}</span>`;
+                      }
+                    }
+
+                    const reducedNote = reduction > 0 ? ` <span style="color:#4caf50;font-size:10px">(-${reduction}%)</span>` : '';
+                    const qtyColor = haveQty == null ? 'inherit' : (sufficient ? '#4caf50' : 'inherit');
+                    parts.push(`${RESOURCE_ICONS[rk]} <span style="color:${qtyColor}">${fmtN(final)}</span>${reducedNote}${waitLabel}`);
                   }
-                  if (tgFinal > 0) {
-                    const reduced = red.tradegood > 0;
-                    parts.push(`🔨 ${fmtN(tgFinal)}${reduced ? ` <span style="color:#4caf50;font-size:10px">(-${red.tradegood}%)</span>` : ''}`);
-                  }
+
                   if (nextLevel.time) parts.push(`⏱ ${nextLevel.time}`);
                   costHtml = parts.join(' &nbsp;');
+
+                  // Evidenzia la riga in verde se tutte le risorse necessarie sono già disponibili
+                  if (hasAnyCost && allSufficient) {
+                    rowHighlight = 'background:rgba(76,175,80,0.12)';
+                  }
                 } else if (bd.levels?.length > 0) {
                   costHtml = '<span style="color:var(--text-muted);font-size:11px">Dati non disp.</span>';
                 }
@@ -1500,10 +1584,9 @@
               }
             }
 
-            return `<tr>
-              <td style="padding-left:28px">${icon} ${b.name || b.building}</td>
+            return `<tr style="${rowHighlight}">
+              <td style="padding-left:28px">${dot}${icon} ${b.name || b.building}</td>
               <td style="text-align:center;font-weight:700">${b.level}</td>
-              <td>${stato}</td>
               <td style="font-size:12px">${costHtml}</td>
             </tr>`;
           }),
@@ -1511,7 +1594,6 @@
             `<tr style="color:var(--text-muted)">
               <td style="padding-left:28px">⬜ Slot vuoto</td>
               <td style="text-align:center">—</td>
-              <td></td>
               <td></td>
             </tr>`
           ),
@@ -1523,12 +1605,11 @@
           red.tradegood > 0 ? `🔨 bene -${red.tradegood}%` : '',
         ].filter(Boolean).join(' · ');
 
-        bContent = `<td colspan="10" style="padding:0">
+        bContent = `<td colspan="14" style="padding:0">
           <table class="ikp-db-table" style="border-top:none">
             <thead><tr style="background:var(--bg)">
               <th>Edificio</th>
               <th style="text-align:center">Lv</th>
-              <th>Stato</th>
               <th>Costo prossimo livello${redNote ? ` <span style="color:#4caf50;font-weight:400;font-size:10px">(${redNote})</span>` : ''}</th>
             </tr></thead>
             <tbody>${bRows}</tbody>
@@ -1539,8 +1620,12 @@
 
       return `<tr style="cursor:pointer" onclick="var r=document.getElementById('${detailId}');r.style.display=r.style.display==='none'?'table-row':'none'">
         <td>${c.cityId}</td>
-        <td>${c.name || '—'}</td>
         <td>${coords}</td>
+        <td>${c.name || '—'}</td>
+        <td style="text-align:center">${keyLevels.townHall ?? '—'}</td>
+        <td style="text-align:center">${keyLevels.wall ?? '—'}</td>
+        <td style="text-align:center">${keyLevels.barracks ?? '—'}</td>
+        <td style="text-align:center">${keyLevels.shipyard ?? '—'}</td>
         <td>${tgName}</td>
         <td style="text-align:right">${tgPerHr}</td>
         <td style="text-align:right">${wood}</td>
@@ -1558,7 +1643,12 @@
       <div style="overflow-x:auto">
         <table class="ikp-db-table">
           <thead><tr>
-            <th>ID</th><th>Nome</th><th>X:Y</th><th>Bene</th>
+            <th>ID</th><th>X:Y</th><th>Nome</th>
+            <th style="text-align:center" title="Municipio">🏛 Mun.</th>
+            <th style="text-align:center" title="Mura della città">🏯 Mura</th>
+            <th style="text-align:center" title="Caserma">⚔️ Cas.</th>
+            <th style="text-align:center" title="Cantiere Navale">⚓ Cant.</th>
+            <th>Bene</th>
             <th style="text-align:right">Bene/h</th>
             <th style="text-align:right">🪵 Legno</th>
             <th style="text-align:right">🍷 Consumo vino</th>
@@ -1568,7 +1658,7 @@
           </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr style="font-weight:600;border-top:2px solid var(--border)">
-            <td colspan="6">Totale consumo vino</td>
+            <td colspan="10">Totale consumo vino</td>
             <td style="text-align:right">${Math.round(totalWine).toLocaleString('it')}</td>
             <td colspan="3"></td>
           </tr></tfoot>
