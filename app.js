@@ -2021,86 +2021,117 @@
     }).join('');
 
     // ── SIMULATORE ADDESTRAMENTO ─────────────────────────────
-    // Filtro barbari: escludi navi civili (201,204), navi barbari (221-230),
-    // unità barbari (nome contiene "Barbari") e unità senza nome
-    function isBarbarian(id, m) {
+    // simMeta costruito direttamente da unitData (non da unitMeta) per avere
+    // il campo cost completo con tutte le risorse
+    const RES = ['wood','marble','crystal','sulfur','wine','citizens'];
+    const RES_ICON  = { wood:'🪵', marble:'🪨', crystal:'💎', sulfur:'🌋', wine:'🍷', citizens:'👥' };
+    const RES_LABEL = { wood:'Legname', marble:'Marmo', crystal:'Cristallo', sulfur:'Zolfo', wine:'Vino', citizens:'Pop.' };
+
+    function isBarbarian(unitId, m) {
       if (!m.name) return true;
-      if (m.kind === 'ship' && (id <= 204 || id >= 221)) return true;
+      if (m.kind === 'ship' && (unitId <= 204 || unitId >= 221)) return true;
       if (/barbari/i.test(m.name)) return true;
       return false;
     }
 
-    const simUnits = [...unitMeta.entries()]
-      .filter(([id, m]) => (m.kind === 'unit' || m.kind === 'ship') && !isBarbarian(id, m))
+    // simMeta: Map<unitId(number), {kind,name,generals,upkeep,cost}>
+    const simMeta = new Map(
+      unitData
+        .filter(u => !isBarbarian(u.unitId, u))
+        .map(u => [u.unitId, {
+          kind:     u.kind,
+          name:     u.name || `#${u.unitId}`,
+          generals: u.generals ?? null,
+          upkeep:   u.cost?.upkeep ?? null,
+          cost:     u.cost || {},
+        }])
+    );
+
+    const simUnits = [...simMeta.entries()]
+      .filter(([, m]) => m.kind === 'unit' || m.kind === 'ship')
       .sort(([aId, aM], [bId, bM]) => {
         if (aM.kind !== bM.kind) return aM.kind === 'unit' ? -1 : 1;
         return aId - bId;
       });
 
-    const simMetaJson = JSON.stringify(
-      Object.fromEntries(simUnits.map(([id, m]) => [id, {
-        kind: m.kind, name: m.name, generals: m.generals ?? null, upkeep: m.upkeep ?? null, cost: m.cost || {}
-      }]))
-    );
+    const landUnits = simUnits.filter(([, m]) => m.kind === 'unit');
+    const seaUnits  = simUnits.filter(([, m]) => m.kind === 'ship');
 
-    // Righe tabella — 6 colonne: Nome | Qtà | Generali | Mant. netto | Flet | Mant. Flet
-    function simRows(units) {
-      return units.map(([id, m]) => `<tr data-sim-row="${id}">
+    // Colonne risorse mostrate (solo quelle usate da almeno un'unità nella sezione)
+    function usedRes(units) {
+      const used = new Set();
+      for (const [, m] of units)
+        for (const r of RES)
+          if ((m.cost[r] ?? 0) > 0) used.add(r);
+      return RES.filter(r => used.has(r));
+    }
+    const landRes = usedRes(landUnits);
+    const seaRes  = usedRes(seaUnits);
+
+    function buildTH(resCols) {
+      const resThs = resCols.map(r =>
+        `<th style="text-align:right">${RES_ICON[r]} ${RES_LABEL[r]}</th>`).join('');
+      return `<thead><tr>
+        <th>Unità</th>
+        <th style="width:72px">Qtà</th>
+        <th style="text-align:right">⭐ Gen.</th>
+        <th style="text-align:right">🪙 Mant./h</th>
+        <th style="text-align:center;width:44px">Flet</th>
+        <th style="text-align:right">🪙 Mant.Flet/h</th>
+        ${resThs}
+      </tr></thead>`;
+    }
+
+    function buildRows(units, resCols) {
+      if (!units.length) {
+        const cols = 6 + resCols.length;
+        return `<tr><td colspan="${cols}" style="color:var(--text-muted);font-style:italic;padding:8px">
+          Nessuna unità disponibile — apri la pagina Aiuto nel gioco.</td></tr>`;
+      }
+      return units.map(([id, m]) => {
+        const resTds = resCols.map(r =>
+          `<td id="sim-res-${id}-${r}" style="text-align:right;color:var(--text-muted);font-size:12px">—</td>`
+        ).join('');
+        return `<tr>
           <td style="white-space:nowrap;font-size:12px">${m.name}</td>
-          <td style="width:72px;padding:2px 4px">
+          <td style="padding:2px 4px">
             <input type="number" min="0" step="1" placeholder="0"
                    id="sim-inp-${id}" data-sim-unit="${id}" data-sim-kind="${m.kind}"
                    style="width:100%;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
                           background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box"
                    oninput="window._ikpSimUpdate?.()">
           </td>
-          <td id="sim-gen-${id}"  style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
-          <td id="sim-upk-${id}"  style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
-          <td style="text-align:center;padding:2px 6px">
-            <button id="sim-flet-${id}" data-flet="N" data-uid="${id}"
+          <td id="sim-gen-${id}"     style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
+          <td id="sim-upk-${id}"     style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
+          <td style="text-align:center;padding:2px 4px">
+            <button id="sim-flet-${id}"
                     onclick="window._ikpSimToggleFlet?.(${id})"
                     style="width:36px;padding:2px 0;border-radius:4px;border:1px solid var(--border);
                            background:var(--bg);color:var(--text-muted);font-size:11px;
                            cursor:pointer;font-weight:600">N</button>
           </td>
           <td id="sim-flet-upk-${id}" style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
-        </tr>`).join('');
+          ${resTds}
+        </tr>`;
+      }).join('');
     }
 
-    const landUnits = simUnits.filter(([, m]) => m.kind === 'unit');
-    const seaUnits  = simUnits.filter(([, m]) => m.kind === 'ship');
-
-    const TH = `<thead><tr>
-      <th>Unità</th>
-      <th style="width:72px">Qtà</th>
-      <th style="text-align:right">⭐ Generali</th>
-      <th style="text-align:right">🪙 Mant./h</th>
-      <th style="text-align:center;width:48px">Flet</th>
-      <th style="text-align:right">🪙 Mant. Flet/h</th>
-    </tr></thead>`;
-
-    const TFOOT_LAND = `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);font-size:12px">
-      <td>Totale truppe</td><td></td>
-      <td id="sim-tot-land-gen" style="text-align:right">—</td>
-      <td id="sim-tot-land-upk" style="text-align:right">—</td>
-      <td></td>
-      <td id="sim-tot-land-flet" style="text-align:right">—</td>
-    </tr></tfoot>`;
-
-    const TFOOT_SEA = `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);font-size:12px">
-      <td>Totale navi</td><td></td>
-      <td id="sim-tot-sea-gen" style="text-align:right">—</td>
-      <td id="sim-tot-sea-upk" style="text-align:right">—</td>
-      <td></td>
-      <td id="sim-tot-sea-flet" style="text-align:right">—</td>
-    </tr></tfoot>`;
-
-    const noUnitsMsg = `<tr><td colspan="6" style="color:var(--text-muted);font-style:italic;padding:8px">
-      Nessuna unità disponibile — apri la pagina Aiuto di ogni unità nel gioco.</td></tr>`;
+    function buildTfoot(prefix, resCols) {
+      const resTots = resCols.map(r =>
+        `<td id="sim-tot-${prefix}-${r}" style="text-align:right">—</td>`).join('');
+      const label = prefix === 'land' ? 'Totale truppe' : 'Totale navi';
+      return `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);font-size:12px">
+        <td>${label}</td><td></td>
+        <td id="sim-tot-${prefix}-gen"  style="text-align:right">—</td>
+        <td id="sim-tot-${prefix}-upk"  style="text-align:right">—</td>
+        <td></td>
+        <td id="sim-tot-${prefix}-flet" style="text-align:right">—</td>
+        ${resTots}
+      </tr></tfoot>`;
+    }
 
     const simulatorHtml = `
       <div id="ikp-sim" style="margin-top:12px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-
         <div style="padding:8px 10px;background:var(--bg-alt);font-weight:700;font-size:13px;
                     display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
              onclick="(function(){
@@ -2115,160 +2146,148 @@
           <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
                   onclick="event.stopPropagation();window._ikpSimReset?.()">Reset</button>
         </div>
-
         <div id="ikp-sim-body" style="display:none">
-
           <div style="padding:6px 10px 0;border-top:1px solid var(--border)">
             <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.05em;padding:4px 0;border-bottom:1px solid var(--border)">🪖 TRUPPE DI TERRA</div>
           </div>
           <div style="overflow-x:auto;padding:0 10px 6px">
             <table class="ikp-db-table" style="border:none;width:100%">
-              ${TH}
-              <tbody>${landUnits.length ? simRows(landUnits) : noUnitsMsg}</tbody>
-              ${landUnits.length ? TFOOT_LAND : ''}
+              ${buildTH(landRes)}
+              <tbody>${buildRows(landUnits, landRes)}</tbody>
+              ${landUnits.length ? buildTfoot('land', landRes) : ''}
             </table>
           </div>
-
           <div style="padding:6px 10px 0;border-top:2px solid var(--border)">
             <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.05em;padding:4px 0;border-bottom:1px solid var(--border)">⛴ NAVI</div>
           </div>
           <div style="overflow-x:auto;padding:0 10px 10px">
             <table class="ikp-db-table" style="border:none;width:100%">
-              ${TH}
-              <tbody>${seaUnits.length ? simRows(seaUnits) : noUnitsMsg}</tbody>
-              ${seaUnits.length ? TFOOT_SEA : ''}
+              ${buildTH(seaRes)}
+              <tbody>${buildRows(seaUnits, seaRes)}</tbody>
+              ${seaUnits.length ? buildTfoot('sea', seaRes) : ''}
             </table>
           </div>
-
         </div>
-      </div>
+      </div>`;
 
-      <script>
-      (function(){
-        const META = ${simMetaJson};
-        const LS_FLET = 'ikp_sim_flet';
+    // ── Logica JS del simulatore — eseguita direttamente (NON in <script> innerHTML) ──
+    {
+      const LS_FLET = 'ikp_sim_flet';
+      let fletState = {};
+      try { fletState = JSON.parse(localStorage.getItem(LS_FLET) || '{}'); } catch(e) {}
 
-        function fmt(n)  { return n % 1 === 0 ? n.toLocaleString('it') : n.toFixed(1); }
-        function fmtI(n) { return Math.round(n).toLocaleString('it'); }
+      const simMetaSnap = simMeta; // closure sulla mappa già costruita
+      const landResSnap = landRes;
+      const seaResSnap  = seaRes;
 
-        // Stato flet: Map<unitId, boolean> — persistito in localStorage
-        let fletState = {};
-        try { fletState = JSON.parse(localStorage.getItem(LS_FLET) || '{}'); } catch(e) {}
+      function simFmt(n)  { return n % 1 === 0 ? n.toLocaleString('it') : n.toFixed(1); }
+      function simFmtI(n) { return Math.round(n).toLocaleString('it'); }
 
-        function saveFlet() {
-          try { localStorage.setItem(LS_FLET, JSON.stringify(fletState)); } catch(e) {}
-        }
+      function simGetRed() {
+        const l = parseFloat(document.getElementById('ikp-mil-red-land')?.value || '0') || 0;
+        const s = parseFloat(document.getElementById('ikp-mil-red-sea') ?.value || '0') || 0;
+        return { land: Math.min(Math.max(l, 0), 100) / 100,
+                 sea:  Math.min(Math.max(s, 0), 100) / 100 };
+      }
 
-        function getReductions() {
-          const l = parseFloat(document.getElementById('ikp-mil-red-land')?.value || '0') || 0;
-          const s = parseFloat(document.getElementById('ikp-mil-red-sea') ?.value || '0') || 0;
-          return { land: Math.min(Math.max(l, 0), 100) / 100,
-                   sea:  Math.min(Math.max(s, 0), 100) / 100 };
-        }
+      function simUpdate() {
+        const red = simGetRed();
+        const totals = { land:{gen:0,upk:0,flet:0}, sea:{gen:0,upk:0,flet:0} };
+        const totRes = { land:{}, sea:{} };
 
-        function update() {
-          const red = getReductions();
-          let totGenLand = 0, totUpkLand = 0, totFletLand = 0;
-          let totGenSea  = 0, totUpkSea  = 0, totFletSea  = 0;
+        for (const [id, m] of simMetaSnap) {
+          const inp = document.getElementById('sim-inp-' + id);
+          if (!inp) continue;
+          const n = parseInt(inp.value, 10) || 0;
+          const grp = m.kind === 'ship' ? 'sea' : 'land';
+          const resCols = grp === 'sea' ? seaResSnap : landResSnap;
 
-          for (const [sid, m] of Object.entries(META)) {
-            const id  = Number(sid);
-            const inp = document.getElementById('sim-inp-' + id);
-            if (!inp) continue;
-            const n = parseInt(inp.value, 10) || 0;
+          const genEl     = document.getElementById('sim-gen-' + id);
+          const upkEl     = document.getElementById('sim-upk-' + id);
+          const fletUpkEl = document.getElementById('sim-flet-upk-' + id);
+          const fletBtn   = document.getElementById('sim-flet-' + id);
+          const isFlet    = !!fletState[id];
 
-            const genEl     = document.getElementById('sim-gen-' + id);
-            const upkEl     = document.getElementById('sim-upk-' + id);
-            const fletUpkEl = document.getElementById('sim-flet-upk-' + id);
-            const fletBtn   = document.getElementById('sim-flet-' + id);
-            const isFlet    = !!(fletState[id]);
-
-            // Sincronizza bottone flet al valore salvato
-            if (fletBtn) {
-              fletBtn.textContent = isFlet ? 'Y' : 'N';
-              fletBtn.style.background   = isFlet ? 'rgba(34,139,34,0.2)' : 'var(--bg)';
-              fletBtn.style.color        = isFlet ? 'var(--green,#2c8)' : 'var(--text-muted)';
-              fletBtn.style.borderColor  = isFlet ? 'var(--green,#2c8)' : 'var(--border)';
-            }
-
-            if (!n) {
-              [genEl, upkEl, fletUpkEl].forEach(el => { if(el){ el.textContent='—'; el.style.color='var(--text-muted)'; }});
-              continue;
-            }
-
-            const redFrac = m.kind === 'ship' ? red.sea : red.land;
-            const gen     = m.generals != null ? m.generals * n : null;
-            const upkBase = m.upkeep   != null ? m.upkeep * n  : null;
-            const upkNet  = upkBase != null ? upkBase * (1 - redFrac) : null;
-            // Flet = doppio mantenimento (applicato DOPO la riduzione ricerca)
-            const upkFlet = upkNet  != null ? upkNet * (isFlet ? 2 : 1) : null;
-
-            if (genEl) {
-              genEl.textContent = gen != null ? fmt(gen) : '—';
-              genEl.style.color = gen != null ? 'var(--text)' : 'var(--text-muted)';
-            }
-            if (upkEl) {
-              if (upkNet != null) {
-                upkEl.textContent = fmtI(upkNet);
-                upkEl.style.color = 'var(--text)';
-              } else { upkEl.textContent = '—'; upkEl.style.color = 'var(--text-muted)'; }
-            }
-            if (fletUpkEl) {
-              if (upkFlet != null) {
-                fletUpkEl.textContent = fmtI(upkFlet);
-                fletUpkEl.style.color  = isFlet ? 'var(--orange,#e80)' : 'var(--text)';
-                fletUpkEl.style.fontWeight = isFlet ? '700' : 'normal';
-              } else { fletUpkEl.textContent = '—'; fletUpkEl.style.color = 'var(--text-muted)'; }
-            }
-
-            if (m.kind === 'ship') {
-              if (gen != null)     totGenSea  += gen;
-              if (upkNet != null)  totUpkSea  += upkNet;
-              if (upkFlet != null) totFletSea += upkFlet;
-            } else {
-              if (gen != null)     totGenLand  += gen;
-              if (upkNet != null)  totUpkLand  += upkNet;
-              if (upkFlet != null) totFletLand += upkFlet;
-            }
+          if (fletBtn) {
+            fletBtn.textContent        = isFlet ? 'Y' : 'N';
+            fletBtn.style.background   = isFlet ? 'rgba(34,139,34,0.2)' : 'var(--bg)';
+            fletBtn.style.color        = isFlet ? '#2a8' : 'var(--text-muted)';
+            fletBtn.style.borderColor  = isFlet ? '#2a8' : 'var(--border)';
           }
 
-          const set = (id, val, suffix) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = val > 0 ? fmt(val) + (suffix||'') : '—';
-          };
-          set('sim-tot-land-gen',  totGenLand);
-          set('sim-tot-land-upk',  totUpkLand, '/h');
-          set('sim-tot-land-flet', totFletLand, '/h');
-          set('sim-tot-sea-gen',   totGenSea);
-          set('sim-tot-sea-upk',   totUpkSea,  '/h');
-          set('sim-tot-sea-flet',  totFletSea, '/h');
+          const dim = (el) => { if(el){ el.textContent='—'; el.style.color='var(--text-muted)'; el.style.fontWeight='normal'; }};
+          if (!n) {
+            dim(genEl); dim(upkEl); dim(fletUpkEl);
+            for (const r of resCols) dim(document.getElementById(`sim-res-${id}-${r}`));
+            continue;
+          }
+
+          const redFrac = grp === 'ship' ? red.sea : red.land;
+          const gen     = m.generals != null ? m.generals * n    : null;
+          const upkBase = m.upkeep   != null ? m.upkeep   * n    : null;
+          const upkNet  = upkBase    != null ? upkBase * (1 - redFrac) : null;
+          const upkFlet = upkNet     != null ? upkNet * (isFlet ? 2 : 1) : null;
+
+          if (genEl) { genEl.textContent = gen != null ? simFmt(gen) : '—'; genEl.style.color = gen != null ? 'var(--text)' : 'var(--text-muted)'; }
+          if (upkEl) { upkEl.textContent = upkNet != null ? simFmtI(upkNet) : '—'; upkEl.style.color = upkNet != null ? 'var(--text)' : 'var(--text-muted)'; }
+          if (fletUpkEl) {
+            if (upkFlet != null) {
+              fletUpkEl.textContent  = simFmtI(upkFlet);
+              fletUpkEl.style.color  = isFlet ? '#e80' : 'var(--text)';
+              fletUpkEl.style.fontWeight = isFlet ? '700' : 'normal';
+            } else dim(fletUpkEl);
+          }
+
+          // Risorse (costo addestramento per n unità)
+          for (const r of resCols) {
+            const el = document.getElementById(`sim-res-${id}-${r}`);
+            const v  = (m.cost[r] ?? 0) * n;
+            if (el) { el.textContent = v > 0 ? Math.ceil(v).toLocaleString('it') : '—'; el.style.color = v > 0 ? 'var(--text)' : 'var(--text-muted)'; }
+            if (v > 0) totRes[grp][r] = (totRes[grp][r] || 0) + v;
+          }
+
+          if (gen != null)     totals[grp].gen  += gen;
+          if (upkNet != null)  totals[grp].upk  += upkNet;
+          if (upkFlet != null) totals[grp].flet += upkFlet;
         }
 
-        function toggleFlet(id) {
-          fletState[id] = !fletState[id];
-          saveFlet();
-          update();
+        const setEl = (id, val, suffix) => { const el=document.getElementById(id); if(el) el.textContent = val>0 ? simFmt(val)+(suffix||'') : '—'; };
+        setEl('sim-tot-land-gen',  totals.land.gen);
+        setEl('sim-tot-land-upk',  totals.land.upk,  '/h');
+        setEl('sim-tot-land-flet', totals.land.flet, '/h');
+        setEl('sim-tot-sea-gen',   totals.sea.gen);
+        setEl('sim-tot-sea-upk',   totals.sea.upk,   '/h');
+        setEl('sim-tot-sea-flet',  totals.sea.flet,  '/h');
+        for (const grp of ['land','sea']) {
+          const cols = grp === 'land' ? landResSnap : seaResSnap;
+          for (const r of cols) setEl(`sim-tot-${grp}-${r}`, totRes[grp][r]||0);
         }
+      }
 
-        function reset() {
-          document.querySelectorAll('[data-sim-unit]').forEach(i => { i.value = ''; });
-          fletState = {};
-          saveFlet();
-          update();
-        }
+      function simToggleFlet(id) {
+        fletState[id] = !fletState[id];
+        try { localStorage.setItem(LS_FLET, JSON.stringify(fletState)); } catch(e) {}
+        simUpdate();
+      }
 
-        window._ikpSimUpdate     = update;
-        window._ikpSimReset      = reset;
-        window._ikpSimToggleFlet = toggleFlet;
+      function simReset() {
+        document.querySelectorAll('[data-sim-unit]').forEach(i => { i.value = ''; });
+        fletState = {};
+        try { localStorage.setItem(LS_FLET, '{}'); } catch(e) {}
+        simUpdate();
+      }
 
-        // Ricalcola anche quando cambiano le % di riduzione
-        const _prev = window._ikpRefreshUpkeep;
-        window._ikpRefreshUpkeep = function() { _prev?.(); update(); };
+      window._ikpSimUpdate     = simUpdate;
+      window._ikpSimReset      = simReset;
+      window._ikpSimToggleFlet = simToggleFlet;
 
-        // Inizializza bottoni flet al caricamento
-        update();
-      })();
-      </script>`;
+      const _prevRefresh = window._ikpRefreshUpkeep;
+      window._ikpRefreshUpkeep = function() { _prevRefresh?.(); simUpdate(); };
+
+      // Inizializza subito dopo aver scritto l'HTML (bottoni flet + eventuali valori pre-esistenti)
+      // Usiamo setTimeout 0 per aspettare che il DOM sia aggiornato
+      setTimeout(simUpdate, 0);
+    }
 
     list.innerHTML = recapHtml + `
       <div style="overflow-x:auto">
@@ -2285,6 +2304,9 @@
       </div>
       <div style="font-size:11px;color:var(--text-muted);padding:6px 2px">Tocca una riga per il dettaglio + generali + mantenimento della singola polis.</div>
     ` + simulatorHtml;
+
+    // Inizializza dopo che l'HTML è nel DOM
+    setTimeout(window._ikpSimUpdate, 0);
   }
 
 
