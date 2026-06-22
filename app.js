@@ -1766,19 +1766,26 @@
       }).join('');
     }
 
-    // Render blocco generali + mantenimento per una mappa totali
-    function renderGeneralsAndUpkeep(totalsMap) {
-      let totalGenerals = 0, totalUpkeep = 0;
+    // Render blocco generali + mantenimento.
+    // landMap e seaMap sono Map<unitId, count>; red = { land, sea } percentuali.
+    function renderGeneralsAndUpkeep(landMap, seaMap, red) {
+      red = red || initRed;
+      let totalGenerals = 0, totalUpkeepRaw = 0, totalUpkeepNet = 0;
       const genRows = [], upkRows = [];
 
-      const sorted = [...totalsMap.entries()]
-        .filter(([,n]) => n > 0)
-        .sort(([,a],[,b]) => b - a);
+      const combined = new Map();
+      for (const [id, n] of (landMap || new Map())) combined.set(id, { n, kind: 'unit' });
+      for (const [id, n] of (seaMap  || new Map())) combined.set(id, { n, kind: 'ship' });
 
-      for (const [id, n] of sorted) {
+      const sorted = [...combined.entries()]
+        .filter(([, v]) => v.n > 0)
+        .sort(([, a], [, b]) => b.n - a.n);
+
+      for (const [id, { n, kind }] of sorted) {
         const meta = unitMeta.get(id) || {};
-        const icon = meta.kind === 'ship' ? '⛴' : '🪖';
+        const icon = kind === 'ship' ? '⛴' : '🪖';
         const name = meta.name || `#${id}`;
+        const reduction = kind === 'ship' ? (red.sea / 100) : (red.land / 100);
 
         if (meta.generals != null) {
           const g = meta.generals * n;
@@ -1786,14 +1793,22 @@
           genRows.push(`<span style="white-space:nowrap;margin-right:10px;display:inline-block">${icon} <b>${n.toLocaleString('it')}</b> ${name} = ${g % 1 === 0 ? g.toLocaleString('it') : g.toFixed(1)} gen.</span>`);
         }
         if (meta.upkeep != null) {
-          const u = meta.upkeep * n;
-          totalUpkeep += u;
-          upkRows.push(`<span style="white-space:nowrap;margin-right:10px;display:inline-block">${icon} <b>${n.toLocaleString('it')}</b> ${name} = ${u.toLocaleString('it')} 🪙/h</span>`);
+          const uRaw = meta.upkeep * n;
+          const uNet = uRaw * (1 - reduction);
+          totalUpkeepRaw += uRaw;
+          totalUpkeepNet += uNet;
+          const redLabel = reduction > 0 ? ` <span style="color:var(--text-muted);font-size:11px">(-${(reduction*100).toFixed(1)}% → ${Math.round(uNet).toLocaleString('it')})</span>` : '';
+          upkRows.push(`<span style="white-space:nowrap;margin-right:10px;display:inline-block">${icon} <b>${n.toLocaleString('it')}</b> ${name} = ${Math.round(uRaw).toLocaleString('it')} 🪙/h${redLabel}</span>`);
         }
       }
 
-      const genTotalStr  = totalGenerals  % 1 === 0 ? totalGenerals.toLocaleString('it') : totalGenerals.toFixed(1);
-      const upkTotalStr  = Math.round(totalUpkeep).toLocaleString('it');
+      const genTotalStr = totalGenerals % 1 === 0 ? totalGenerals.toLocaleString('it') : totalGenerals.toFixed(1);
+      const upkNetStr   = Math.round(totalUpkeepNet).toLocaleString('it');
+      const upkRawStr   = Math.round(totalUpkeepRaw).toLocaleString('it');
+      const hasRed      = (red.land > 0 || red.sea > 0) && totalUpkeepRaw > 0;
+      const upkLabel    = hasRed
+        ? `${upkNetStr}/h <span style="color:var(--text-muted);font-size:11px">(lordo: ${upkRawStr}/h)</span>`
+        : `${upkRawStr}/h`;
 
       let html = '';
       if (genRows.length) {
@@ -1804,13 +1819,76 @@
       }
       if (upkRows.length) {
         html += `<div>
-          <div style="font-weight:600;margin-bottom:4px">🪙 Mantenimento totale: <b>${upkTotalStr}/h</b></div>
+          <div style="font-weight:600;margin-bottom:4px">🪙 Mantenimento: <b>${upkLabel}</b></div>
           <div style="font-size:12px;line-height:1.8">${upkRows.join('')}</div>
         </div>`;
       }
-      if (!html) html = '<span style="color:var(--text-muted);font-size:12px">Dati generali/mantenimento non ancora disponibili (apri la pagina Aiuto di ogni unità).</span>';
+      if (!html) html = '<span style="color:var(--text-muted);font-size:12px">Dati generali/mantenimento non disponibili (apri la pagina Aiuto di ogni unità).</span>';
       return html;
     }
+
+    // ── RIDUZIONE MANTENIMENTO (campi editabili, persistiti in localStorage) ──
+    const LS_KEY_LAND = 'ikp_upkeep_reduction_land';
+    const LS_KEY_SEA  = 'ikp_upkeep_reduction_sea';
+    const savedLandRed = parseFloat(localStorage.getItem(LS_KEY_LAND) || '0') || 0;
+    const savedSeaRed  = parseFloat(localStorage.getItem(LS_KEY_SEA)  || '0') || 0;
+
+    // I valori di riduzione vengono letti dal DOM al momento del render dei totali,
+    // così l'utente può cambiarli senza ricaricare: usiamo una funzione che li rilegge ogni volta.
+    function getReductions() {
+      const l = parseFloat(document.getElementById('ikp-mil-red-land')?.value || '0') || 0;
+      const s = parseFloat(document.getElementById('ikp-mil-red-sea')?.value  || '0') || 0;
+      return { land: Math.min(Math.max(l, 0), 100), sea: Math.min(Math.max(s, 0), 100) };
+    }
+
+    // Ricalcola e aggiorna solo i blocchi generali/mantenimento senza rirenderizzare tutto
+    function refreshUpkeepBlocks() {
+      const red = getReductions();
+      localStorage.setItem(LS_KEY_LAND, red.land);
+      localStorage.setItem(LS_KEY_SEA,  red.sea);
+
+      // Ricrea i contenuti dei blocchi recap globali e di ogni polis
+      document.querySelectorAll('[data-ikp-upkeep]').forEach(el => {
+        const scope = el.dataset.ikpUpkeep; // 'global-land', 'global-sea', 'polis-N'
+        const totalsLand = JSON.parse(el.dataset.totalsLand || '{}');
+        const totalsSea  = JSON.parse(el.dataset.totalsSea  || '{}');
+        el.innerHTML = renderGeneralsAndUpkeep(
+          new Map(Object.entries(totalsLand).map(([k,v]) => [Number(k),v])),
+          new Map(Object.entries(totalsSea).map(([k,v]) => [Number(k),v])),
+          red
+        );
+      });
+    }
+
+    const reductionBarHtml = `
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;
+                  padding:8px 10px;margin-bottom:10px;
+                  background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;font-size:13px">
+        <span style="font-weight:600">✂️ Riduzione mantenimento:</span>
+        <label style="display:flex;align-items:center;gap:5px">
+          🪖 Truppe
+          <input id="ikp-mil-red-land" type="number" min="0" max="100" step="0.1"
+                 value="${savedLandRed}"
+                 style="width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
+                        background:var(--bg);color:var(--text);font-size:13px"
+                 oninput="window._ikpRefreshUpkeep?.()"> %
+        </label>
+        <label style="display:flex;align-items:center;gap:5px">
+          ⛴ Navi
+          <input id="ikp-mil-red-sea" type="number" min="0" max="100" step="0.1"
+                 value="${savedSeaRed}"
+                 style="width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
+                        background:var(--bg);color:var(--text);font-size:13px"
+                 oninput="window._ikpRefreshUpkeep?.()"> %
+        </label>
+        <span style="font-size:11px;color:var(--text-muted)">Es. 26% = ricerca livello massimo</span>
+      </div>`;
+
+    // Espone la funzione globalmente così il handler oninput la trova
+    window._ikpRefreshUpkeep = refreshUpkeepBlocks;
+
+    // Leggo la riduzione iniziale (dai valori salvati)
+    const initRed = { land: savedLandRed, sea: savedSeaRed };
 
     // ── RECAP GLOBALE (righe sopra la tabella) ───────────────
     const globalLand = new Map(), globalSea = new Map();
@@ -1834,7 +1912,10 @@
         }).join('') || '<span style="color:var(--text-muted)">—</span>';
     }
 
-    const recapHtml = `
+    const globalLandJson = JSON.stringify(Object.fromEntries(globalLand));
+    const globalSeaJson  = JSON.stringify(Object.fromEntries(globalSea));
+
+    const recapHtml = reductionBarHtml + `
       <div style="margin-bottom:10px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
         <!-- RECAP TRUPPE -->
         <div style="cursor:pointer;padding:8px 10px;background:var(--bg-alt);display:flex;align-items:center;gap:8px;user-select:none"
@@ -1845,8 +1926,11 @@
         <div style="padding:8px 10px;font-size:13px;line-height:1.9;border-top:1px solid var(--border)">
           ${buildRecapChips(globalLand, '🪖')}
         </div>
-        <div id="ikp-mil-recap-land" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:var(--bg)">
-          ${renderGeneralsAndUpkeep(globalLand)}
+        <div id="ikp-mil-recap-land" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:var(--bg)"
+             data-ikp-upkeep="global-land"
+             data-totals-land="${globalLandJson.replace(/"/g,'&quot;')}"
+             data-totals-sea="{}">
+          ${renderGeneralsAndUpkeep(globalLand, new Map(), initRed)}
         </div>
 
         <!-- RECAP NAVI -->
@@ -1858,8 +1942,11 @@
         <div style="padding:8px 10px;font-size:13px;line-height:1.9;border-top:1px solid var(--border)">
           ${buildRecapChips(globalSea, '⛴')}
         </div>
-        <div id="ikp-mil-recap-sea" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:var(--bg)">
-          ${renderGeneralsAndUpkeep(globalSea)}
+        <div id="ikp-mil-recap-sea" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:var(--bg)"
+             data-ikp-upkeep="global-sea"
+             data-totals-land="{}"
+             data-totals-sea="${globalSeaJson.replace(/"/g,'&quot;')}">
+          ${renderGeneralsAndUpkeep(new Map(), globalSea, initRed)}
         </div>
       </div>`;
 
@@ -1875,7 +1962,7 @@
       const blkTotal  = sumUnits(rec.sea?.blocking);
 
       // Sfondo verde se c'è almeno una truppa o nave presente
-      const hasUnits = landTotal > 0 || seaTotal > 0;
+      const hasUnits = landTotal > 0 && seaTotal > 0;
       const rowBg    = hasUnits ? 'background:rgba(34,139,34,0.12)' : '';
 
       const gl = rec.garrisonLimits || {};
@@ -1902,12 +1989,16 @@
       addGroupsToMap(rec.land?.allied,   polisLand);
       addGroupsToMap(rec.sea?.own,       polisSea);
       addGroupsToMap(rec.sea?.allied,    polisSea);
-      const allPolis = new Map([...polisLand, ...polisSea]);
+      const polisLandJson = JSON.stringify(Object.fromEntries(polisLand));
+      const polisSeaJson  = JSON.stringify(Object.fromEntries(polisSea));
 
       const detailHtml = `
         <table class="ikp-db-table" style="border-top:none"><tbody>${detailRows}</tbody></table>
-        <div style="padding:8px 10px;border-top:1px solid var(--border)">
-          ${renderGeneralsAndUpkeep(allPolis)}
+        <div style="padding:8px 10px;border-top:1px solid var(--border)"
+             data-ikp-upkeep="polis-${rec.cityId}"
+             data-totals-land="${polisLandJson.replace(/"/g,'&quot;')}"
+             data-totals-sea="${polisSeaJson.replace(/"/g,'&quot;')}">
+          ${renderGeneralsAndUpkeep(polisLand, polisSea, initRed)}
         </div>
         <div style="font-size:11px;color:var(--text-muted);padding:4px 10px 8px">
           Lim. guarnigione — terra: ${(gl.land ?? 0).toLocaleString('it')}/${(gl.landMax ?? 0).toLocaleString('it')}
