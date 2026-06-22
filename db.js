@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 10;
+  const DB_VERSION = 11;
   let db = null;
 
   function open() {
@@ -141,6 +141,19 @@
           const s = d.createObjectStore('unit_data', { keyPath: 'id' });
           s.createIndex('kind', 'kind', { unique: false }); // 'unit' | 'ship'
           s.createIndex('name', 'name', { unique: false });
+        }
+
+        // city_military — truppe/navi presenti in una polis (qualunque proprietario)
+        // keyPath: cityId. Popolato da parser_citymilitary.js leggendo la pagina
+        // "Truppe nella città" (?view=cityMilitary).
+        // Struttura:
+        //   { cityId, garrisonLimits:{land,landMax,sea,seaMax},
+        //     land:{ garrison:[{ownerId,ownerName,units:{unitId:n}}], allied:[...], occupying:[...] },
+        //     sea: { own:[...], allied:[...], blocking:[...] },
+        //     updated }
+        if (!d.objectStoreNames.contains('city_military')) {
+          const s = d.createObjectStore('city_military', { keyPath: 'cityId' });
+          s.createIndex('updated', 'updated', { unique: false });
         }
 
         // completed_timers — timer scaduti (costruzioni/ricerche/flotte completate)
@@ -317,7 +330,7 @@
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
       'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
-      'completed_timers', 'unit_data',
+      'completed_timers', 'unit_data', 'city_military',
     ];
     const result = {};
     for (const s of stores) {
@@ -337,5 +350,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v10 caricato');
+  console.log('[IkDB] v11 caricato');
 })();

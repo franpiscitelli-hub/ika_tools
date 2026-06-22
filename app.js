@@ -244,7 +244,7 @@
     panel.id = 'ikp-panel';
     panel.innerHTML = `
       <div id="ikp-header">
-        <div id="ikp-title">⚓ IKARIAM COMPANION<span>v3.1.0 - No Bridge</span></div>
+        <div id="ikp-title">⚓ IKARIAM COMPANION<span>v3.2.0 - No Bridge</span></div>
         <button id="ikp-close-btn" onclick="window.IkApp.toggle()">✕</button>
       </div>
       <div id="ikp-statusbar">
@@ -259,6 +259,7 @@
         <div class="ikp-tab active" data-tab="map" id="ikp-tab-btn-map">🗺 Mappa</div>
         <div class="ikp-tab" data-tab="timers" id="ikp-tab-btn-timers">⏰ Timer</div>
         <div class="ikp-tab" data-tab="mycities" id="ikp-tab-btn-mycities">🏠 Città</div>
+        <div class="ikp-tab" data-tab="military" id="ikp-tab-btn-military">⚔️ Truppe</div>
         <div class="ikp-tab" data-tab="changes" id="ikp-tab-btn-changes">🔔 Cambi</div>
         <div class="ikp-tab" data-tab="db" id="ikp-tab-btn-db">🗄 Dati</div>
         <div class="ikp-tab" data-tab="log" id="ikp-tab-btn-log">📟 Log</div>
@@ -377,6 +378,23 @@
           </div>
         </div>
 
+        <!-- ══ TRUPPE / NAVI ══ -->
+        <div class="ikp-section" id="ikp-tab-military">
+          <div class="ikp-card">
+            <div class="ikp-card-title">
+              ⚔️ Truppe e navi per polis
+              <button class="ikp-btn small outline" onclick="window.IkApp.renderMilitary()">↻</button>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+              Apri la scheda "Truppe nella città" di ogni polis (Caserma/Cantiere
+              Navale → Truppe) per popolare questa vista.
+            </p>
+            <div id="ikp-military-list">
+              <div class="ikp-empty"><div class="ikp-empty-icon">⚔️</div><p>Nessun dato truppe ancora catturato.</p></div>
+            </div>
+          </div>
+        </div>
+
         <!-- ══ CAMBI STATO ══ -->
         <div class="ikp-section" id="ikp-tab-changes">
           <div class="ikp-card">
@@ -420,6 +438,7 @@
                       onchange="window.IkApp.dbSearch()">
                 <option value="building_data">🏗 Dati edifici</option>
                 <option value="unit_data">⚔️ Truppe/Navi</option>
+                <option value="city_military">🪖 Truppe/Navi per polis</option>
                 <option value="islands">🏝 Isole</option>
                 <option value="my_cities">🏠 Mie città</option>
                 <option value="account_summary">💰 Riepilogo account</option>
@@ -573,6 +592,7 @@
       case 'map':       resizeCanvas(); drawMap(); break;
       case 'timers':    renderTimers();    break;
       case 'mycities':  renderMyCities();  break;
+      case 'military':  renderMilitary();  break;
       case 'changes':   renderChanges();   break;
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
@@ -1673,6 +1693,131 @@
   }
 
 
+  // ── TRUPPE / NAVI PER POLIS ───────────────────
+  async function renderMilitary() {
+    const list = document.getElementById('ikp-military-list');
+    if (!list || !window.IkDB) return;
+
+    const records = await window.IkDB.getAll('city_military');
+    if (!records.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⚔️</div><p>Apri la scheda "Truppe nella città" di una polis (Caserma o Cantiere Navale → Truppe) per popolare questa vista.</p></div>`;
+      return;
+    }
+
+    // Nome/coordinate: prima le mie città, poi (fallback) edifici nemici noti
+    const [myCities, enemyBuildings, unitData] = await Promise.all([
+      window.IkDB.getAll('my_cities'),
+      window.IkDB.getAll('enemy_buildings'),
+      window.IkDB.getAll('unit_data'),
+    ]);
+    const cityInfo = new Map();
+    for (const c of myCities)       cityInfo.set(c.cityId, { name: c.name, x: c.islandX, y: c.islandY });
+    for (const c of enemyBuildings) if (!cityInfo.has(c.cityId)) cityInfo.set(c.cityId, { name: c.cityName, x: c.islandX, y: c.islandY });
+
+    const unitNames = new Map(unitData.map(u => [u.unitId, u.name]));
+
+    records.sort((a, b) => {
+      const ia = cityInfo.get(a.cityId) || {}, ib = cityInfo.get(b.cityId) || {};
+      return (ia.x ?? 9999) - (ib.x ?? 9999) || (ia.y ?? 9999) - (ib.y ?? 9999) || a.cityId - b.cityId;
+    });
+
+    function sumUnits(groups) {
+      let total = 0;
+      for (const g of (groups || [])) for (const n of Object.values(g.units || {})) total += n;
+      return total;
+    }
+
+    function formatUnitsList(unitsObj, icon) {
+      const entries = Object.entries(unitsObj || {})
+        .map(([id, n]) => ({ n, name: unitNames.get(Number(id)) || `#${id}` }))
+        .filter(e => e.n > 0)
+        .sort((a, b) => b.n - a.n);
+      if (!entries.length) return '<span style="color:var(--text-muted)">—</span>';
+      return entries
+        .map(e => `<span style="white-space:nowrap;margin-right:10px;display:inline-block">${icon} <b>${e.n.toLocaleString('it')}</b> ${e.name}</span>`)
+        .join('');
+    }
+
+    function renderOwnerGroups(groups, icon) {
+      if (!groups || !groups.length) return '<span style="color:var(--text-muted);font-size:12px">— nessuna —</span>';
+      return groups.map(g => {
+        const body = formatUnitsList(g.units, icon);
+        return groups.length > 1
+          ? `<div style="margin-bottom:6px"><b>${g.ownerName}</b><br>${body}</div>`
+          : `<div>${body}</div>`;
+      }).join('');
+    }
+
+    const rows = records.map((rec, idx) => {
+      const info   = cityInfo.get(rec.cityId) || {};
+      const coords = (info.x != null && info.y != null) ? `${info.x}:${info.y}` : '—';
+      const name   = info.name || '—';
+
+      const landTotal = sumUnits(rec.land?.garrison) + sumUnits(rec.land?.allied);
+      const seaTotal  = sumUnits(rec.sea?.own)        + sumUnits(rec.sea?.allied);
+      const occTotal  = sumUnits(rec.land?.occupying);
+      const blkTotal  = sumUnits(rec.sea?.blocking);
+
+      const gl = rec.garrisonLimits || {};
+      const detailId = `ikp-mil-detail-${idx}`;
+
+      const sections = [
+        { label: '🪖 Presidio',          groups: rec.land?.garrison,  icon: '🪖' },
+        { label: '🤝 Alleati (terra)',   groups: rec.land?.allied,    icon: '🪖', onlyIfAny: true },
+        { label: '🚩 Occupanti',         groups: rec.land?.occupying, icon: '🪖', onlyIfAny: true, danger: true },
+        { label: '⛴ Navi',               groups: rec.sea?.own,        icon: '⛴' },
+        { label: '🤝 Alleati (mare)',    groups: rec.sea?.allied,     icon: '⛴', onlyIfAny: true },
+        { label: '🚧 Flotte bloccate',   groups: rec.sea?.blocking,   icon: '⛴', onlyIfAny: true, danger: true },
+      ].filter(s => !s.onlyIfAny || (s.groups && s.groups.length));
+
+      const detailRows = sections.map(s => `
+        <tr>
+          <td style="white-space:nowrap;vertical-align:top;font-weight:600;${s.danger ? 'color:var(--red)' : ''}">${s.label}</td>
+          <td>${renderOwnerGroups(s.groups, s.icon)}</td>
+        </tr>`).join('');
+
+      const detailHtml = `
+        <table class="ikp-db-table" style="border-top:none">
+          <tbody>${detailRows}</tbody>
+        </table>
+        <div style="font-size:11px;color:var(--text-muted);padding:6px 8px">
+          Lim. guarnigione — terra: ${(gl.land ?? 0).toLocaleString('it')}/${(gl.landMax ?? 0).toLocaleString('it')}
+          &nbsp;·&nbsp; mare: ${(gl.sea ?? 0).toLocaleString('it')}/${(gl.seaMax ?? 0).toLocaleString('it')}
+          &nbsp;·&nbsp; agg. ${rec.updated ? new Date(rec.updated).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+        </div>`;
+
+      return `<tr style="cursor:pointer" onclick="var r=document.getElementById('${detailId}');r.style.display=r.style.display==='none'?'table-row':'none'">
+        <td>${rec.cityId}</td>
+        <td>${coords}</td>
+        <td>${name}</td>
+        <td style="text-align:right">${landTotal.toLocaleString('it')}</td>
+        <td style="text-align:right">${seaTotal.toLocaleString('it')}</td>
+        <td style="text-align:center">${occTotal > 0 ? `<span style="color:var(--red)">🚩 ${occTotal.toLocaleString('it')}</span>` : '—'}</td>
+        <td style="text-align:center">${blkTotal > 0 ? `<span style="color:var(--red)">🚧 ${blkTotal.toLocaleString('it')}</span>` : '—'}</td>
+      </tr>
+      <tr id="${detailId}" style="display:none;background:var(--bg)">
+        <td colspan="7" style="padding:0">${detailHtml}</td>
+      </tr>`;
+    }).join('');
+
+    list.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="ikp-db-table">
+          <thead><tr>
+            <th>ID</th><th>X:Y</th><th>Nome</th>
+            <th style="text-align:right" title="Truppe proprie + alleate in guarnigione">🪖 Truppe</th>
+            <th style="text-align:right" title="Navi proprie + alleate">⛴ Navi</th>
+            <th style="text-align:center" title="Truppe nemiche occupanti">🚩 Occ.</th>
+            <th style="text-align:center" title="Flotte nemiche bloccate">🚧 Blocco</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);padding:6px 2px">Tocca una riga per il dettaglio per tipo di unità.</div>
+    `;
+  }
+
+
   function startTimerTick() {
     stopTimerTick();
     timerInterval = setInterval(() => {
@@ -2037,6 +2182,13 @@
       { k: 'islandY',   label: 'Y' },
       { k: 'buildings', label: 'Edifici' },
     ],
+    city_military: [
+      { k: 'cityId',         label: 'ID' },
+      { k: 'land',           label: 'Truppe' },
+      { k: 'sea',            label: 'Navi' },
+      { k: 'garrisonLimits', label: 'Lim. guarnigione' },
+      { k: 'updated',        label: 'Agg.' },
+    ],
     account_summary: [
       { k: 'gold',             label: '🪙 Oro' },
       { k: 'income',           label: 'Entrate' },
@@ -2080,6 +2232,7 @@
     islands:       r => `${r.coords} ${r.name} ${r.tgName} ${r.templeName}`.toLowerCase(),
     my_cities:       r => `${r.name} ${r.cityId} ${r.islandX}:${r.islandY} ${r.tgName}`.toLowerCase(),
     enemy_buildings: r => `${r.cityName} ${r.ownerName} ${r.islandX}:${r.islandY}`.toLowerCase(),
+    city_military: r => `${r.cityId}`.toLowerCase(),
     account_summary: r => 'main',
     players:       r => `${r.name} ${r.ally} ${r.status} ${r.stateSource}`.toLowerCase(),
     state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
@@ -2111,6 +2264,14 @@
     if (key === 'isBusy') return v ? '🔴' : '🟢';
     if (key === 'isRanged') return v ? '🏹 Sì' : '⚔️ No';
     if (key === 'kind') return v === 'ship' ? '⛴ Nave' : '🪖 Truppa';
+    if ((key === 'land' || key === 'sea') && v && typeof v === 'object') {
+      const cats = Object.values(v).flat();
+      const total = cats.reduce((sum, g) => sum + Object.values(g.units || {}).reduce((a, b) => a + b, 0), 0);
+      return total > 0 ? total.toLocaleString('it') : '<span style="color:#aaa">—</span>';
+    }
+    if (key === 'garrisonLimits' && v && typeof v === 'object') {
+      return `🪖 ${v.land ?? 0}/${v.landMax ?? 0} · ⛴ ${v.sea ?? 0}/${v.seaMax ?? 0}`;
+    }
     if (key === 'cost' && v && typeof v === 'object') {
       const ICONS = { wood:'🪵', wine:'🍷', marble:'🪨', crystal:'🔷', sulfur:'🟡', citizens:'👤', upkeep:'🪙' };
       const parts = Object.entries(v)
@@ -2237,6 +2398,7 @@
       const items = [
         { icon: '🏗', label: 'Edifici',   val: counts.building_data },
         { icon: '⚔️', label: 'Truppe/Navi', val: counts.unit_data },
+        { icon: '🪖', label: 'Truppe/polis', val: counts.city_military },
         { icon: '🏝', label: 'Isole',     val: counts.islands },
         { icon: '🏠', label: 'Mie città', val: counts.my_cities },
         { icon: '🏢', label: 'Ed.nemici', val: counts.enemy_buildings },
@@ -2300,7 +2462,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -2311,6 +2473,7 @@
   const STORE_LABELS = {
     building_data:   '🏗 Dati edifici',
     unit_data:       '⚔️ Truppe/Navi',
+    city_military:   '🪖 Truppe/Navi per polis',
     islands:         '🏝 Isole',
     my_cities:       '🏠 Mie città',
     account_summary: '💰 Riepilogo account',
@@ -2364,6 +2527,7 @@
     if (activeTab === 'timers')   renderWineTimers();
     if (activeTab === 'mycities') renderMyCities();
   }
+  function onMilitaryUpdated(cityId) { if (panelOpen && activeTab === 'military') renderMilitary(); }
   function onResearchUpdated()  { if (panelOpen && activeTab === 'timers') renderTimers(); }
   function onFleetsUpdated()    { if (panelOpen && activeTab === 'timers') renderTimers(); }
   function onTimerAdded()       { if (panelOpen) updateStatusBar(); }
@@ -2659,6 +2823,7 @@
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
     renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
     renderMyCities, resetMyCities, renderWineTimers,
+    renderMilitary, onMilitaryUpdated,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
     showPlayerDetail,
