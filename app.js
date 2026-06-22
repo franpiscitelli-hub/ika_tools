@@ -2020,6 +2020,169 @@
       </tr>`;
     }).join('');
 
+    // ── SIMULATORE ADDESTRAMENTO ─────────────────────────────
+    // Raccoglie tutte le unità note (da unitMeta) ordinate: prima terra poi navi
+    const simUnits = [...unitMeta.entries()]
+      .filter(([, m]) => m.name && (m.kind === 'unit' || m.kind === 'ship'))
+      .sort(([aId, aM], [bId, bM]) => {
+        if (aM.kind !== bM.kind) return aM.kind === 'unit' ? -1 : 1;
+        return aId - bId;
+      });
+
+    // Risorse da mostrare in ordine
+    const RES_ORDER = ['wood','marble','crystal','sulfur','wine','citizens'];
+    const RES_ICON  = { wood:'🪵', marble:'🪨', crystal:'💎', sulfur:'🌋', wine:'🍷', citizens:'👥' };
+    const RES_LABEL = { wood:'Legname', marble:'Marmo', crystal:'Cristallo', sulfur:'Zolfo', wine:'Vino', citizens:'Cittadini' };
+
+    // Ogni unità ottiene un input col suo unitId come data-attr
+    function simUnitCard(unitId, meta) {
+      const icon = meta.kind === 'ship' ? '⛴' : '🪖';
+      const cost = meta.cost || {};
+      const resCells = RES_ORDER
+        .filter(r => cost[r] != null && cost[r] > 0)
+        .map(r => `<span style="font-size:10px;color:var(--text-muted)">${RES_ICON[r]}${cost[r].toLocaleString('it')}</span>`)
+        .join(' ');
+      const genStr  = meta.generals != null ? `⭐${meta.generals}` : '';
+      const upkStr  = meta.upkeep   != null ? `🪙${meta.upkeep}/h` : '';
+      return `
+        <div style="display:flex;flex-direction:column;gap:4px;padding:8px;
+                    border:1px solid var(--border);border-radius:6px;background:var(--bg-alt);min-width:130px">
+          <div style="font-size:12px;font-weight:600;line-height:1.3">${icon} ${meta.name}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:3px;min-height:16px">${resCells}</div>
+          <div style="font-size:10px;color:var(--text-muted);display:flex;gap:8px">${genStr} ${upkStr}</div>
+          <input type="number" min="0" step="1" placeholder="0"
+                 data-sim-unit="${unitId}" data-sim-kind="${meta.kind}"
+                 style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;
+                        background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box"
+                 oninput="window._ikpSimUpdate?.()">
+        </div>`;
+    }
+
+    const landCards = simUnits.filter(([,m]) => m.kind === 'unit').map(([id,m]) => simUnitCard(id,m)).join('');
+    const seaCards  = simUnits.filter(([,m]) => m.kind === 'ship').map(([id,m]) => simUnitCard(id,m)).join('');
+
+    // Serializza i meta delle unità per usarli nel handler (senza chiusura su renderMilitary)
+    const simMetaJson = JSON.stringify(
+      Object.fromEntries(simUnits.map(([id, m]) => [id, {
+        kind: m.kind, generals: m.generals ?? null, upkeep: m.upkeep ?? null, cost: m.cost || {}
+      }]))
+    );
+
+    const simulatorHtml = `
+      <div id="ikp-sim" style="margin-top:14px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        <div style="padding:8px 10px;background:var(--bg-alt);font-weight:700;font-size:13px;
+                    display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
+             onclick="var b=document.getElementById('ikp-sim-body');b.style.display=b.style.display==='none'?'block':'none'">
+          🧮 Simulatore addestramento
+          <button class="ikp-btn small outline" style="margin-left:auto" onclick="event.stopPropagation();window._ikpSimReset?.()">Reset</button>
+        </div>
+
+        <div id="ikp-sim-body">
+          <!-- TRUPPE TERRA -->
+          <div style="padding:8px 10px;border-top:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">🪖 TRUPPE DI TERRA</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${landCards}</div>
+          </div>
+
+          <!-- NAVI -->
+          <div style="padding:8px 10px;border-top:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">⛴ NAVI</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${seaCards}</div>
+          </div>
+
+          <!-- RISULTATI -->
+          <div id="ikp-sim-results" style="padding:10px;border-top:2px solid var(--border);background:var(--bg)">
+            <div style="color:var(--text-muted);font-size:12px">Inserisci le quantità sopra per calcolare.</div>
+          </div>
+        </div>
+      </div>
+
+      <script id="ikp-sim-script">
+      (function(){
+        const META = ${simMetaJson};
+        const RES  = ['wood','marble','crystal','sulfur','wine','citizens'];
+        const ICON = {wood:'🪵',marble:'🪨',crystal:'💎',sulfur:'🌋',wine:'🍷',citizens:'👥'};
+        const LABEL= {wood:'Legname',marble:'Marmo',crystal:'Cristallo',sulfur:'Zolfo',wine:'Vino',citizens:'Cittadini'};
+
+        function getReductions() {
+          const l = parseFloat(document.getElementById('ikp-mil-red-land')?.value || '0') || 0;
+          const s = parseFloat(document.getElementById('ikp-mil-red-sea')?.value  || '0') || 0;
+          return { land: Math.min(Math.max(l,0),100), sea: Math.min(Math.max(s,0),100) };
+        }
+
+        function update() {
+          const inputs = document.querySelectorAll('[data-sim-unit]');
+          let totalGen = 0, totalUpkRaw = 0, totalUpkNet = 0;
+          const totRes = {};
+          let anyNonZero = false;
+          const lines = [];
+
+          for (const inp of inputs) {
+            const n = parseInt(inp.value, 10) || 0;
+            if (!n) continue;
+            anyNonZero = true;
+            const id   = Number(inp.dataset.simUnit);
+            const kind = inp.dataset.simKind;
+            const m    = META[id] || {};
+            const red  = getReductions();
+            const reductionFrac = kind === 'ship' ? red.sea/100 : red.land/100;
+
+            if (m.generals != null) totalGen    += m.generals * n;
+            if (m.upkeep   != null) { totalUpkRaw += m.upkeep * n; totalUpkNet += m.upkeep * n * (1 - reductionFrac); }
+            for (const r of RES) {
+              const v = (m.cost || {})[r];
+              if (v) totRes[r] = (totRes[r] || 0) + v * n;
+            }
+
+            const resCells = RES.filter(r => (m.cost||{})[r] > 0)
+              .map(r => \`\${ICON[r]} \${((m.cost[r]||0)*n).toLocaleString('it')}\`)
+              .join('  ');
+            const gStr = m.generals != null ? \` · ⭐\${(m.generals*n % 1 === 0 ? m.generals*n : (m.generals*n).toFixed(1))}\` : '';
+            const icon = kind === 'ship' ? '⛴' : '🪖';
+            lines.push(\`<div style="font-size:12px;padding:2px 0">\${icon} <b>\${n.toLocaleString('it')}</b> × \${m.name || '#'+id}: \${resCells || '—'}\${gStr}</div>\`);
+          }
+
+          const el = document.getElementById('ikp-sim-results');
+          if (!el) return;
+          if (!anyNonZero) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Inserisci le quantità sopra per calcolare.</div>'; return; }
+
+          const resTotal = RES.filter(r => totRes[r] > 0)
+            .map(r => \`<span style="white-space:nowrap;margin-right:12px"><b>\${ICON[r]}</b> \${LABEL[r]}: <b>\${Math.ceil(totRes[r]).toLocaleString('it')}</b></span>\`)
+            .join('');
+
+          const genStr  = totalGen > 0 ? \`<span style="white-space:nowrap;margin-right:12px">⭐ Generali: <b>\${totalGen % 1 === 0 ? totalGen.toLocaleString('it') : totalGen.toFixed(1)}</b></span>\` : '';
+          const hasRed  = totalUpkRaw > 0 && (getReductions().land > 0 || getReductions().sea > 0);
+          const upkStr  = totalUpkRaw > 0
+            ? \`<span style="white-space:nowrap;margin-right:12px">🪙 Mantenimento: <b>\${Math.round(totalUpkNet).toLocaleString('it')}/h</b>\${hasRed ? \` <span style="color:var(--text-muted);font-size:11px">(lordo \${Math.round(totalUpkRaw).toLocaleString('it')}/h)</span>\` : ''}</span>\`
+            : '';
+
+          el.innerHTML = \`
+            <div style="font-weight:600;font-size:12px;color:var(--text-muted);margin-bottom:6px">📋 Dettaglio per unità</div>
+            \${lines.join('')}
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
+              <div style="font-weight:700;font-size:13px;margin-bottom:6px">📦 Totale risorse</div>
+              <div style="line-height:2">\${resTotal || '—'}</div>
+            </div>
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;font-size:13px">
+              \${genStr}\${upkStr}
+            </div>
+          \`;
+        }
+
+        function reset() {
+          document.querySelectorAll('[data-sim-unit]').forEach(i => i.value = '');
+          const el = document.getElementById('ikp-sim-results');
+          if (el) el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Inserisci le quantità sopra per calcolare.</div>';
+        }
+
+        window._ikpSimUpdate = update;
+        window._ikpSimReset  = reset;
+        // Ricalcola anche quando cambiano le percentuali di riduzione
+        const origRefresh = window._ikpRefreshUpkeep;
+        window._ikpRefreshUpkeep = function() { origRefresh?.(); update(); };
+      })();
+      </script>`;
+
     list.innerHTML = recapHtml + `
       <div style="overflow-x:auto">
         <table class="ikp-db-table">
@@ -2034,7 +2197,7 @@
         </table>
       </div>
       <div style="font-size:11px;color:var(--text-muted);padding:6px 2px">Tocca una riga per il dettaglio + generali + mantenimento della singola polis.</div>
-    `;
+    ` + simulatorHtml;
   }
 
 
