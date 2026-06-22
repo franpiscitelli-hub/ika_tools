@@ -1704,7 +1704,7 @@
       return;
     }
 
-    // Nome/coordinate: prima le mie città, poi (fallback) edifici nemici noti
+    // ── dati accessori ──────────────────────────────────────
     const [myCities, enemyBuildings, unitData] = await Promise.all([
       window.IkDB.getAll('my_cities'),
       window.IkDB.getAll('enemy_buildings'),
@@ -1714,22 +1714,40 @@
     for (const c of myCities)       cityInfo.set(c.cityId, { name: c.name, x: c.islandX, y: c.islandY });
     for (const c of enemyBuildings) if (!cityInfo.has(c.cityId)) cityInfo.set(c.cityId, { name: c.cityName, x: c.islandX, y: c.islandY });
 
-    const unitNames = new Map(unitData.map(u => [u.unitId, u.name]));
+    // Lookup per nome, generali (punti generale) e mantenimento (oro/ora)
+    const unitMeta = new Map(unitData.map(u => [u.unitId, {
+      name:     u.name     || `#${u.unitId}`,
+      generals: u.generals ?? null,
+      upkeep:   u.cost?.upkeep ?? null,
+      kind:     u.kind,
+    }]));
 
     records.sort((a, b) => {
       const ia = cityInfo.get(a.cityId) || {}, ib = cityInfo.get(b.cityId) || {};
       return (ia.x ?? 9999) - (ib.x ?? 9999) || (ia.y ?? 9999) - (ib.y ?? 9999) || a.cityId - b.cityId;
     });
 
+    // ── utilità ─────────────────────────────────────────────
     function sumUnits(groups) {
       let total = 0;
       for (const g of (groups || [])) for (const n of Object.values(g.units || {})) total += n;
       return total;
     }
 
+    // Accumula conteggi totali in una Map<unitId, count>
+    function addGroupsToMap(groups, target) {
+      for (const g of (groups || [])) {
+        for (const [id, n] of Object.entries(g.units || {})) {
+          const k = Number(id);
+          target.set(k, (target.get(k) || 0) + n);
+        }
+      }
+    }
+
+    // Formatta l'elenco unità in linea
     function formatUnitsList(unitsObj, icon) {
       const entries = Object.entries(unitsObj || {})
-        .map(([id, n]) => ({ n, name: unitNames.get(Number(id)) || `#${id}` }))
+        .map(([id, n]) => ({ n, id: Number(id), name: (unitMeta.get(Number(id)) || {}).name || `#${id}` }))
         .filter(e => e.n > 0)
         .sort((a, b) => b.n - a.n);
       if (!entries.length) return '<span style="color:var(--text-muted)">—</span>';
@@ -1748,6 +1766,104 @@
       }).join('');
     }
 
+    // Render blocco generali + mantenimento per una mappa totali
+    function renderGeneralsAndUpkeep(totalsMap) {
+      let totalGenerals = 0, totalUpkeep = 0;
+      const genRows = [], upkRows = [];
+
+      const sorted = [...totalsMap.entries()]
+        .filter(([,n]) => n > 0)
+        .sort(([,a],[,b]) => b - a);
+
+      for (const [id, n] of sorted) {
+        const meta = unitMeta.get(id) || {};
+        const icon = meta.kind === 'ship' ? '⛴' : '🪖';
+        const name = meta.name || `#${id}`;
+
+        if (meta.generals != null) {
+          const g = meta.generals * n;
+          totalGenerals += g;
+          genRows.push(`<span style="white-space:nowrap;margin-right:10px;display:inline-block">${icon} <b>${n.toLocaleString('it')}</b> ${name} = ${g % 1 === 0 ? g.toLocaleString('it') : g.toFixed(1)} gen.</span>`);
+        }
+        if (meta.upkeep != null) {
+          const u = meta.upkeep * n;
+          totalUpkeep += u;
+          upkRows.push(`<span style="white-space:nowrap;margin-right:10px;display:inline-block">${icon} <b>${n.toLocaleString('it')}</b> ${name} = ${u.toLocaleString('it')} 🪙/h</span>`);
+        }
+      }
+
+      const genTotalStr  = totalGenerals  % 1 === 0 ? totalGenerals.toLocaleString('it') : totalGenerals.toFixed(1);
+      const upkTotalStr  = Math.round(totalUpkeep).toLocaleString('it');
+
+      let html = '';
+      if (genRows.length) {
+        html += `<div style="margin-bottom:8px">
+          <div style="font-weight:600;margin-bottom:4px">⭐ Generali totali: <b>${genTotalStr}</b></div>
+          <div style="font-size:12px;line-height:1.8">${genRows.join('')}</div>
+        </div>`;
+      }
+      if (upkRows.length) {
+        html += `<div>
+          <div style="font-weight:600;margin-bottom:4px">🪙 Mantenimento totale: <b>${upkTotalStr}/h</b></div>
+          <div style="font-size:12px;line-height:1.8">${upkRows.join('')}</div>
+        </div>`;
+      }
+      if (!html) html = '<span style="color:var(--text-muted);font-size:12px">Dati generali/mantenimento non ancora disponibili (apri la pagina Aiuto di ogni unità).</span>';
+      return html;
+    }
+
+    // ── RECAP GLOBALE (righe sopra la tabella) ───────────────
+    const globalLand = new Map(), globalSea = new Map();
+    for (const rec of records) {
+      addGroupsToMap(rec.land?.garrison,  globalLand);
+      addGroupsToMap(rec.land?.allied,    globalLand);
+      addGroupsToMap(rec.sea?.own,        globalSea);
+      addGroupsToMap(rec.sea?.allied,     globalSea);
+    }
+
+    const globalLandTotal = [...globalLand.values()].reduce((a,b) => a+b, 0);
+    const globalSeaTotal  = [...globalSea.values()].reduce((a,b) => a+b, 0);
+
+    function buildRecapChips(totalsMap, icon) {
+      return [...totalsMap.entries()]
+        .filter(([,n]) => n > 0)
+        .sort(([,a],[,b]) => b - a)
+        .map(([id,n]) => {
+          const name = (unitMeta.get(id) || {}).name || `#${id}`;
+          return `<span style="white-space:nowrap;margin-right:10px;display:inline-block">${icon} <b>${n.toLocaleString('it')}</b> ${name}</span>`;
+        }).join('') || '<span style="color:var(--text-muted)">—</span>';
+    }
+
+    const recapHtml = `
+      <div style="margin-bottom:10px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        <!-- RECAP TRUPPE -->
+        <div style="cursor:pointer;padding:8px 10px;background:var(--bg-alt);display:flex;align-items:center;gap:8px;user-select:none"
+             onclick="var d=document.getElementById('ikp-mil-recap-land');d.style.display=d.style.display==='none'?'block':'none'">
+          <span style="font-weight:700">🪖 Totale truppe: ${globalLandTotal.toLocaleString('it')}</span>
+          <span style="font-size:12px;margin-left:auto;color:var(--text-muted)">▼ espandi</span>
+        </div>
+        <div style="padding:8px 10px;font-size:13px;line-height:1.9;border-top:1px solid var(--border)">
+          ${buildRecapChips(globalLand, '🪖')}
+        </div>
+        <div id="ikp-mil-recap-land" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:var(--bg)">
+          ${renderGeneralsAndUpkeep(globalLand)}
+        </div>
+
+        <!-- RECAP NAVI -->
+        <div style="cursor:pointer;padding:8px 10px;background:var(--bg-alt);display:flex;align-items:center;gap:8px;user-select:none;border-top:2px solid var(--border)"
+             onclick="var d=document.getElementById('ikp-mil-recap-sea');d.style.display=d.style.display==='none'?'block':'none'">
+          <span style="font-weight:700">⛴ Totale navi: ${globalSeaTotal.toLocaleString('it')}</span>
+          <span style="font-size:12px;margin-left:auto;color:var(--text-muted)">▼ espandi</span>
+        </div>
+        <div style="padding:8px 10px;font-size:13px;line-height:1.9;border-top:1px solid var(--border)">
+          ${buildRecapChips(globalSea, '⛴')}
+        </div>
+        <div id="ikp-mil-recap-sea" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:var(--bg)">
+          ${renderGeneralsAndUpkeep(globalSea)}
+        </div>
+      </div>`;
+
+    // ── RIGHE PER POLIS ──────────────────────────────────────
     const rows = records.map((rec, idx) => {
       const info   = cityInfo.get(rec.cityId) || {};
       const coords = (info.x != null && info.y != null) ? `${info.x}:${info.y}` : '—';
@@ -1758,16 +1874,20 @@
       const occTotal  = sumUnits(rec.land?.occupying);
       const blkTotal  = sumUnits(rec.sea?.blocking);
 
+      // Sfondo verde se c'è almeno una truppa o nave presente
+      const hasUnits = landTotal > 0 || seaTotal > 0;
+      const rowBg    = hasUnits ? 'background:rgba(34,139,34,0.12)' : '';
+
       const gl = rec.garrisonLimits || {};
       const detailId = `ikp-mil-detail-${idx}`;
 
       const sections = [
-        { label: '🪖 Presidio',          groups: rec.land?.garrison,  icon: '🪖' },
-        { label: '🤝 Alleati (terra)',   groups: rec.land?.allied,    icon: '🪖', onlyIfAny: true },
-        { label: '🚩 Occupanti',         groups: rec.land?.occupying, icon: '🪖', onlyIfAny: true, danger: true },
-        { label: '⛴ Navi',               groups: rec.sea?.own,        icon: '⛴' },
-        { label: '🤝 Alleati (mare)',    groups: rec.sea?.allied,     icon: '⛴', onlyIfAny: true },
-        { label: '🚧 Flotte bloccate',   groups: rec.sea?.blocking,   icon: '⛴', onlyIfAny: true, danger: true },
+        { label: '🪖 Presidio',         groups: rec.land?.garrison,  icon: '🪖' },
+        { label: '🤝 Alleati (terra)',  groups: rec.land?.allied,    icon: '🪖', onlyIfAny: true },
+        { label: '🚩 Occupanti',        groups: rec.land?.occupying, icon: '🪖', onlyIfAny: true, danger: true },
+        { label: '⛴ Navi',              groups: rec.sea?.own,        icon: '⛴' },
+        { label: '🤝 Alleati (mare)',   groups: rec.sea?.allied,     icon: '⛴', onlyIfAny: true },
+        { label: '🚧 Flotte bloccate',  groups: rec.sea?.blocking,   icon: '⛴', onlyIfAny: true, danger: true },
       ].filter(s => !s.onlyIfAny || (s.groups && s.groups.length));
 
       const detailRows = sections.map(s => `
@@ -1776,22 +1896,31 @@
           <td>${renderOwnerGroups(s.groups, s.icon)}</td>
         </tr>`).join('');
 
+      // Calcolo generali + mantenimento per questa singola polis
+      const polisLand = new Map(), polisSea = new Map();
+      addGroupsToMap(rec.land?.garrison, polisLand);
+      addGroupsToMap(rec.land?.allied,   polisLand);
+      addGroupsToMap(rec.sea?.own,       polisSea);
+      addGroupsToMap(rec.sea?.allied,    polisSea);
+      const allPolis = new Map([...polisLand, ...polisSea]);
+
       const detailHtml = `
-        <table class="ikp-db-table" style="border-top:none">
-          <tbody>${detailRows}</tbody>
-        </table>
-        <div style="font-size:11px;color:var(--text-muted);padding:6px 8px">
+        <table class="ikp-db-table" style="border-top:none"><tbody>${detailRows}</tbody></table>
+        <div style="padding:8px 10px;border-top:1px solid var(--border)">
+          ${renderGeneralsAndUpkeep(allPolis)}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);padding:4px 10px 8px">
           Lim. guarnigione — terra: ${(gl.land ?? 0).toLocaleString('it')}/${(gl.landMax ?? 0).toLocaleString('it')}
           &nbsp;·&nbsp; mare: ${(gl.sea ?? 0).toLocaleString('it')}/${(gl.seaMax ?? 0).toLocaleString('it')}
           &nbsp;·&nbsp; agg. ${rec.updated ? new Date(rec.updated).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
         </div>`;
 
-      return `<tr style="cursor:pointer" onclick="var r=document.getElementById('${detailId}');r.style.display=r.style.display==='none'?'table-row':'none'">
+      return `<tr style="cursor:pointer;${rowBg}" onclick="var r=document.getElementById('${detailId}');r.style.display=r.style.display==='none'?'table-row':'none'">
         <td>${rec.cityId}</td>
         <td>${coords}</td>
         <td>${name}</td>
-        <td style="text-align:right">${landTotal.toLocaleString('it')}</td>
-        <td style="text-align:right">${seaTotal.toLocaleString('it')}</td>
+        <td style="text-align:right">${landTotal > 0 ? `<b>${landTotal.toLocaleString('it')}</b>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+        <td style="text-align:right">${seaTotal  > 0 ? `<b>${seaTotal.toLocaleString('it')}</b>`  : '<span style="color:var(--text-muted)">—</span>'}</td>
         <td style="text-align:center">${occTotal > 0 ? `<span style="color:var(--red)">🚩 ${occTotal.toLocaleString('it')}</span>` : '—'}</td>
         <td style="text-align:center">${blkTotal > 0 ? `<span style="color:var(--red)">🚧 ${blkTotal.toLocaleString('it')}</span>` : '—'}</td>
       </tr>
@@ -1800,12 +1929,12 @@
       </tr>`;
     }).join('');
 
-    list.innerHTML = `
+    list.innerHTML = recapHtml + `
       <div style="overflow-x:auto">
         <table class="ikp-db-table">
           <thead><tr>
             <th>ID</th><th>X:Y</th><th>Nome</th>
-            <th style="text-align:right" title="Truppe proprie + alleate in guarnigione">🪖 Truppe</th>
+            <th style="text-align:right" title="Truppe proprie + alleate">🪖 Truppe</th>
             <th style="text-align:right" title="Navi proprie + alleate">⛴ Navi</th>
             <th style="text-align:center" title="Truppe nemiche occupanti">🚩 Occ.</th>
             <th style="text-align:center" title="Flotte nemiche bloccate">🚧 Blocco</th>
@@ -1813,7 +1942,7 @@
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);padding:6px 2px">Tocca una riga per il dettaglio per tipo di unità.</div>
+      <div style="font-size:11px;color:var(--text-muted);padding:6px 2px">Tocca una riga per il dettaglio + generali + mantenimento della singola polis.</div>
     `;
   }
 
