@@ -260,7 +260,6 @@
         <div class="ikp-tab" data-tab="timers" id="ikp-tab-btn-timers">⏰ Timer</div>
         <div class="ikp-tab" data-tab="mycities" id="ikp-tab-btn-mycities">🏠 Città</div>
         <div class="ikp-tab" data-tab="military" id="ikp-tab-btn-military">⚔️ Truppe</div>
-        <div class="ikp-tab" data-tab="summary" id="ikp-tab-btn-summary">📋 Summary</div>
         <div class="ikp-tab" data-tab="ranking" id="ikp-tab-btn-ranking">📊 Classifica</div>
         <div class="ikp-tab" data-tab="db" id="ikp-tab-btn-db">🗄 Dati</div>
         <div class="ikp-tab" data-tab="log" id="ikp-tab-btn-log">📟 Log</div>
@@ -396,33 +395,18 @@
           </div>
         </div>
 
-        <!-- ══ SUMMARY CLASSIFICA ══ -->
-        <div class="ikp-section" id="ikp-tab-summary">
-          <div class="ikp-card">
-            <div class="ikp-card-title">
-              📋 Summary Classifica
-              <button class="ikp-btn small outline" onclick="window.IkApp.renderSummary()">↻</button>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center">
-              <input id="ikp-sum-filter-name" type="text" placeholder="🔍 Nome"
-                     style="flex:1;min-width:90px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
-                     oninput="window.IkApp.renderSummary()">
-              <input id="ikp-sum-filter-ally" type="text" placeholder="🏰 Alleanza"
-                     style="flex:1;min-width:90px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
-                     oninput="window.IkApp.renderSummary()">
-            </div>
-            <div id="ikp-summary-list">
-              <div class="ikp-empty"><div class="ikp-empty-icon">📋</div><p>Naviga le pagine classifica nel gioco per popolare questa vista.</p></div>
-            </div>
-          </div>
-        </div>
-
         <!-- ══ CLASSIFICA ══ -->
         <div class="ikp-section" id="ikp-tab-ranking">
           <div class="ikp-card">
             <div class="ikp-card-title">
               📊 Classifica
               <button class="ikp-btn small danger" onclick="window.IkApp.clearChanges()">🗑 Svuota stati</button>
+            </div>
+            <!-- summary compatto -->
+            <div id="ikp-ranking-summary" style="display:flex;flex-wrap:wrap;gap:6px;
+                 margin-bottom:10px;padding:6px 8px;background:var(--bg-alt);
+                 border-radius:6px;font-size:12px;align-items:center">
+              <span style="color:var(--text-muted)">Caricamento...</span>
             </div>
             <!-- filtri -->
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center">
@@ -669,7 +653,6 @@
       case 'timers':    renderTimers();    break;
       case 'mycities':  renderMyCities();  break;
       case 'military':  renderMilitary();  break;
-      case 'summary':   renderSummary();   break;
       case 'ranking':   renderChanges();   break;
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
@@ -2736,7 +2719,6 @@
   function onRankingUpdated(data) {
     lastRanking = data;
     if (panelOpen && activeTab === 'ranking') renderChanges();
-    if (panelOpen && activeTab === 'summary') renderSummary();
     loadMapData();
     if (data.changes && data.changes.length > 0) {
       toast(`🏆 ${data.changes.length} cambi stato in classifica!`, 4000);
@@ -2782,7 +2764,7 @@
       const changes = await window.IkDB.getAll('state_changes');
       const filtered = changes.filter(c => {
         if (filterName && !c.playerName?.toLowerCase().includes(filterName)) return false;
-        if (filterAlly && !(c.allyName || '').toLowerCase().includes(filterAlly)) return false;
+        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) return false;
         return true;
       });
       if (!filtered.length) {
@@ -2810,9 +2792,13 @@
     let filtered = players.filter(p => {
       if (!p.scores || !Object.keys(p.scores).length) return false;
       if (filterName && !(p.name || '').toLowerCase().includes(filterName)) return false;
-      if (filterAlly && !(p.ally || '').toLowerCase().includes(filterAlly)) return false;
+      if (filterAlly && (p.ally || '').toLowerCase() !== filterAlly) return false;
       return true;
     });
+
+    // Aggiorna pannello summary compatto in cima
+    const lastUpdate = filtered.reduce((best, p) => (!best || (p.lastUpdateDate||'') > best) ? (p.lastUpdateDate||null) : best, null);
+    renderSummary(filtered, lastUpdate);
 
     if (!filtered.length) {
       list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun dato classifica trovato.<br>Naviga le pagine classifica nel gioco.</p></div>`;
@@ -3458,98 +3444,37 @@
     if (ok) toast('🔔 Notifiche abilitate!');
   }
 
-  // ── SUMMARY CLASSIFICA ──────────────────────────
-  async function renderSummary() {
-    const list = document.getElementById('ikp-summary-list');
-    if (!list || !window.IkDB) return;
-
-    const filterName = (document.getElementById('ikp-sum-filter-name')?.value || '').trim().toLowerCase();
-    const filterAlly = (document.getElementById('ikp-sum-filter-ally')?.value || '').trim().toLowerCase();
-
-    const players = await window.IkDB.getAll('players');
-    const filtered = players.filter(p => {
-      if (filterName && !(p.name || '').toLowerCase().includes(filterName)) return false;
-      if (filterAlly && !(p.ally || '').toLowerCase().includes(filterAlly)) return false;
-      return true;
-    });
-
-    if (!filtered.length) {
-      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">📋</div><p>Nessun player trovato. Naviga le pagine classifica nel gioco.</p></div>`;
+  // ── SUMMARY COMPATTO (pannello in cima alla Classifica) ──
+  async function renderSummary(filteredPlayers, lastUpdate) {
+    const panel = document.getElementById('ikp-ranking-summary');
+    if (!panel) return;
+    if (!filteredPlayers || !filteredPlayers.length) {
+      panel.innerHTML = '<span style="color:var(--text-muted)">Nessun player</span>';
       return;
     }
 
-    const counts = { active:0, inactive:0, vacation:0, banned:0, deleted:0, unknown:0 };
-    let lastUpdate = null;
-    for (const p of filtered) {
+    const counts = { active:0, inactive:0, vacation:0, banned:0, deleted:0 };
+    for (const p of filteredPlayers) {
       const s = p.status || 'unknown';
-      if (counts[s] !== undefined) counts[s]++; else counts.unknown++;
-      if (p.lastUpdateDate && (!lastUpdate || p.lastUpdateDate > lastUpdate)) lastUpdate = p.lastUpdateDate;
+      if (counts[s] !== undefined) counts[s]++;
     }
 
-    const stateColor = { active:'var(--ok,#2a8)', inactive:'var(--text-muted)', vacation:'#e80', banned:'var(--red)', deleted:'var(--red)', unknown:'var(--text-muted)' };
-    const stateIcon  = { active:'🟢', inactive:'⚫', vacation:'🟡', banned:'🔴', deleted:'🔴', unknown:'⚪' };
-    const stateLabel = { active:'Attivi', inactive:'Inattivi', vacation:'Vacanza', banned:'Bannati', deleted:'Eliminati', unknown:'Sconosciuto' };
+    const stateColor = { active:'var(--ok,#2a8)', inactive:'var(--text-muted)', vacation:'#e80', banned:'var(--red)', deleted:'var(--red)' };
+    const stateIcon  = { active:'🟢', inactive:'⚫', vacation:'🟡', banned:'🔴', deleted:'🔴' };
+    const stateLabel = { active:'Attivi', inactive:'Inattivi', vacation:'Vacanza', banned:'Bannati', deleted:'Eliminati' };
 
-    const statCards = Object.entries(counts)
+    const chips = Object.entries(counts)
       .filter(([, n]) => n > 0)
-      .map(([s, n]) => `
-        <div style="flex:1;min-width:90px;padding:10px;border:1px solid var(--border);border-radius:6px;
-                    background:var(--bg-alt);text-align:center">
-          <div style="font-size:22px;margin-bottom:4px">${stateIcon[s]}</div>
-          <div style="font-size:20px;font-weight:700;color:${stateColor[s]}">${n}</div>
-          <div style="font-size:11px;color:var(--text-muted)">${stateLabel[s]}</div>
-        </div>`).join('');
+      .map(([s, n]) => `<span style="white-space:nowrap;padding:2px 7px;border-radius:10px;
+             border:1px solid var(--border);font-size:12px">
+        ${stateIcon[s]} <b style="color:${stateColor[s]}">${n}</b>
+        <span style="color:var(--text-muted)">${stateLabel[s]}</span>
+      </span>`).join('');
 
-    // Variazioni punteggi recenti (ultimi 7 giorni)
-    const scoreChanges = await window.IkDB.getAll('score_changes');
-    const now = Date.now();
-    const recentScore = scoreChanges.filter(c => (now - new Date(c.date).getTime()) < 7*86400*1000);
-
-    // Mostra top variazioni per tipo
-    const SCORE_LABELS = { army_score_main:'⭐ Generali', offense:'⚔️ Attacco', defense:'🛡 Difesa' };
-    const byType = {};
-    for (const c of recentScore) {
-      if (!byType[c.scoreType]) byType[c.scoreType] = [];
-      byType[c.scoreType].push(c);
-    }
-
-    const scoreRows = Object.entries(byType).map(([type, changes]) => {
-      const sorted = changes.sort((a,b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 5);
-      const rows = sorted.map(c => {
-        const sign = c.delta > 0 ? '+' : '';
-        const col  = c.delta > 0 ? 'var(--ok,#2a8)' : 'var(--red)';
-        return `<div style="font-size:12px;padding:2px 0">
-          👤 ${c.playerName} ${c.allyName !== '—' ? `<span style="color:var(--text-muted);font-size:11px">[${c.allyName}]</span>` : ''}
-          <span style="color:${col};font-weight:600">${sign}${c.delta.toLocaleString('it')}</span>
-          <span style="color:var(--text-muted);font-size:11px">(${c.prevScore.toLocaleString('it')} → ${c.newScore.toLocaleString('it')})</span>
-          <span style="color:var(--text-muted);font-size:10px">${fmt(c.date)}</span>
-        </div>`;
-      }).join('');
-      return `<div style="margin-bottom:10px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px">${SCORE_LABELS[type] || type}</div>
-        ${rows}
-      </div>`;
-    }).join('');
-
-    list.innerHTML = `
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-        Aggiornato: <b>${lastUpdate ? fmt(lastUpdate) : '—'}</b>
-      </div>
-
-      <div style="font-size:13px;font-weight:700;margin-bottom:8px">
-        Totale player filtrati: <b>${filtered.length}</b>
-      </div>
-
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-        ${statCards}
-      </div>
-
-      ${scoreRows ? `
-        <div style="margin-top:4px">
-          <div style="font-size:12px;font-weight:700;margin-bottom:6px">📈 Variazioni punteggio (ultimi 7 giorni)</div>
-          ${scoreRows}
-        </div>` : `
-        <div style="font-size:12px;color:var(--text-muted)">Nessuna variazione punteggio rilevata negli ultimi 7 giorni.</div>`}
+    panel.innerHTML = `
+      <span style="font-size:12px;font-weight:700;margin-right:6px">👥 ${filteredPlayers.length} player</span>
+      ${chips}
+      ${lastUpdate ? `<span style="margin-left:auto;font-size:10px;color:var(--text-muted)">agg. ${fmt(lastUpdate)}</span>` : ''}
     `;
   }
 
