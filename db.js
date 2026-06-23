@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 12;
+  const DB_VERSION = 13;
   let db = null;
 
   function open() {
@@ -141,6 +141,17 @@
           const s = d.createObjectStore('unit_data', { keyPath: 'id' });
           s.createIndex('kind', 'kind', { unique: false }); // 'unit' | 'ship'
           s.createIndex('name', 'name', { unique: false });
+        }
+
+        // score_changes — storico variazioni punteggi per player
+        // Tiene traccia di ogni cambio di generali/attacco/difesa
+        // { id(autoIncrement), avatarId, playerName, allyName,
+        //   scoreType, prevScore, newScore, delta, date }
+        if (!d.objectStoreNames.contains('score_changes')) {
+          const s = d.createObjectStore('score_changes', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('avatarId',   'avatarId',   { unique: false });
+          s.createIndex('scoreType',  'scoreType',  { unique: false });
+          s.createIndex('date',       'date',       { unique: false });
         }
 
         // building_training — tempi addestramento rilevati da caserma/cantiere
@@ -351,7 +362,7 @@
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
       'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
-      'completed_timers', 'unit_data', 'city_military', 'building_training',
+      'completed_timers', 'unit_data', 'city_military', 'building_training', 'score_changes',
     ];
     const result = {};
     for (const s of stores) {
@@ -371,5 +382,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v12 caricato');
+  console.log('[IkDB] v13 caricato');
 })();

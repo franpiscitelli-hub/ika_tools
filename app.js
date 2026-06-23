@@ -260,7 +260,8 @@
         <div class="ikp-tab" data-tab="timers" id="ikp-tab-btn-timers">⏰ Timer</div>
         <div class="ikp-tab" data-tab="mycities" id="ikp-tab-btn-mycities">🏠 Città</div>
         <div class="ikp-tab" data-tab="military" id="ikp-tab-btn-military">⚔️ Truppe</div>
-        <div class="ikp-tab" data-tab="changes" id="ikp-tab-btn-changes">🔔 Cambi</div>
+        <div class="ikp-tab" data-tab="summary" id="ikp-tab-btn-summary">📋 Summary</div>
+        <div class="ikp-tab" data-tab="ranking" id="ikp-tab-btn-ranking">📊 Classifica</div>
         <div class="ikp-tab" data-tab="db" id="ikp-tab-btn-db">🗄 Dati</div>
         <div class="ikp-tab" data-tab="log" id="ikp-tab-btn-log">📟 Log</div>
         <div class="ikp-tab" data-tab="settings" id="ikp-tab-btn-settings">⚙</div>
@@ -395,12 +396,33 @@
           </div>
         </div>
 
-        <!-- ══ CAMBI STATO ══ -->
-        <div class="ikp-section" id="ikp-tab-changes">
+        <!-- ══ SUMMARY CLASSIFICA ══ -->
+        <div class="ikp-section" id="ikp-tab-summary">
           <div class="ikp-card">
             <div class="ikp-card-title">
-              🔔 Cambi di stato &amp; Classifica
-              <button class="ikp-btn small danger" onclick="window.IkApp.clearChanges()">🗑 Svuota</button>
+              📋 Summary Classifica
+              <button class="ikp-btn small outline" onclick="window.IkApp.renderSummary()">↻</button>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center">
+              <input id="ikp-sum-filter-name" type="text" placeholder="🔍 Nome"
+                     style="flex:1;min-width:90px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                     oninput="window.IkApp.renderSummary()">
+              <input id="ikp-sum-filter-ally" type="text" placeholder="🏰 Alleanza"
+                     style="flex:1;min-width:90px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                     oninput="window.IkApp.renderSummary()">
+            </div>
+            <div id="ikp-summary-list">
+              <div class="ikp-empty"><div class="ikp-empty-icon">📋</div><p>Naviga le pagine classifica nel gioco per popolare questa vista.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ CLASSIFICA ══ -->
+        <div class="ikp-section" id="ikp-tab-ranking">
+          <div class="ikp-card">
+            <div class="ikp-card-title">
+              📊 Classifica
+              <button class="ikp-btn small danger" onclick="window.IkApp.clearChanges()">🗑 Svuota stati</button>
             </div>
             <!-- filtri -->
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center">
@@ -541,7 +563,32 @@
           <div class="ikp-card">
             <div class="ikp-card-title">💾 Storage</div>
             <div id="ikp-storage-info" style="font-size:13px;color:var(--text-dim)">Calcolo...</div>
-            <button class="ikp-btn outline" style="margin-top:10px" onclick="window.IkApp.pruneOld()">🧹 Pulizia 30+ giorni</button>
+            <button class="ikp-btn outline" style="margin-top:10px" onclick="window.IkApp.pruneOld()">🧹 Pulizia automatica</button>
+          </div>
+          <div class="ikp-card">
+            <div class="ikp-card-title">⏳ Retention automatica</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+              Elimina automaticamente i record più vecchi di N giorni. Lascia 0 per disabilitare.
+            </p>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+                🔔 Cambi stato (state_changes)
+                <input type="number" min="0" step="1" placeholder="0"
+                       id="ikp-retention-state"
+                       style="width:64px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                       onchange="window.IkApp.saveRetention()">
+                <span style="font-size:11px;color:var(--text-muted)">giorni</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+                ⭐ Var. Generali (score_changes)
+                <input type="number" min="0" step="1" placeholder="0"
+                       id="ikp-retention-score"
+                       style="width:64px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                       onchange="window.IkApp.saveRetention()">
+                <span style="font-size:11px;color:var(--text-muted)">giorni</span>
+              </label>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:var(--text-muted)" id="ikp-retention-status"></div>
           </div>
         </div>
 
@@ -622,10 +669,11 @@
       case 'timers':    renderTimers();    break;
       case 'mycities':  renderMyCities();  break;
       case 'military':  renderMilitary();  break;
-      case 'changes':   renderChanges();   break;
+      case 'summary':   renderSummary();   break;
+      case 'ranking':   renderChanges();   break;
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
-      case 'settings':  loadSettingsUI();  break;
+      case 'settings':  loadSettingsUI(); loadRetentionUI(); break;
     }
   }
 
@@ -2687,9 +2735,8 @@
 
   function onRankingUpdated(data) {
     lastRanking = data;
-    if (panelOpen && activeTab === 'ranking') renderRanking();
-    // Ricarica mapPlayers con dati alleanza/stato aggiornati dal ranking,
-    // poi ridisegna la mappa (colori alleati)
+    if (panelOpen && activeTab === 'ranking') renderChanges();
+    if (panelOpen && activeTab === 'summary') renderSummary();
     loadMapData();
     if (data.changes && data.changes.length > 0) {
       toast(`🏆 ${data.changes.length} cambi stato in classifica!`, 4000);
@@ -3175,7 +3222,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military','score_changes'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -3246,7 +3293,7 @@
   function onTimerAdded()       { if (panelOpen) updateStatusBar(); }
   function onTimerExpired()     { if (panelOpen) { renderTimers(); updateStatusBar(); } }
   function onStateChanges(list) {
-    if (panelOpen && activeTab === 'changes') renderChanges();
+    if (panelOpen && activeTab === 'ranking') renderChanges();
     if (list.length > 0) {
       const names = list.map(c => `${c.playerName}: ${c.prevState}→${c.newState}`).join(', ');
       window.IkNotifier?.notify('🔔 Cambi di stato', names, { urgent: false });
@@ -3411,13 +3458,169 @@
     if (ok) toast('🔔 Notifiche abilitate!');
   }
 
+  // ── SUMMARY CLASSIFICA ──────────────────────────
+  async function renderSummary() {
+    const list = document.getElementById('ikp-summary-list');
+    if (!list || !window.IkDB) return;
+
+    const filterName = (document.getElementById('ikp-sum-filter-name')?.value || '').trim().toLowerCase();
+    const filterAlly = (document.getElementById('ikp-sum-filter-ally')?.value || '').trim().toLowerCase();
+
+    const players = await window.IkDB.getAll('players');
+    const filtered = players.filter(p => {
+      if (filterName && !(p.name || '').toLowerCase().includes(filterName)) return false;
+      if (filterAlly && !(p.ally || '').toLowerCase().includes(filterAlly)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">📋</div><p>Nessun player trovato. Naviga le pagine classifica nel gioco.</p></div>`;
+      return;
+    }
+
+    const counts = { active:0, inactive:0, vacation:0, banned:0, deleted:0, unknown:0 };
+    let lastUpdate = null;
+    for (const p of filtered) {
+      const s = p.status || 'unknown';
+      if (counts[s] !== undefined) counts[s]++; else counts.unknown++;
+      if (p.lastUpdateDate && (!lastUpdate || p.lastUpdateDate > lastUpdate)) lastUpdate = p.lastUpdateDate;
+    }
+
+    const stateColor = { active:'var(--ok,#2a8)', inactive:'var(--text-muted)', vacation:'#e80', banned:'var(--red)', deleted:'var(--red)', unknown:'var(--text-muted)' };
+    const stateIcon  = { active:'🟢', inactive:'⚫', vacation:'🟡', banned:'🔴', deleted:'🔴', unknown:'⚪' };
+    const stateLabel = { active:'Attivi', inactive:'Inattivi', vacation:'Vacanza', banned:'Bannati', deleted:'Eliminati', unknown:'Sconosciuto' };
+
+    const statCards = Object.entries(counts)
+      .filter(([, n]) => n > 0)
+      .map(([s, n]) => `
+        <div style="flex:1;min-width:90px;padding:10px;border:1px solid var(--border);border-radius:6px;
+                    background:var(--bg-alt);text-align:center">
+          <div style="font-size:22px;margin-bottom:4px">${stateIcon[s]}</div>
+          <div style="font-size:20px;font-weight:700;color:${stateColor[s]}">${n}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${stateLabel[s]}</div>
+        </div>`).join('');
+
+    // Variazioni punteggi recenti (ultimi 7 giorni)
+    const scoreChanges = await window.IkDB.getAll('score_changes');
+    const now = Date.now();
+    const recentScore = scoreChanges.filter(c => (now - new Date(c.date).getTime()) < 7*86400*1000);
+
+    // Mostra top variazioni per tipo
+    const SCORE_LABELS = { army_score_main:'⭐ Generali', offense:'⚔️ Attacco', defense:'🛡 Difesa' };
+    const byType = {};
+    for (const c of recentScore) {
+      if (!byType[c.scoreType]) byType[c.scoreType] = [];
+      byType[c.scoreType].push(c);
+    }
+
+    const scoreRows = Object.entries(byType).map(([type, changes]) => {
+      const sorted = changes.sort((a,b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 5);
+      const rows = sorted.map(c => {
+        const sign = c.delta > 0 ? '+' : '';
+        const col  = c.delta > 0 ? 'var(--ok,#2a8)' : 'var(--red)';
+        return `<div style="font-size:12px;padding:2px 0">
+          👤 ${c.playerName} ${c.allyName !== '—' ? `<span style="color:var(--text-muted);font-size:11px">[${c.allyName}]</span>` : ''}
+          <span style="color:${col};font-weight:600">${sign}${c.delta.toLocaleString('it')}</span>
+          <span style="color:var(--text-muted);font-size:11px">(${c.prevScore.toLocaleString('it')} → ${c.newScore.toLocaleString('it')})</span>
+          <span style="color:var(--text-muted);font-size:10px">${fmt(c.date)}</span>
+        </div>`;
+      }).join('');
+      return `<div style="margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px">${SCORE_LABELS[type] || type}</div>
+        ${rows}
+      </div>`;
+    }).join('');
+
+    list.innerHTML = `
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+        Aggiornato: <b>${lastUpdate ? fmt(lastUpdate) : '—'}</b>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">
+        Totale player filtrati: <b>${filtered.length}</b>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+        ${statCards}
+      </div>
+
+      ${scoreRows ? `
+        <div style="margin-top:4px">
+          <div style="font-size:12px;font-weight:700;margin-bottom:6px">📈 Variazioni punteggio (ultimi 7 giorni)</div>
+          ${scoreRows}
+        </div>` : `
+        <div style="font-size:12px;color:var(--text-muted)">Nessuna variazione punteggio rilevata negli ultimi 7 giorni.</div>`}
+    `;
+  }
+
+  // ── RETENTION SETTINGS ───────────────────────────
+  const LS_RETENTION = 'ikp_retention';
+
+  function loadRetentionUI() {
+    try {
+      const r = JSON.parse(localStorage.getItem(LS_RETENTION) || '{}');
+      const stateEl = document.getElementById('ikp-retention-state');
+      const scoreEl = document.getElementById('ikp-retention-score');
+      if (stateEl && r.state) stateEl.value = r.state;
+      if (scoreEl && r.score) scoreEl.value = r.score;
+    } catch {}
+  }
+
+  function saveRetention() {
+    const stateEl = document.getElementById('ikp-retention-state');
+    const scoreEl = document.getElementById('ikp-retention-score');
+    const r = {
+      state: parseInt(stateEl?.value || '0', 10) || 0,
+      score: parseInt(scoreEl?.value || '0', 10) || 0,
+    };
+    try { localStorage.setItem(LS_RETENTION, JSON.stringify(r)); } catch {}
+    const el = document.getElementById('ikp-retention-status');
+    if (el) el.textContent = `Salvato: state_changes ${r.state || 'disabilitato'} gg · score_changes ${r.score || 'disabilitato'} gg`;
+    return r;
+  }
+
   async function pruneOld() {
+    let removed = 0;
+    // Pulizia entries JSON > 30 giorni (comportamento esistente)
     const n = await window.IkDB?.pruneEntries(30);
-    toast('🧹 Rimossi ' + n + ' record');
+    removed += n || 0;
+
+    // Pulizia in base alla retention configurata
+    try {
+      const r = JSON.parse(localStorage.getItem(LS_RETENTION) || '{}');
+      const now = Date.now();
+
+      if (r.state > 0) {
+        const cutoff = new Date(now - r.state * 86400 * 1000).toISOString();
+        const all = await window.IkDB.getAll('state_changes');
+        let del = 0;
+        for (const rec of all) {
+          if ((rec.newUpdate || rec.date || '') < cutoff) {
+            try { await window.IkDB.delete('state_changes', rec.id); del++; } catch {}
+          }
+        }
+        removed += del;
+        console.log(`[pruneOld] state_changes: rimossi ${del} record > ${r.state} giorni`);
+      }
+
+      if (r.score > 0) {
+        const cutoff = new Date(now - r.score * 86400 * 1000).toISOString();
+        const all = await window.IkDB.getAll('score_changes');
+        let del = 0;
+        for (const rec of all) {
+          if ((rec.date || '') < cutoff) {
+            try { await window.IkDB.delete('score_changes', rec.id); del++; } catch {}
+          }
+        }
+        removed += del;
+        console.log(`[pruneOld] score_changes: rimossi ${del} record > ${r.score} giorni`);
+      }
+    } catch(e) { console.warn('[pruneOld] retention error:', e.message); }
+
+    toast(`🧹 Rimossi ${removed} record`);
     renderDB();
     updateStatusBar();
   }
-
 
   // ── IMPORT FILE MANUALE ──────────────────────
   function importLog(msg, color) {
@@ -3528,7 +3731,7 @@
   window.IkApp = {
     init, toggle, toast, drawMap, mapReset, mapZoom,
     applyFilters, clearFilters, goToMe,
-    closePopup, saveMyId, askNotifPerm, pruneOld,
+    closePopup, saveMyId, askNotifPerm, pruneOld, saveRetention,
     toggleSaveAllRaw,
     clearDB, clearDbSection, clearChanges, importFiles, importLog,
     onRankingUpdated, onIslandsUpdated, onCitiesUpdated, onResourcesUpdated,
@@ -3537,6 +3740,7 @@
     renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
     renderMyCities, resetMyCities, renderWineTimers,
     renderMilitary, onMilitaryUpdated,
+    renderSummary, renderChanges,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
     showPlayerDetail,

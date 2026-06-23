@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-// parser_ranking.js v3
+// parser_ranking.js v4
 // Match basato sul CONTENUTO (non sull'URL, che può variare):
 //   - data contiene un blocco ['changeview'|'changeView', ['highscore', html]]
 //   - l'HTML contiene la parola "highscore"
@@ -12,6 +12,13 @@
 // ═══════════════════════════════════════════════
 (function () {
   'use strict';
+
+  // Tipi di punteggio da tracciare come variazioni storiche
+  const TRACKED_SCORE_TYPES = new Set([
+    'army_score_main',   // Generali
+    'offense',           // Punti attacco
+    'defense',           // Punti difesa
+  ]);
 
   const RANKING_LABELS = {
     'score':                    'Punteggio totale',
@@ -138,6 +145,25 @@
         });
       }
 
+      // Rilevamento variazioni punteggi tracciati (generali, attacco, difesa)
+      if (prev && prev.scores && TRACKED_SCORE_TYPES.has(tipoKey)) {
+        const prevScore = prev.scores[tipoKey];
+        if (prevScore != null && prevScore !== p.punteggio) {
+          try {
+            await window.IkDB.add('score_changes', {
+              avatarId:   p.avatarId,
+              playerName: p.nome,
+              allyName:   p.alleanza || '—',
+              scoreType:  tipoKey,
+              prevScore,
+              newScore:   p.punteggio,
+              delta:      p.punteggio - prevScore,
+              date:       nowIso,
+            });
+          } catch {}
+        }
+      }
+
       // Aggiorna/crea player — multi-punteggio
       const scores = { ...(prev?.scores || {}) };
       scores[tipoKey] = p.punteggio;
@@ -230,5 +256,5 @@
     match: (url, data) => findHighscoreHtml(data) !== null,
     parse,
   });
-  console.log('[parser_ranking] v3 OK');
+  console.log('[parser_ranking] v4 OK');
 })();
