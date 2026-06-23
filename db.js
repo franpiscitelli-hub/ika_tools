@@ -173,8 +173,22 @@
         }
       };
 
-      req.onsuccess = e => { db = e.target.result; resolve(db); };
-      req.onerror   = e => reject(e.target.error);
+      req.onsuccess = e => {
+        db = e.target.result;
+        // Se un'altra scheda ha aperto una versione precedente del DB, chiedi di ricaricare
+        db.onversionchange = () => {
+          db.close();
+          console.warn('[IkDB] Versione DB aggiornata da un\'altra scheda — ricarica necessaria.');
+          // Non forziamo il reload automatico: l'utente potrebbe perdere dati non salvati
+        };
+        resolve(db);
+      };
+      // Viene sparato se un'altra scheda tiene aperta una versione precedente del DB:
+      // invece di bloccare silenziosamente, logghiamo e risolviamo comunque quando possibile.
+      req.onblocked = () => {
+        console.warn('[IkDB] Apertura DB bloccata da un\'altra scheda. Chiudi le altre schede del gioco e ricarica.');
+      };
+      req.onerror = e => reject(e.target.error);
     });
   }
 

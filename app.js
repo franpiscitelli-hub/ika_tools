@@ -399,8 +399,37 @@
         <div class="ikp-section" id="ikp-tab-changes">
           <div class="ikp-card">
             <div class="ikp-card-title">
-              🔔 Cambi di stato giocatori
+              🔔 Cambi di stato &amp; Classifica
               <button class="ikp-btn small danger" onclick="window.IkApp.clearChanges()">🗑 Svuota</button>
+            </div>
+            <!-- filtri -->
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center">
+              <input id="ikp-chg-filter-name"  type="text"    placeholder="🔍 Nome player"
+                     style="flex:1;min-width:100px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                     oninput="window.IkApp.renderChanges()">
+              <input id="ikp-chg-filter-ally"  type="text"    placeholder="🏰 Alleanza"
+                     style="flex:1;min-width:90px;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                     oninput="window.IkApp.renderChanges()">
+              <select id="ikp-chg-filter-type"
+                      style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                      onchange="window.IkApp.renderChanges()">
+                <option value="">Tutti i tipi</option>
+                <option value="score">Punteggio totale</option>
+                <option value="building_score_main">Costruttori</option>
+                <option value="building_score_secondary">Livelli edifici</option>
+                <option value="research_score_main">Scienziati</option>
+                <option value="research_score_secondary">Livelli ricerca</option>
+                <option value="army_score_main">Generali</option>
+                <option value="trader_score_secondary">Quantità oro</option>
+                <option value="offense">Punti attacco</option>
+                <option value="defense">Punti difesa</option>
+                <option value="trade">Mercante</option>
+                <option value="resources">Risorse</option>
+                <option value="donations">Donazioni</option>
+                <option value="pillaging">Saccheggio</option>
+                <option value="piracy">Punti predatore</option>
+                <option value="_state">Solo cambi stato</option>
+              </select>
             </div>
             <div id="ikp-changes-list">
               <div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio rilevato.<br>Aggiorna i dati di Ikalogs.</p></div>
@@ -2245,12 +2274,23 @@
 
     // ── Logica JS simulatore (closure diretta, senza <script>) ──────────────
     {
-      const LS_FLET = 'ikp_sim_flet';
+      const LS_FLET   = 'ikp_sim_flet';
+      const SS_INPUTS = 'ikp_sim_inputs';   // sessionStorage — sopravvive al reload ma non alla chiusura tab
+
       let fletState = {};
       try { fletState = JSON.parse(localStorage.getItem(LS_FLET) || '{}'); } catch(e) {}
 
-      const _sm = simMeta, _lr = landRes, _sr = seaRes,
-            _lu = landUnits, _su = seaUnits;
+      // Ripristina valori input dalla sessione precedente (reload pagina)
+      let savedInputs = {};
+      try { savedInputs = JSON.parse(sessionStorage.getItem(SS_INPUTS) || '{}'); } catch(e) {}
+
+      function saveInputs() {
+        const out = {};
+        document.querySelectorAll('[data-sim-unit]').forEach(i => { if (i.value) out[i.dataset.simUnit] = i.value; });
+        try { sessionStorage.setItem(SS_INPUTS, JSON.stringify(out)); } catch(e) {}
+      }
+
+      const _lu = landUnits, _su = seaUnits;
 
       function sFmt(n)  { return n % 1 === 0 ? n.toLocaleString('it') : n.toFixed(1); }
       function sFmtI(n) { return Math.round(n).toLocaleString('it'); }
@@ -2261,6 +2301,7 @@
       }
 
       function simUpdate() {
+        saveInputs();  // persisti valori in sessionStorage ad ogni modifica
         const red = sRed();
         const tot = { land:{gen:0,upk:0,flet:0}, sea:{gen:0,upk:0,flet:0} };
         const totRes = { land:{}, sea:{} };
@@ -2349,11 +2390,18 @@
       }
 
       window._ikpSimUpdate     = simUpdate;
-      window._ikpSimReset      = () => { document.querySelectorAll('[data-sim-unit]').forEach(i => i.value = ''); fletState = {}; try{localStorage.setItem(LS_FLET,'{}');}catch(e){} simUpdate(); };
+      window._ikpSimReset      = () => { document.querySelectorAll('[data-sim-unit]').forEach(i => i.value = ''); fletState = {}; savedInputs = {}; try{localStorage.setItem(LS_FLET,'{}');sessionStorage.removeItem(SS_INPUTS);}catch(e){} simUpdate(); };
       window._ikpSimToggleFlet = id => { fletState[id] = !fletState[id]; try{localStorage.setItem(LS_FLET,JSON.stringify(fletState));}catch(e){} simUpdate(); };
       const _pr = window._ikpRefreshUpkeep;
       window._ikpRefreshUpkeep = () => { _pr?.(); simUpdate(); };
-      setTimeout(simUpdate, 0);
+      // Ripristina valori input salvati dalla sessione (sopravvivono al reload della pagina)
+      setTimeout(() => {
+        for (const [uid, val] of Object.entries(savedInputs)) {
+          const el = document.getElementById('sim-inp-' + uid);
+          if (el) el.value = val;
+        }
+        simUpdate();
+      }, 0);
     }
 
     list.innerHTML = recapHtml + `
@@ -2649,35 +2697,142 @@
   }
 
   // ── CAMBI STATO ───────────────────────────────
+  const RANKING_LABELS = {
+    score:                    'Punteggio totale',
+    building_score_main:      'Costruttori',
+    building_score_secondary: 'Livelli edifici',
+    research_score_main:      'Scienziati',
+    research_score_secondary: 'Livelli ricerca',
+    army_score_main:          'Generali',
+    trader_score_secondary:   'Quantità oro',
+    offense:                  'Punti attacco',
+    defense:                  'Punti difesa',
+    trade:                    'Mercante',
+    resources:                'Risorse',
+    donations:                'Donazioni',
+    pillaging:                'Saccheggio',
+    piracy:                   'Punti predatore',
+  };
+
   async function renderChanges() {
     const list = document.getElementById('ikp-changes-list');
     if (!list || !window.IkDB) return;
-    const changes = await window.IkDB.getAll('state_changes');
-    if (!changes.length) {
-      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio rilevato.</p></div>`;
-      return;
-    }
+
+    const filterName = (document.getElementById('ikp-chg-filter-name')?.value || '').trim().toLowerCase();
+    const filterAlly = (document.getElementById('ikp-chg-filter-ally')?.value || '').trim().toLowerCase();
+    const filterType = document.getElementById('ikp-chg-filter-type')?.value || '';
+
     const stateCfg = {
       active:   { label:'Attivo',   cls:'state-active'   },
       inactive: { label:'Inattivo', cls:'state-inactive' },
       vacation: { label:'Vacanza',  cls:'state-vacation' },
       banned:   { label:'Bannato',  cls:'state-banned'   },
+      deleted:  { label:'Eliminato',cls:'state-banned'   },
     };
-    list.innerHTML = changes.slice().reverse().map(c => {
-      const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
-      const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
-      return `<div class="ikp-change-row">
-        <div class="ikp-change-player">👤 ${c.playerName}${c.prevName ? ` <span style="font-size:11px;color:var(--text-muted)">(ex: ${c.prevName})</span>` : ''} ${c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
-        <div class="ikp-change-states">
-          <span class="ikp-state-badge ${prev.cls}">${prev.label}</span>
-          →
-          <span class="ikp-state-badge ${next.cls}">${next.label}</span>
-        </div>
-        <div class="ikp-change-time">
-          📅 Prec: ${fmt(c.prevUpdate)} → Nuovo: ${fmt(c.newUpdate)}
-        </div>
-      </div>`;
+
+    // ── Vista "Solo cambi stato" ──────────────────────────────
+    if (filterType === '_state') {
+      const changes = await window.IkDB.getAll('state_changes');
+      const filtered = changes.filter(c => {
+        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) return false;
+        if (filterAlly && !(c.allyName || '').toLowerCase().includes(filterAlly)) return false;
+        return true;
+      });
+      if (!filtered.length) {
+        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio di stato trovato.</p></div>`;
+        return;
+      }
+      list.innerHTML = filtered.slice().reverse().map(c => {
+        const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
+        const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
+        return `<div class="ikp-change-row">
+          <div class="ikp-change-player">👤 ${c.playerName}${c.prevName ? ` <span style="font-size:11px;color:var(--text-muted)">(ex: ${c.prevName})</span>` : ''} ${c.allyName && c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
+          <div class="ikp-change-states">
+            <span class="ikp-state-badge ${prev.cls}">${prev.label}</span> → <span class="ikp-state-badge ${next.cls}">${next.label}</span>
+          </div>
+          <div class="ikp-change-time">📅 Prec: ${fmt(c.prevUpdate)} → Nuovo: ${fmt(c.newUpdate)}</div>
+        </div>`;
+      }).join('');
+      return;
+    }
+
+    // ── Vista punteggi classifica (da players.scores) ─────────
+    const players = await window.IkDB.getAll('players');
+
+    // Filtra per nome/alleanza
+    let filtered = players.filter(p => {
+      if (!p.scores || !Object.keys(p.scores).length) return false;
+      if (filterName && !(p.name || '').toLowerCase().includes(filterName)) return false;
+      if (filterAlly && !(p.ally || '').toLowerCase().includes(filterAlly)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun dato classifica trovato.<br>Naviga le pagine classifica nel gioco.</p></div>`;
+      return;
+    }
+
+    // Determina le colonne da mostrare
+    const allScoreKeys = filterType
+      ? [filterType]
+      : [...new Set(filtered.flatMap(p => Object.keys(p.scores || {})))];
+    const shownKeys = allScoreKeys.filter(k => RANKING_LABELS[k]);
+
+    if (!shownKeys.length) {
+      list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun punteggio disponibile per il filtro selezionato.</p></div>`;
+      return;
+    }
+
+    // Ordina per il primo tipo mostrato (decrescente)
+    const sortKey = shownKeys[0];
+    filtered.sort((a, b) => (b.scores?.[sortKey] ?? 0) - (a.scores?.[sortKey] ?? 0));
+
+    const scoreTh = shownKeys.map(k =>
+      `<th style="text-align:right;white-space:nowrap;font-size:11px">${RANKING_LABELS[k] || k}</th>`
+    ).join('');
+
+    const rows = filtered.map(p => {
+      const stBadge = stateCfg[p.status]
+        ? `<span class="ikp-state-badge ${stateCfg[p.status].cls}" style="font-size:10px">${stateCfg[p.status].label}</span>`
+        : '';
+      const scoreCells = shownKeys.map(k => {
+        const v = p.scores?.[k];
+        const pos = p.position?.[k];
+        const posStr = pos ? `<span style="color:var(--text-muted);font-size:10px"> #${pos}</span>` : '';
+        return `<td style="text-align:right;font-size:12px">${v != null ? v.toLocaleString('it') + posStr : '<span style="color:var(--text-muted)">—</span>'}</td>`;
+      }).join('');
+
+      // Cambi stato del giocatore (se presenti)
+      const stateHistory = (p.nameHistory?.length)
+        ? `<span style="font-size:10px;color:var(--text-muted)"> (ex: ${p.nameHistory.map(h => h.name).join(', ')})</span>`
+        : '';
+
+      return `<tr>
+        <td style="white-space:nowrap;font-size:12px">
+          👤 ${p.name}${stateHistory} ${stBadge}
+          ${p.ally ? `<span style="font-size:11px;color:var(--text-muted)">[${p.ally}]</span>` : ''}
+        </td>
+        ${scoreCells}
+        <td style="font-size:10px;color:var(--text-muted);text-align:right">${fmt(p.lastUpdateDate)}</td>
+      </tr>`;
     }).join('');
+
+    const aggiornamento = fmt(new Date().toISOString());
+    list.innerHTML = `
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">
+        ${filtered.length} player · ordinati per ${RANKING_LABELS[sortKey] || sortKey}
+        · aggiornato ${fmt(filtered[0]?.lastUpdateDate)}
+      </div>
+      <div style="overflow-x:auto">
+        <table class="ikp-db-table" style="width:100%">
+          <thead><tr>
+            <th>Player</th>
+            ${scoreTh}
+            <th style="text-align:right;font-size:11px">Rilevato</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
   }
   function fmt(iso) {
     if (!iso) return '—';
