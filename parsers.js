@@ -48,6 +48,7 @@
       'parser_unitdescription.js',
       'parser_workshop.js',
       'parser_citymilitary.js',
+      'parser_barracks.js',
     ];
 
     for (const file of subParsers) {

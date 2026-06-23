@@ -2021,144 +2021,217 @@
     }).join('');
 
     // ── SIMULATORE ADDESTRAMENTO ─────────────────────────────
-    // simMeta costruito direttamente da unitData (non da unitMeta) per avere
-    // il campo cost completo con tutte le risorse
-    const RES = ['wood','marble','crystal','sulfur','wine','citizens'];
-    const RES_ICON  = { wood:'🪵', marble:'🪨', crystal:'💎', sulfur:'🌋', wine:'🍷', citizens:'👥' };
-    const RES_LABEL = { wood:'Legname', marble:'Marmo', crystal:'Cristallo', sulfur:'Zolfo', wine:'Vino', citizens:'Pop.' };
+    const RES      = ['wood','marble','crystal','sulfur','wine','citizens'];
+    const RES_ICON = { wood:'🪵', marble:'🪨', crystal:'💎', sulfur:'🌋', wine:'🍷', citizens:'👥' };
+    const RES_LBL  = { wood:'Legname', marble:'Marmo', crystal:'Cristallo', sulfur:'Zolfo', wine:'Vino', citizens:'Pop.' };
 
-    function isBarbarian(unitId, m) {
+    // Formula: t(L) = t_ref × 0.95^(L − L_ref)   (−5% per livello)
+    const BUILDING_R = 0.95;
+    const UNIT_BASE  = {
+      301:{refLv:19,refSec:57,   minLv:1,  btype:'barracks'},
+      302:{refLv:19,refSec:139,  minLv:6,  btype:'barracks'},
+      303:{refLv:19,refSec:209,  minLv:4,  btype:'barracks'},
+      304:{refLv:19,refSec:662,  minLv:13, btype:'barracks'},
+      305:{refLv:19,refSec:2786, minLv:14, btype:'barracks'},
+      306:{refLv:19,refSec:1536, minLv:8,  btype:'barracks'},
+      307:{refLv:19,refSec:397,  minLv:1,  btype:'barracks'},
+      308:{refLv:19,refSec:943,  minLv:12, btype:'barracks'},
+      309:{refLv:19,refSec:1792, minLv:11, btype:'barracks'},
+      310:{refLv:19,refSec:878,  minLv:5,  btype:'barracks'},
+      311:{refLv:19,refSec:1078, minLv:9,  btype:'barracks'},
+      312:{refLv:19,refSec:851,  minLv:10, btype:'barracks'},
+      313:{refLv:19,refSec:195,  minLv:7,  btype:'barracks'},
+      315:{refLv:19,refSec:36,   minLv:1,  btype:'barracks'},
+      210:{refLv:21,refSec:1291, minLv:1,  btype:'shipyard'},
+      211:{refLv:21,refSec:1129, minLv:1,  btype:'shipyard'},
+      212:{refLv:21,refSec:4860, minLv:1,  btype:'shipyard'},
+      213:{refLv:21,refSec:1788, minLv:1,  btype:'shipyard'},
+      214:{refLv:21,refSec:1788, minLv:1,  btype:'shipyard'},
+      215:{refLv:21,refSec:3660, minLv:1,  btype:'shipyard'},
+      216:{refLv:21,refSec:2647, minLv:1,  btype:'shipyard'},
+      217:{refLv:21,refSec:3234, minLv:1,  btype:'shipyard'},
+      218:{refLv:21,refSec:1792, minLv:1,  btype:'shipyard'},
+      219:{refLv:21,refSec:2927, minLv:1,  btype:'shipyard'},
+      220:{refLv:21,refSec:1946, minLv:1,  btype:'shipyard'},
+    };
+
+    function simCalcTime(unitId, level) {
+      const b = UNIT_BASE[unitId];
+      if (!b || level < b.minLv) return null;
+      return Math.max(1, Math.round(b.refSec * Math.pow(BUILDING_R, level - b.refLv)));
+    }
+    function fmtSec(s) {
+      if (s == null) return '—';
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      if (h) return `${h}h${m}m`;
+      if (m) return `${m}m${sec > 0 ? sec + 's' : ''}`;
+      return `${sec}s`;
+    }
+
+    function isBarbarian(uid, m) {
       if (!m.name) return true;
-      if (m.kind === 'ship' && (unitId <= 204 || unitId >= 221)) return true;
+      if (m.kind === 'ship' && (uid <= 204 || uid >= 221)) return true;
       if (/barbari/i.test(m.name)) return true;
       return false;
     }
 
-    // simMeta: Map<unitId(number), {kind,name,generals,upkeep,cost}>
+    // Edifici disponibili per polis (da my_cities + building_training)
+    const buildingTrainingAll = await window.IkDB.getAll('building_training').catch(() => []);
+    const cityBuildings = {};   // { cityId: { barracks: lv, shipyard: lv, name, x, y } }
+    for (const c of myCities) {
+      if (!c.buildings) continue;
+      cityBuildings[c.cityId] = { name: c.name || `c${c.cityId}`, x: c.islandX, y: c.islandY, barracks: null, shipyard: null };
+      for (const b of c.buildings)
+        if (b.building === 'barracks' || b.building === 'shipyard')
+          cityBuildings[c.cityId][b.building] = b.level;
+    }
+    for (const bt of buildingTrainingAll) {
+      if (!cityBuildings[bt.cityId]) cityBuildings[bt.cityId] = { name: `c${bt.cityId}`, x: null, y: null, barracks: null, shipyard: null };
+      cityBuildings[bt.cityId][bt.type] = bt.level;
+    }
+    const cityList = Object.entries(cityBuildings).map(([id, v]) => ({ cityId: +id, ...v }));
+
+    // simMeta
     const simMeta = new Map(
-      unitData
-        .filter(u => !isBarbarian(u.unitId, u))
-        .map(u => [u.unitId, {
-          kind:     u.kind,
-          name:     u.name || `#${u.unitId}`,
-          generals: u.generals ?? null,
-          upkeep:   u.cost?.upkeep ?? null,
-          cost:     u.cost || {},
-        }])
+      unitData.filter(u => !isBarbarian(u.unitId, u))
+              .map(u => [u.unitId, {
+                kind: u.kind, name: u.name || `#${u.unitId}`,
+                generals: u.generals ?? null, upkeep: u.cost?.upkeep ?? null, cost: u.cost || {}
+              }])
     );
 
     const simUnits = [...simMeta.entries()]
       .filter(([, m]) => m.kind === 'unit' || m.kind === 'ship')
-      .sort(([aId, aM], [bId, bM]) => {
-        if (aM.kind !== bM.kind) return aM.kind === 'unit' ? -1 : 1;
-        return aId - bId;
-      });
+      .sort(([a, am], [b, bm]) => am.kind !== bm.kind ? (am.kind === 'unit' ? -1 : 1) : a - b);
 
     const landUnits = simUnits.filter(([, m]) => m.kind === 'unit');
     const seaUnits  = simUnits.filter(([, m]) => m.kind === 'ship');
 
-    // Colonne risorse mostrate (solo quelle usate da almeno un'unità nella sezione)
     function usedRes(units) {
       const used = new Set();
-      for (const [, m] of units)
-        for (const r of RES)
-          if ((m.cost[r] ?? 0) > 0) used.add(r);
+      for (const [, m] of units) for (const r of RES) if ((m.cost[r] ?? 0) > 0) used.add(r);
       return RES.filter(r => used.has(r));
     }
     const landRes = usedRes(landUnits);
     const seaRes  = usedRes(seaUnits);
 
+    // Miglior tempo disponibile per un'unità (edificio più alto che la sblocca)
+    function bestTime(unitId) {
+      const b = UNIT_BASE[unitId]; if (!b) return null;
+      let best = null;
+      for (const c of cityList) {
+        const lv = c[b.btype]; if (!lv || lv < b.minLv) continue;
+        const t = simCalcTime(unitId, lv);
+        if (t != null && (best === null || t < best)) best = t;
+      }
+      return best;
+    }
+
+    // Distribuzione ottimale greedy su polis disponibili
+    function calcDist(unitId, qty) {
+      const b = UNIT_BASE[unitId]; if (!b || !qty) return null;
+      const avail = cityList.filter(c => c[b.btype] && c[b.btype] >= b.minLv)
+                            .sort((a, c2) => (c2[b.btype] || 0) - (a[b.btype] || 0));
+      if (!avail.length) return null;
+      // Greedy: distribuisci riducendo il makespan
+      // Ogni polis ha un accumulatore di tempo; assegna ogni unità alla polis meno carica
+      const load = avail.map(c => ({ c, tPerUnit: simCalcTime(unitId, c[b.btype]), total: 0, qty: 0 }));
+      for (let i = 0; i < qty; i++) {
+        load.sort((a, c2) => (a.total + a.tPerUnit) - (c2.total + c2.tPerUnit));
+        load[0].total += load[0].tPerUnit;
+        load[0].qty++;
+      }
+      const makespan = Math.max(...load.map(l => l.total));
+      return { dist: load.filter(l => l.qty > 0), makespan };
+    }
+
+    // ─── HTML tabella ──────────────────────────────────────────
     function buildTH(resCols) {
-      const resThs = resCols.map(r =>
-        `<th style="text-align:right">${RES_ICON[r]} ${RES_LABEL[r]}</th>`).join('');
       return `<thead><tr>
         <th>Unità</th>
-        <th style="width:72px">Qtà</th>
+        <th style="width:68px">Qtà</th>
         <th style="text-align:right">⭐ Gen.</th>
-        <th style="text-align:right">🪙 Mant./h</th>
-        <th style="text-align:center;width:44px">Flet</th>
-        <th style="text-align:right">🪙 Mant.Flet/h</th>
-        ${resThs}
+        <th style="text-align:right;white-space:nowrap">🪙 Mant./h</th>
+        <th style="text-align:center;width:38px">Flet</th>
+        <th style="text-align:right;white-space:nowrap">🪙 Flet/h</th>
+        <th style="text-align:right;white-space:nowrap">⏱ Tempo/u</th>
+        ${resCols.map(r => `<th style="text-align:right;white-space:nowrap">${RES_ICON[r]} ${RES_LBL[r]}</th>`).join('')}
       </tr></thead>`;
     }
 
     function buildRows(units, resCols) {
-      if (!units.length) {
-        const cols = 6 + resCols.length;
-        return `<tr><td colspan="${cols}" style="color:var(--text-muted);font-style:italic;padding:8px">
-          Nessuna unità disponibile — apri la pagina Aiuto nel gioco.</td></tr>`;
-      }
+      if (!units.length) return `<tr><td colspan="${7 + resCols.length}" style="color:var(--text-muted);font-style:italic;padding:8px">Nessuna unità disponibile.</td></tr>`;
       return units.map(([id, m]) => {
-        const resTds = resCols.map(r =>
-          `<td id="sim-res-${id}-${r}" style="text-align:right;color:var(--text-muted);font-size:12px">—</td>`
-        ).join('');
+        const bt = bestTime(id);
+        const resTds = resCols.map(r => `<td id="sim-res-${id}-${r}" style="text-align:right;color:var(--text-muted);font-size:12px">—</td>`).join('');
         return `<tr>
           <td style="white-space:nowrap;font-size:12px">${m.name}</td>
-          <td style="padding:2px 4px">
-            <input type="number" min="0" step="1" placeholder="0"
-                   id="sim-inp-${id}" data-sim-unit="${id}" data-sim-kind="${m.kind}"
-                   style="width:100%;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
-                          background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box"
-                   oninput="window._ikpSimUpdate?.()">
-          </td>
-          <td id="sim-gen-${id}"     style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
-          <td id="sim-upk-${id}"     style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
-          <td style="text-align:center;padding:2px 4px">
-            <button id="sim-flet-${id}"
-                    onclick="window._ikpSimToggleFlet?.(${id})"
-                    style="width:36px;padding:2px 0;border-radius:4px;border:1px solid var(--border);
-                           background:var(--bg);color:var(--text-muted);font-size:11px;
-                           cursor:pointer;font-weight:600">N</button>
+          <td style="padding:2px 3px"><input type="number" min="0" step="1" placeholder="0"
+              id="sim-inp-${id}" data-sim-unit="${id}" data-sim-kind="${m.kind}"
+              style="width:100%;padding:2px 4px;border:1px solid var(--border);border-radius:4px;
+                     background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box"
+              oninput="window._ikpSimUpdate?.()"></td>
+          <td id="sim-gen-${id}"      style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
+          <td id="sim-upk-${id}"      style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
+          <td style="text-align:center;padding:2px 3px">
+            <button id="sim-flet-${id}" onclick="window._ikpSimToggleFlet?.(${id})"
+                    style="width:32px;padding:2px 0;border-radius:4px;border:1px solid var(--border);
+                           background:var(--bg);color:var(--text-muted);font-size:11px;cursor:pointer;font-weight:600">N</button>
           </td>
           <td id="sim-flet-upk-${id}" style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
+          <td style="text-align:right;font-size:12px;color:${bt ? 'var(--text)' : 'var(--text-muted)'}">${bt ? fmtSec(bt) : '—'}</td>
           ${resTds}
         </tr>`;
       }).join('');
     }
 
     function buildTfoot(prefix, resCols) {
-      const resTots = resCols.map(r =>
-        `<td id="sim-tot-${prefix}-${r}" style="text-align:right">—</td>`).join('');
+      const resTotRow = resCols.map(r => `<td id="sim-res-tot-${prefix}-${r}" style="text-align:right;font-weight:600;color:var(--text)">—</td>`).join('');
       const label = prefix === 'land' ? 'Totale truppe' : 'Totale navi';
-      return `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);font-size:12px">
-        <td>${label}</td><td></td>
-        <td id="sim-tot-${prefix}-gen"  style="text-align:right">—</td>
-        <td id="sim-tot-${prefix}-upk"  style="text-align:right">—</td>
-        <td></td>
-        <td id="sim-tot-${prefix}-flet" style="text-align:right">—</td>
-        ${resTots}
-      </tr></tfoot>`;
+      return `<tfoot>
+        <tr style="font-weight:700;border-top:2px solid var(--border);font-size:12px">
+          <td>${label}</td><td></td>
+          <td id="sim-tot-${prefix}-gen"  style="text-align:right">—</td>
+          <td id="sim-tot-${prefix}-upk"  style="text-align:right">—</td>
+          <td></td>
+          <td id="sim-tot-${prefix}-flet" style="text-align:right">—</td>
+          <td></td>
+          ${resCols.map(r => `<td id="sim-tot-${prefix}-${r}" style="text-align:right">—</td>`).join('')}
+        </tr>
+        <tr style="font-size:11px;color:var(--text-muted);border-top:1px dashed var(--border)">
+          <td colspan="2" style="padding:3px 4px;font-style:italic">Risorse totali necessarie</td>
+          <td></td><td></td><td></td><td></td><td></td>
+          ${resTotRow}
+        </tr>
+        <tr id="sim-dist-${prefix}-row" style="display:none;background:var(--bg-alt)">
+          <td colspan="${7 + resCols.length}" style="padding:6px 8px" id="sim-dist-${prefix}-body"></td>
+        </tr>
+      </tfoot>`;
     }
 
     const simulatorHtml = `
       <div id="ikp-sim" style="margin-top:12px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
         <div style="padding:8px 10px;background:var(--bg-alt);font-weight:700;font-size:13px;
                     display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
-             onclick="(function(){
-               var b=document.getElementById('ikp-sim-body');
-               var arr=document.getElementById('ikp-sim-arrow');
-               var open=b.style.display!=='none';
-               b.style.display=open?'none':'block';
-               arr.textContent=open?'▶':'▼';
-             })()">
+             onclick="(function(){var b=document.getElementById('ikp-sim-body'),arr=document.getElementById('ikp-sim-arrow'),open=b.style.display!=='none';b.style.display=open?'none':'block';arr.textContent=open?'▶':'▼';})()">
           🧮 Simulatore addestramento
           <span id="ikp-sim-arrow" style="font-size:10px;color:var(--text-muted)">▶</span>
           <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
                   onclick="event.stopPropagation();window._ikpSimReset?.()">Reset</button>
         </div>
         <div id="ikp-sim-body" style="display:none">
-          <div style="padding:6px 10px 0;border-top:1px solid var(--border)">
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.05em;padding:4px 0;border-bottom:1px solid var(--border)">🪖 TRUPPE DI TERRA</div>
+          <div style="padding:5px 10px 0;border-top:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);padding:3px 0;border-bottom:1px solid var(--border)">🪖 TRUPPE DI TERRA</div>
           </div>
-          <div style="overflow-x:auto;padding:0 10px 6px">
+          <div style="overflow-x:auto;padding:0 10px 4px">
             <table class="ikp-db-table" style="border:none;width:100%">
               ${buildTH(landRes)}
               <tbody>${buildRows(landUnits, landRes)}</tbody>
               ${landUnits.length ? buildTfoot('land', landRes) : ''}
             </table>
           </div>
-          <div style="padding:6px 10px 0;border-top:2px solid var(--border)">
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.05em;padding:4px 0;border-bottom:1px solid var(--border)">⛴ NAVI</div>
+          <div style="padding:5px 10px 0;border-top:2px solid var(--border)">
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);padding:3px 0;border-bottom:1px solid var(--border)">⛴ NAVI</div>
           </div>
           <div style="overflow-x:auto;padding:0 10px 10px">
             <table class="ikp-db-table" style="border:none;width:100%">
@@ -2170,122 +2243,116 @@
         </div>
       </div>`;
 
-    // ── Logica JS del simulatore — eseguita direttamente (NON in <script> innerHTML) ──
+    // ── Logica JS simulatore (closure diretta, senza <script>) ──────────────
     {
       const LS_FLET = 'ikp_sim_flet';
       let fletState = {};
       try { fletState = JSON.parse(localStorage.getItem(LS_FLET) || '{}'); } catch(e) {}
 
-      const simMetaSnap = simMeta; // closure sulla mappa già costruita
-      const landResSnap = landRes;
-      const seaResSnap  = seaRes;
+      const _sm = simMeta, _lr = landRes, _sr = seaRes,
+            _lu = landUnits, _su = seaUnits;
 
-      function simFmt(n)  { return n % 1 === 0 ? n.toLocaleString('it') : n.toFixed(1); }
-      function simFmtI(n) { return Math.round(n).toLocaleString('it'); }
-
-      function simGetRed() {
+      function sFmt(n)  { return n % 1 === 0 ? n.toLocaleString('it') : n.toFixed(1); }
+      function sFmtI(n) { return Math.round(n).toLocaleString('it'); }
+      function sRed()   {
         const l = parseFloat(document.getElementById('ikp-mil-red-land')?.value || '0') || 0;
         const s = parseFloat(document.getElementById('ikp-mil-red-sea') ?.value || '0') || 0;
-        return { land: Math.min(Math.max(l, 0), 100) / 100,
-                 sea:  Math.min(Math.max(s, 0), 100) / 100 };
+        return { land: Math.min(Math.max(l,0),100)/100, sea: Math.min(Math.max(s,0),100)/100 };
       }
 
       function simUpdate() {
-        const red = simGetRed();
-        const totals = { land:{gen:0,upk:0,flet:0}, sea:{gen:0,upk:0,flet:0} };
+        const red = sRed();
+        const tot = { land:{gen:0,upk:0,flet:0}, sea:{gen:0,upk:0,flet:0} };
         const totRes = { land:{}, sea:{} };
 
-        for (const [id, m] of simMetaSnap) {
-          const inp = document.getElementById('sim-inp-' + id);
-          if (!inp) continue;
-          const n = parseInt(inp.value, 10) || 0;
+        for (const [id, m] of _sm) {
+          const inp = document.getElementById('sim-inp-' + id); if (!inp) continue;
+          const n   = parseInt(inp.value, 10) || 0;
           const grp = m.kind === 'ship' ? 'sea' : 'land';
-          const resCols = grp === 'sea' ? seaResSnap : landResSnap;
+          const rc  = grp === 'sea' ? _sr : _lr;
 
-          const genEl     = document.getElementById('sim-gen-' + id);
-          const upkEl     = document.getElementById('sim-upk-' + id);
-          const fletUpkEl = document.getElementById('sim-flet-upk-' + id);
-          const fletBtn   = document.getElementById('sim-flet-' + id);
-          const isFlet    = !!fletState[id];
+          const gEl  = document.getElementById('sim-gen-' + id);
+          const uEl  = document.getElementById('sim-upk-' + id);
+          const fEl  = document.getElementById('sim-flet-upk-' + id);
+          const btn  = document.getElementById('sim-flet-' + id);
+          const isFl = !!fletState[id];
 
-          if (fletBtn) {
-            fletBtn.textContent        = isFlet ? 'Y' : 'N';
-            fletBtn.style.background   = isFlet ? 'rgba(34,139,34,0.2)' : 'var(--bg)';
-            fletBtn.style.color        = isFlet ? '#2a8' : 'var(--text-muted)';
-            fletBtn.style.borderColor  = isFlet ? '#2a8' : 'var(--border)';
+          if (btn) {
+            btn.textContent = isFl ? 'Y' : 'N';
+            btn.style.background  = isFl ? 'rgba(34,139,34,0.18)' : 'var(--bg)';
+            btn.style.color       = isFl ? '#2a8' : 'var(--text-muted)';
+            btn.style.borderColor = isFl ? '#2a8' : 'var(--border)';
+          }
+          const dim = el => { if(el){ el.textContent='—'; el.style.color='var(--text-muted)'; el.style.fontWeight='normal'; }};
+
+          if (!n) { dim(gEl); dim(uEl); dim(fEl); rc.forEach(r => dim(document.getElementById(`sim-res-${id}-${r}`))); continue; }
+
+          const rf = grp === 'ship' ? red.sea : red.land;
+          const gen   = m.generals != null ? m.generals * n : null;
+          const upkB  = m.upkeep   != null ? m.upkeep   * n : null;
+          const upkN  = upkB  != null ? upkB  * (1 - rf)       : null;
+          const upkF  = upkN  != null ? upkN  * (isFl ? 2 : 1) : null;
+
+          if (gEl) { gEl.textContent = gen  != null ? sFmt(gen)  : '—'; gEl.style.color = gen  != null ? 'var(--text)' : 'var(--text-muted)'; }
+          if (uEl) { uEl.textContent = upkN != null ? sFmtI(upkN): '—'; uEl.style.color = upkN != null ? 'var(--text)' : 'var(--text-muted)'; }
+          if (fEl) {
+            if (upkF != null) { fEl.textContent = sFmtI(upkF); fEl.style.color = isFl ? '#e80' : 'var(--text)'; fEl.style.fontWeight = isFl ? '700' : 'normal'; }
+            else dim(fEl);
           }
 
-          const dim = (el) => { if(el){ el.textContent='—'; el.style.color='var(--text-muted)'; el.style.fontWeight='normal'; }};
-          if (!n) {
-            dim(genEl); dim(upkEl); dim(fletUpkEl);
-            for (const r of resCols) dim(document.getElementById(`sim-res-${id}-${r}`));
-            continue;
-          }
-
-          const redFrac = grp === 'ship' ? red.sea : red.land;
-          const gen     = m.generals != null ? m.generals * n    : null;
-          const upkBase = m.upkeep   != null ? m.upkeep   * n    : null;
-          const upkNet  = upkBase    != null ? upkBase * (1 - redFrac) : null;
-          const upkFlet = upkNet     != null ? upkNet * (isFlet ? 2 : 1) : null;
-
-          if (genEl) { genEl.textContent = gen != null ? simFmt(gen) : '—'; genEl.style.color = gen != null ? 'var(--text)' : 'var(--text-muted)'; }
-          if (upkEl) { upkEl.textContent = upkNet != null ? simFmtI(upkNet) : '—'; upkEl.style.color = upkNet != null ? 'var(--text)' : 'var(--text-muted)'; }
-          if (fletUpkEl) {
-            if (upkFlet != null) {
-              fletUpkEl.textContent  = simFmtI(upkFlet);
-              fletUpkEl.style.color  = isFlet ? '#e80' : 'var(--text)';
-              fletUpkEl.style.fontWeight = isFlet ? '700' : 'normal';
-            } else dim(fletUpkEl);
-          }
-
-          // Risorse (costo addestramento per n unità)
-          for (const r of resCols) {
+          for (const r of rc) {
             const el = document.getElementById(`sim-res-${id}-${r}`);
             const v  = (m.cost[r] ?? 0) * n;
             if (el) { el.textContent = v > 0 ? Math.ceil(v).toLocaleString('it') : '—'; el.style.color = v > 0 ? 'var(--text)' : 'var(--text-muted)'; }
             if (v > 0) totRes[grp][r] = (totRes[grp][r] || 0) + v;
           }
-
-          if (gen != null)     totals[grp].gen  += gen;
-          if (upkNet != null)  totals[grp].upk  += upkNet;
-          if (upkFlet != null) totals[grp].flet += upkFlet;
+          if (gen  != null) tot[grp].gen  += gen;
+          if (upkN != null) tot[grp].upk  += upkN;
+          if (upkF != null) tot[grp].flet += upkF;
         }
 
-        const setEl = (id, val, suffix) => { const el=document.getElementById(id); if(el) el.textContent = val>0 ? simFmt(val)+(suffix||'') : '—'; };
-        setEl('sim-tot-land-gen',  totals.land.gen);
-        setEl('sim-tot-land-upk',  totals.land.upk,  '/h');
-        setEl('sim-tot-land-flet', totals.land.flet, '/h');
-        setEl('sim-tot-sea-gen',   totals.sea.gen);
-        setEl('sim-tot-sea-upk',   totals.sea.upk,   '/h');
-        setEl('sim-tot-sea-flet',  totals.sea.flet,  '/h');
+        const set = (eid, v, sfx) => { const el=document.getElementById(eid); if(el) el.textContent = v>0 ? sFmt(v)+(sfx||'') : '—'; };
+        set('sim-tot-land-gen', tot.land.gen); set('sim-tot-land-upk', tot.land.upk, '/h'); set('sim-tot-land-flet', tot.land.flet, '/h');
+        set('sim-tot-sea-gen',  tot.sea.gen);  set('sim-tot-sea-upk',  tot.sea.upk,  '/h'); set('sim-tot-sea-flet',  tot.sea.flet,  '/h');
+
         for (const grp of ['land','sea']) {
-          const cols = grp === 'land' ? landResSnap : seaResSnap;
-          for (const r of cols) setEl(`sim-tot-${grp}-${r}`, totRes[grp][r]||0);
+          const cols = grp === 'land' ? _lr : _sr;
+          for (const r of cols) {
+            // totale per colonna (riga bold)
+            set(`sim-tot-${grp}-${r}`, totRes[grp][r] || 0);
+            // riga risorse totali separata
+            const el2 = document.getElementById(`sim-res-tot-${grp}-${r}`);
+            const v2  = totRes[grp][r] || 0;
+            if (el2) el2.textContent = v2 > 0 ? Math.ceil(v2).toLocaleString('it') : '—';
+          }
         }
-      }
 
-      function simToggleFlet(id) {
-        fletState[id] = !fletState[id];
-        try { localStorage.setItem(LS_FLET, JSON.stringify(fletState)); } catch(e) {}
-        simUpdate();
-      }
-
-      function simReset() {
-        document.querySelectorAll('[data-sim-unit]').forEach(i => { i.value = ''; });
-        fletState = {};
-        try { localStorage.setItem(LS_FLET, '{}'); } catch(e) {}
-        simUpdate();
+        // Distribuzione per polis
+        for (const [grp, units] of [['land', _lu], ['sea', _su]]) {
+          const rows = [];
+          for (const [id, m] of units) {
+            const n = parseInt(document.getElementById('sim-inp-' + id)?.value || '0', 10) || 0;
+            if (!n) continue;
+            const res = calcDist(id, n); if (!res) continue;
+            const parts = res.dist.map(d =>
+              `<span style="white-space:nowrap;margin-right:8px">${d.c.name} lv${d.c[UNIT_BASE[id]?.btype]}: <b>${d.qty}</b>u × ${fmtSec(d.tPerUnit)} = ${fmtSec(d.total)}</span>`
+            ).join('');
+            rows.push(`<div style="margin-bottom:3px;font-size:12px"><b>${m.name}</b>: ${parts} → <b>⏱ ${fmtSec(res.makespan)}</b></div>`);
+          }
+          const row  = document.getElementById(`sim-dist-${grp}-row`);
+          const body = document.getElementById(`sim-dist-${grp}-body`);
+          if (row && body) {
+            if (rows.length) { body.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:5px">🏭 Distribuzione ottimale per polis</div>` + rows.join(''); row.style.display = 'table-row'; }
+            else row.style.display = 'none';
+          }
+        }
       }
 
       window._ikpSimUpdate     = simUpdate;
-      window._ikpSimReset      = simReset;
-      window._ikpSimToggleFlet = simToggleFlet;
-
-      const _prevRefresh = window._ikpRefreshUpkeep;
-      window._ikpRefreshUpkeep = function() { _prevRefresh?.(); simUpdate(); };
-
-      // Inizializza subito dopo aver scritto l'HTML (bottoni flet + eventuali valori pre-esistenti)
-      // Usiamo setTimeout 0 per aspettare che il DOM sia aggiornato
+      window._ikpSimReset      = () => { document.querySelectorAll('[data-sim-unit]').forEach(i => i.value = ''); fletState = {}; try{localStorage.setItem(LS_FLET,'{}');}catch(e){} simUpdate(); };
+      window._ikpSimToggleFlet = id => { fletState[id] = !fletState[id]; try{localStorage.setItem(LS_FLET,JSON.stringify(fletState));}catch(e){} simUpdate(); };
+      const _pr = window._ikpRefreshUpkeep;
+      window._ikpRefreshUpkeep = () => { _pr?.(); simUpdate(); };
       setTimeout(simUpdate, 0);
     }
 
@@ -2305,7 +2372,6 @@
       <div style="font-size:11px;color:var(--text-muted);padding:6px 2px">Tocca una riga per il dettaglio + generali + mantenimento della singola polis.</div>
     ` + simulatorHtml;
 
-    // Inizializza dopo che l'HTML è nel DOM
     setTimeout(window._ikpSimUpdate, 0);
   }
 

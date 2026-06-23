@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 11;
+  const DB_VERSION = 12;
   let db = null;
 
   function open() {
@@ -141,6 +141,13 @@
           const s = d.createObjectStore('unit_data', { keyPath: 'id' });
           s.createIndex('kind', 'kind', { unique: false }); // 'unit' | 'ship'
           s.createIndex('name', 'name', { unique: false });
+        }
+
+        // building_training — tempi addestramento rilevati da caserma/cantiere
+        // keyPath: id = 'cityId_type'
+        // { id, cityId, type, level, units:[{unitId,name,timeSec,minLevel,available,locked}], updated }
+        if (!d.objectStoreNames.contains('building_training')) {
+          d.createObjectStore('building_training', { keyPath: 'id' });
         }
 
         // city_military — truppe/navi presenti in una polis (qualunque proprietario)
@@ -330,7 +337,7 @@
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
       'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
-      'completed_timers', 'unit_data', 'city_military',
+      'completed_timers', 'unit_data', 'city_military', 'building_training',
     ];
     const result = {};
     for (const s of stores) {
@@ -350,5 +357,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v11 caricato');
+  console.log('[IkDB] v12 caricato');
 })();
