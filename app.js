@@ -2226,16 +2226,17 @@
         const resTds = resCols.map(r => `<td id="sim-res-${id}-${r}" style="text-align:right;color:var(--text-muted);font-size:12px">—</td>`).join('');
         return `<tr>
           <td style="white-space:nowrap;font-size:12px">${m.name}</td>
-          <td style="padding:2px 3px"><input type="number" min="0" step="1" placeholder="0"
+          <td style="padding:1px 3px"><input type="number" min="0" step="1" placeholder="0"
               id="sim-inp-${id}" data-sim-unit="${id}" data-sim-kind="${m.kind}"
-              style="width:100%;padding:2px 4px;border:1px solid var(--border);border-radius:4px;
-                     background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box"
+              style="width:100%;height:26px;padding:0 4px;border:1px solid var(--border);border-radius:4px;
+                     background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box;
+                     line-height:26px"
               oninput="window._ikpSimUpdate?.()"></td>
           <td id="sim-gen-${id}"      style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
           <td id="sim-upk-${id}"      style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
-          <td style="text-align:center;padding:2px 3px">
+          <td style="text-align:center;padding:1px 3px">
             <button id="sim-flet-${id}" onclick="window._ikpSimToggleFlet?.(${id})"
-                    style="width:32px;padding:2px 0;border-radius:4px;border:1px solid var(--border);
+                    style="width:32px;height:26px;padding:0;border-radius:4px;border:1px solid var(--border);
                            background:var(--bg);color:var(--text-muted);font-size:11px;cursor:pointer;font-weight:600">N</button>
           </td>
           <td id="sim-flet-upk-${id}" style="text-align:right;color:var(--text-muted);font-size:12px">—</td>
@@ -2322,6 +2323,7 @@
       }
 
       const _lu = landUnits, _su = seaUnits;
+      const _sm = simMeta,   _lr = landRes,  _sr = seaRes;   // alias closure
 
       function sFmt(n)  { return n % 1 === 0 ? n.toLocaleString('it') : n.toFixed(1); }
       function sFmtI(n) { return Math.round(n).toLocaleString('it'); }
