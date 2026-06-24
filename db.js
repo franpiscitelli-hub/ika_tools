@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 13;
+  const DB_VERSION = 14;
   let db = null;
 
   function open() {
@@ -141,6 +141,21 @@
           const s = d.createObjectStore('unit_data', { keyPath: 'id' });
           s.createIndex('kind', 'kind', { unique: false }); // 'unit' | 'ship'
           s.createIndex('name', 'name', { unique: false });
+        }
+
+        // town_hall_data — dati del municipio per ogni polis
+        // keyPath: cityId
+        // { cityId, level, population, maxPopulation, populationGrowth,
+        //   happiness, happinessText, income, corruption,
+        //   citizens, woodWorkers, specialWorkers, scientists, priests,
+        //   woodProduction, woodCost, tgProduction, tgCost,
+        //   goldCitizens, goldPriests,
+        //   satisfactionBreakdown:{base,research,government,tavern,wine,overpopulation,...},
+        //   garrisonLand, garrisonSea, actionPoints, actionPointsMax,
+        //   blessing:{godKey,godName,graceText,msLeft,percent},
+        //   updated }
+        if (!d.objectStoreNames.contains('town_hall_data')) {
+          d.createObjectStore('town_hall_data', { keyPath: 'cityId' });
         }
 
         // score_changes — storico variazioni punteggi per player
@@ -362,7 +377,8 @@
       'constructions', 'research', 'fleets', 'players',
       'alliances', 'state_changes', 'buildings', 'combat_reports',
       'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
-      'completed_timers', 'unit_data', 'city_military', 'building_training', 'score_changes',
+      'completed_timers', 'unit_data', 'city_military', 'building_training',
+      'score_changes', 'town_hall_data',
     ];
     const result = {};
     for (const s of stores) {
@@ -382,5 +398,5 @@
     countAll,
   };
 
-  console.log('[IkDB] v13 caricato');
+  console.log('[IkDB] v14 caricato');
 })();

@@ -3670,6 +3670,8 @@
     renderSummary, renderChanges,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
+    onTownHallUpdated: (cityId) => { /* aggiorna vista mie città se aperta */ if (panelOpen && activeTab === 'mycities') renderMyCities(); },
+    onBlessingUpdated: (cityId, blessing) => { console.log('[IkApp] benedizione aggiornata city='+cityId, blessing?.godName); },
     showPlayerDetail,
   };
   log('Modulo caricato');

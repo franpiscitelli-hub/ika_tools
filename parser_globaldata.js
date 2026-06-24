@@ -50,6 +50,7 @@
       if (item[0] === 'changeView') {
         count += parseChangeView(item[1]);
         count += await parseMilitaryAdvisor(item[1]);
+        count += await parseTemple(item[1], data);
       }
 
       if (item[0] === 'updateTemplateData') {
@@ -497,6 +498,113 @@
     return 0;
   }
 
+  // ── TEMPIO DEGLI DEI: benedizione attiva dal changeView ────
+  // Il tempio (view=templeOfOlympus / shrineOfOlympus / temple) mostra
+  // l'elenco dei dei con la benedizione attiva e il suo countdown.
+  // Estrae: dio attivo, countdown, effetto, % donazioni, testo descrittivo.
+  // Poi aggiorna il record in 'constructions' già creato da parseShrineOfOlympus.
+  async function parseTemple(payload, fullData) {
+    if (!Array.isArray(payload)) return 0;
+    const viewName = payload[0];
+    // Intercetta i view del tempio/santuario
+    if (!/^(templeOfOlympus|shrineOfOlympus|temple|divineFavor)$/i.test(viewName || ''))
+      return 0;
+
+    const html = typeof payload[1] === 'string' ? payload[1] : '';
+    if (!html) return 0;
+
+    // Estrai cityId da fullData (backgroundData o URL)
+    let cityId = null;
+    for (const item of (fullData || [])) {
+      if (Array.isArray(item) && item[0] === 'updateGlobalData'
+          && item[1]?.backgroundData?.id) {
+        cityId = +item[1].backgroundData.id;
+        break;
+      }
+    }
+    if (!cityId) return 0;
+
+    // Dio attivo: cerca la class "active" o "selected" nel blocco dei dei
+    // Pattern: class="god_<name> ... active" oppure class="... god_<name>"
+    const GOD_KEYS = Object.keys(GOD_NAMES);
+    let activeGodKey = null;
+
+    // Metodo 1: cerca il blocco con classe "gracePeriod" non vuoto
+    const gpMatch = html.match(/class="[^"]*god_(\w+)[^"]*"[^>]*>[\s\S]*?class="[^"]*gracePeriod[^"]*"[^>]*>([^<]+)</);
+    if (gpMatch && gpMatch[2].trim() !== '-') {
+      activeGodKey = gpMatch[1];
+    }
+
+    // Metodo 2: cerca god_<name> dentro un elemento con classe "active" o "selected"
+    if (!activeGodKey) {
+      const activeBlock = html.match(/class="[^"]*(?:active|selected|current)[^"]*"[^>]*>([\s\S]*?)<\/(?:li|div|section)>/i);
+      if (activeBlock) {
+        for (const gk of GOD_KEYS) {
+          if (activeBlock[1].includes(`god_${gk}`)) { activeGodKey = gk; break; }
+        }
+      }
+    }
+
+    // Metodo 3: cerca il gracePeriod direttamente (qualsiasi div/span con countdown)
+    if (!activeGodKey) {
+      for (const gk of GOD_KEYS) {
+        const re = new RegExp(`god_${gk}[\\s\\S]{0,300}class="[^"]*gracePeriod[^"]*"[^>]*>([^<\\-][^<]*)<`);
+        const m = re.exec(html);
+        if (m) { activeGodKey = gk; break; }
+      }
+    }
+
+    if (!activeGodKey) {
+      console.log(`[parser_globaldata] temple city=${cityId}: nessuna benedizione attiva trovata`);
+      return 0;
+    }
+
+    // Countdown dalla HTML
+    const countdownRe = new RegExp(
+      `god_${activeGodKey}[\\s\\S]{0,500}class="[^"]*gracePeriod[^"]*"[^>]*>([^<]+)<`
+    );
+    const countdownM = countdownRe.exec(html);
+    const graceText  = countdownM ? countdownM[1].trim() : null;
+    const msLeft     = graceText ? parseGracePeriodToMs(graceText) : 0;
+
+    // Barra progresso donazioni
+    const barRe  = new RegExp(`god_${activeGodKey}[\\s\\S]{0,300}class="[^"]*bar[^"]*"[^>]*style="[^"]*width:\\s*(\\d+)%`);
+    const barM   = barRe.exec(html);
+    const percent = barM ? +barM[1] : null;
+
+    // Testo descrizione benedizione dall'HTML (tooltip o div description)
+    const descRe = new RegExp(
+      `god_${activeGodKey}[\\s\\S]{0,1000}class="[^"]*(?:description|blessing|effect|bonus)[^"]*"[^>]*>([^<]{10,200})<`
+    );
+    const descM  = descRe.exec(html);
+    const effectText = descM ? descM[1].trim() : (GOD_EFFECTS[activeGodKey] || null);
+
+    const godName = GOD_NAMES[activeGodKey] || activeGodKey;
+    const timerId = `shrine_${cityId}`;
+    const endMs   = msLeft > 0 ? Date.now() + msLeft : null;
+    const label   = `⛩ ${godName}${percent != null ? ` — ${percent}%` : ''}${graceText ? ` (${graceText})` : ''}`;
+
+    // Aggiorna/crea il record in constructions
+    if (endMs) {
+      try {
+        await window.IkDB?.put?.('constructions', {
+          id: timerId, cityId, cityName: '', building: godName,
+          endTime: endMs, label, type: 'shrine',
+          godKey: activeGodKey, effect: effectText, percent, graceText,
+          updated: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error('[parser_globaldata] temple persist error:', e.message);
+      }
+
+      window.IkNotifier?.scheduleTimer?.({ id: timerId, label, endTime: endMs, type: 'shrine' });
+    }
+
+    console.log(`[parser_globaldata] temple city=${cityId}: ${godName} ${graceText || 'attivo'} (${effectText || 'effetto sconosciuto'})`);
+    window.IkApp?.onBlessingUpdated?.(cityId, { godKey: activeGodKey, godName, graceText, msLeft, percent, effect: effectText });
+    return 1;
+  }
+
   // ── SANTUARIO DEGLI DEI: favore divinità con countdown ──
   // updateTemplateData contiene chiavi tipo:
   //   "shrineOfOlympus .god_plutus .gracePeriod" = "1G 13h"  (testo countdown, '-' se non attivo)
@@ -521,6 +629,22 @@
     if (mMatch) ms += Number(mMatch[1]) * 60000;
     return ms;
   }
+
+  // Effetti delle benedizioni (bonus tipici di Ikariam)
+  const GOD_EFFECTS = {
+    zeus:       'Espansione guarnigione terrestre',
+    poseidon:   'Espansione guarnigione navale',
+    hera:       'Crescita popolazione aumentata',
+    ares:       'Forza truppe aumentata',
+    athena:     'Ricerca scientifica aumentata',
+    hermes:     'Velocità trasporti aumentata',
+    plutus:     'Entrate oro aumentate',
+    tyche:      'Produzione risorse aumentata',
+    pan:        'Soddisfazione aumentata',
+    dionysus:   'Consumo vino ridotto',
+    hephaestos: 'Velocità costruzioni aumentata',
+    theia:      'Riduzione corruzione',
+  };
 
   async function parseShrineOfOlympus(payload) {
     if (!payload || typeof payload !== 'object') return 0;
@@ -557,6 +681,7 @@
     const percent   = barStyle ? parseInt(barStyle, 10) : null;
 
     const godName = GOD_NAMES[activeGodKey] || activeGodKey;
+    const effect  = GOD_EFFECTS[activeGodKey] || null;
     const label = `⛩ ${godName}${percent != null ? ` — ${percent}%` : ''}`;
 
     try {
@@ -568,6 +693,10 @@
         endTime:  endMs,
         label,
         type:     'shrine',
+        godKey:   activeGodKey,
+        effect,
+        percent,
+        graceText,
         updated:  new Date().toISOString(),
       });
     } catch (e) {
@@ -591,7 +720,11 @@
         if (!Array.isArray(item)) return false;
         if (item[0] === 'updateGlobalData' && item[1] && typeof item[1] === 'object'
             && (item[1].headerData || item[1].backgroundData)) return true;
-        if (item[0] === 'changeView') return true;
+      if (item[0] === 'changeView') {
+          if (Array.isArray(item[1]) && /^(templeOfOlympus|shrineOfOlympus|temple|divineFavor)$/i.test(item[1][0] || ''))
+            return true;
+          return true;
+        }
         if (item[0] === 'updateTemplateData' && item[1]
             && Object.keys(item[1]).some(k => k.startsWith('shrineOfOlympus'))) return true;
         return false;
