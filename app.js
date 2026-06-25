@@ -434,7 +434,9 @@
                 <option value="donations">Donazioni</option>
                 <option value="pillaging">Saccheggio</option>
                 <option value="piracy">Punti predatore</option>
-                <option value="_state">Solo cambi stato</option>
+                <option value="_all">👤 Cambi per giocatore (tutti)</option>
+                <option value="_state">🔔 Solo cambi stato</option>
+                <option value="_changes">⭐ Solo var. Generali/Attacco/Difesa</option>
               </select>
             </div>
             <div id="ikp-changes-list">
@@ -1890,12 +1892,14 @@
     }
 
     // ── CITTADINI / REDDITO MASSIMO ──────────────────────────
-    let totalCitizens = 0, totalPriests = 0;
+    // Il reddito max si calcola sulla popolazione massima di ogni polis
+    // (maxPopulation) meno i sacerdoti, non sui cittadini attualmente al lavoro.
+    let totalMaxPop = 0, totalPriests = 0;
     for (const th of (townHallAll || [])) {
-      totalCitizens += th.citizens   || 0;
-      totalPriests  += th.priests    || 0;
+      totalMaxPop  += th.maxPopulation || 0;
+      totalPriests += th.priests       || 0;
     }
-    const netCitizens = Math.max(0, totalCitizens - totalPriests);
+    const netCitizens = Math.max(0, totalMaxPop - totalPriests);
 
     // Benedizione Pluto attiva? (godKey = 'plutus', endTime > now)
     const now = Date.now();
@@ -1951,7 +1955,7 @@
                     padding-bottom:8px;border-bottom:1px solid var(--border)">
           <span>👥 Cittadini netti: <b>${netCitizens.toLocaleString('it')}</b>
             <span style="font-size:11px;color:var(--text-muted)">
-              (${totalCitizens.toLocaleString('it')} − ${totalPriests.toLocaleString('it')} sacerdoti)
+              (max pop ${totalMaxPop.toLocaleString('it')} − ${totalPriests.toLocaleString('it')} sacerdoti)
             </span>
           </span>
           <span>💰 Reddito max: <b id="ikp-max-income" style="color:var(--ok,#2a8)">${maxIncome.toLocaleString('it')}/h</b>
@@ -2841,27 +2845,101 @@
       deleted:  { label:'Eliminato',cls:'state-banned'   },
     };
 
-    // ── Vista "Solo cambi stato" ──────────────────────────────
-    if (filterType === '_state') {
-      const changes = await window.IkDB.getAll('state_changes');
-      const filtered = changes.filter(c => {
-        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) return false;
-        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) return false;
-        return true;
-      });
-      if (!filtered.length) {
-        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio di stato trovato.</p></div>`;
+    // ── Vista "Cambi per giocatore" (stato + generali/attacco/difesa merged) ──
+    if (filterType === '_state' || filterType === '_changes' || filterType === '_all') {
+      const wantState  = filterType === '_state'   || filterType === '_all';
+      const wantScores = filterType === '_changes' || filterType === '_all';
+
+      const [stateChanges, scoreChanges] = await Promise.all([
+        wantState  ? window.IkDB.getAll('state_changes')  : Promise.resolve([]),
+        wantScores ? window.IkDB.getAll('score_changes')  : Promise.resolve([]),
+      ]);
+
+      // Merge per giocatore (chiave: avatarId o playerName)
+      const playerMap = new Map();
+
+      const getOrCreate = (id, name, ally) => {
+        if (!playerMap.has(id)) {
+          playerMap.set(id, { id, name, ally, stateEvents: [], scoreEvents: [], lastDate: null });
+        }
+        return playerMap.get(id);
+      };
+
+      for (const c of stateChanges) {
+        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) continue;
+        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) continue;
+        const key = c.playerId || c.playerName;
+        const rec = getOrCreate(key, c.playerName, c.allyName);
+        rec.stateEvents.push(c);
+        if (!rec.lastDate || c.newUpdate > rec.lastDate) rec.lastDate = c.newUpdate;
+      }
+
+      for (const c of scoreChanges) {
+        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) continue;
+        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) continue;
+        const key = c.avatarId || c.playerName;
+        const rec = getOrCreate(key, c.playerName, c.allyName);
+        rec.scoreEvents.push(c);
+        if (!rec.lastDate || c.date > rec.lastDate) rec.lastDate = c.date;
+      }
+
+      if (!playerMap.size) {
+        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio trovato.</p></div>`;
         return;
       }
-      list.innerHTML = filtered.slice().reverse().map(c => {
-        const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
-        const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
-        return `<div class="ikp-change-row">
-          <div class="ikp-change-player">👤 ${c.playerName}${c.prevName ? ` <span style="font-size:11px;color:var(--text-muted)">(ex: ${c.prevName})</span>` : ''} ${c.allyName && c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
-          <div class="ikp-change-states">
-            <span class="ikp-state-badge ${prev.cls}">${prev.label}</span> → <span class="ikp-state-badge ${next.cls}">${next.label}</span>
+
+      // Ordina per data più recente
+      const sorted = [...playerMap.values()].sort((a, b) => (b.lastDate || '') > (a.lastDate || '') ? 1 : -1);
+
+      const SCORE_LABELS = { army_score_main: '⭐ Generali', offense: '⚔️ Attacco', defense: '🛡 Difesa' };
+      const deltaColor = d => d > 0 ? 'var(--ok,#2a8)' : 'var(--danger,#e44)';
+      const deltaSign  = d => d > 0 ? `+${d.toLocaleString('it')}` : d.toLocaleString('it');
+
+      list.innerHTML = sorted.map(rec => {
+        const allyStr = rec.ally && rec.ally !== '—'
+          ? `<span style="font-size:11px;color:var(--text-muted)">[${rec.ally}]</span>` : '';
+
+        // Cambi stato (cronologici, più recenti in fondo)
+        const stateHtml = rec.stateEvents.slice().sort((a,b) => (a.newUpdate||'') > (b.newUpdate||'') ? 1 : -1).map(c => {
+          const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
+          const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
+          return `<div style="font-size:11px;margin-top:3px">
+            🔔 <span class="ikp-state-badge ${prev.cls}">${prev.label}</span>
+            → <span class="ikp-state-badge ${next.cls}">${next.label}</span>
+            <span style="color:var(--text-muted);margin-left:4px">${fmt(c.newUpdate)}</span>
+          </div>`;
+        }).join('');
+
+        // Variazioni punteggio: raggruppa per tipo, mostra ultima variazione + totale delta
+        const byType = {};
+        for (const e of rec.scoreEvents) {
+          if (!byType[e.scoreType]) byType[e.scoreType] = [];
+          byType[e.scoreType].push(e);
+        }
+        const scoreHtml = Object.entries(byType).map(([type, events]) => {
+          const sorted = events.slice().sort((a,b) => (a.date||'') > (b.date||'') ? 1 : -1);
+          const totalDelta = sorted.reduce((s, e) => s + (e.delta || 0), 0);
+          const last = sorted[sorted.length - 1];
+          const label = SCORE_LABELS[type] || type;
+          const entriesHtml = sorted.map(e =>
+            `<span style="color:${deltaColor(e.delta)};font-size:10px">${deltaSign(e.delta)}</span>`
+          ).join(' ');
+          return `<div style="font-size:11px;margin-top:3px">
+            ${label}: ${entriesHtml}
+            = <b style="color:${deltaColor(totalDelta)}">${deltaSign(totalDelta)}</b>
+            <span style="color:var(--text-muted);margin-left:4px">
+              (${sorted[0].prevScore?.toLocaleString('it')} → ${last.newScore?.toLocaleString('it')})
+              · ${fmt(last.date)}
+            </span>
+          </div>`;
+        }).join('');
+
+        const hasContent = stateHtml || scoreHtml;
+        return `<div class="ikp-change-row" style="padding:8px 10px">
+          <div class="ikp-change-player" style="margin-bottom:4px">
+            👤 <b>${rec.name}</b> ${allyStr}
           </div>
-          <div class="ikp-change-time">📅 Prec: ${fmt(c.prevUpdate)} → Nuovo: ${fmt(c.newUpdate)}</div>
+          ${hasContent ? stateHtml + scoreHtml : '<span style="font-size:11px;color:var(--text-muted)">—</span>'}
         </div>`;
       }).join('');
       return;
