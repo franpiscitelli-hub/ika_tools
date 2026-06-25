@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 15;
+  const DB_VERSION = 16;
   let db = null;
 
   function open() {
@@ -203,6 +203,39 @@
           const s = d.createObjectStore('ally_changes', { keyPath: 'id', autoIncrement: true });
           s.createIndex('playerId', 'playerId', { unique: false });
           s.createIndex('date',     'date',     { unique: false });
+        }
+
+        // combat_reports — rapporti di battaglia (land + naval)
+        // keyPath: combatId (numero intero univoco per battaglia)
+        // Struttura: { combatId, type, title, city, date, totalRounds,
+        //   attacker: { name, allyName, playerId?, cityId?, cityName? },
+        //   defender: { name, allyName, playerId?, cityId?, cityName? },
+        //   winner, outcome, booty?,
+        //   stats: { attacker: { generals, attackPts, dmgDealt, dmgPct }, defender: {...} },
+        //   rounds: [ { round, date, slots: { attacker: [...], defender: [...] },
+        //               reserve: { attacker, defender },
+        //               morale: { attacker, defender },
+        //               events: [...] } ],
+        //   blessings: [...],
+        //   capturedDate }
+        if (!d.objectStoreNames.contains('combat_reports')) {
+          const s = d.createObjectStore('combat_reports', { keyPath: 'combatId' });
+          s.createIndex('date',           'date',           { unique: false });
+          s.createIndex('attackerName',   'attackerName',   { unique: false });
+          s.createIndex('defenderName',   'defenderName',   { unique: false });
+          s.createIndex('attackerPlayerId','attackerPlayerId',{ unique: false });
+          s.createIndex('defenderPlayerId','defenderPlayerId',{ unique: false });
+        }
+
+        // player_units — profilo truppe/navi note di ogni player
+        // keyPath: playerId (es. "av_100141" o nome se ID non noto)
+        // Struttura: { playerId, playerName, allyName?, lastSeen,
+        //   units: { unitId: { count, seenInRound, source: 'combat'|'barracks' } },
+        //   blessings: [{ name, date }],
+        //   unresolvedName: true se l'ID non è stato trovato in classifica }
+        if (!d.objectStoreNames.contains('player_units')) {
+          const s = d.createObjectStore('player_units', { keyPath: 'playerId' });
+          s.createIndex('playerName', 'playerName', { unique: false });
         }
       };
 

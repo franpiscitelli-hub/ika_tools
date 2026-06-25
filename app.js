@@ -562,6 +562,8 @@
                 <option value="state_changes">🔔 Cambi stato</option>
                 <option value="score_changes">⭐ Var. punteggi</option>
                 <option value="ally_changes">🏰 Cambi alleanza</option>
+                <option value="combat_reports">⚔️ Rapporti combattimento</option>
+                <option value="player_units">🪖 Truppe player</option>
                 <option value="entries">📋 JSON raw</option>
               </select>
               <input class="ikp-input" id="ikp-db-q" placeholder="Cerca..."
@@ -3473,7 +3475,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military','score_changes','ally_changes'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military','score_changes','ally_changes','combat_reports','player_units'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -3493,6 +3495,8 @@
     state_changes:   '🔔 Cambi stato',
     score_changes:   '⭐ Var. punteggi',
     ally_changes:    '🏰 Cambi alleanza',
+    combat_reports:  '⚔️ Rapporti combattimento',
+    player_units:    '🪖 Truppe player',
     entries:         '📋 JSON raw',
   };
 
