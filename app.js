@@ -511,7 +511,10 @@
                 <option value="donations">Donazioni</option>
                 <option value="pillaging">Saccheggio</option>
                 <option value="piracy">Punti predatore</option>
-                <option value="_state">Solo cambi stato</option>
+                <option value="_all">👤 Cambi per giocatore (tutti)</option>
+                <option value="_state">🔔 Solo cambi stato</option>
+                <option value="_changes">⭐ Solo var. Generali/Attacco/Difesa</option>
+                <option value="_ally">🏰 Solo cambi alleanza</option>
               </select>
             </div>
             <div id="ikp-changes-list">
@@ -557,6 +560,8 @@
                 <option value="enemy_buildings">🏢 Edifici nemici</option>
                 <option value="players">👤 Players</option>
                 <option value="state_changes">🔔 Cambi stato</option>
+                <option value="score_changes">⭐ Var. punteggi</option>
+                <option value="ally_changes">🏰 Cambi alleanza</option>
                 <option value="entries">📋 JSON raw</option>
               </select>
               <input class="ikp-input" id="ikp-db-q" placeholder="Cerca..."
@@ -2919,36 +2924,136 @@
       deleted:  { label:'Eliminato',cls:'state-banned'   },
     };
 
-    // ── Vista "Solo cambi stato" ──────────────────────────────
-    if (filterType === '_state') {
-      const changes = await window.IkDB.getAll('state_changes');
-      const filtered = changes.filter(c => {
-        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) return false;
-        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) return false;
+    const SCORE_LABELS = {
+      army_score_main: '⭐ Generali',
+      offense:         '⚔️ Attacco',
+      defense:         '🛡 Difesa',
+    };
+
+    const deltaColor = d => d > 0 ? 'var(--ok,#2a8)' : 'var(--danger,#e44)';
+    const deltaSign  = d => d > 0 ? `+${d.toLocaleString('it')}` : d.toLocaleString('it');
+
+    // ── Viste merged per giocatore ──────────────────────────────────────
+    const MERGE_MODES = ['_all', '_state', '_changes', '_ally'];
+    if (MERGE_MODES.includes(filterType)) {
+      const wantState  = filterType === '_all' || filterType === '_state';
+      const wantScores = filterType === '_all' || filterType === '_changes';
+      const wantAlly   = filterType === '_all' || filterType === '_ally';
+
+      const [stateChanges, scoreChanges, allyChanges] = await Promise.all([
+        wantState  ? window.IkDB.getAll('state_changes').catch(() => []) : Promise.resolve([]),
+        wantScores ? window.IkDB.getAll('score_changes').catch(() => []) : Promise.resolve([]),
+        wantAlly   ? window.IkDB.getAll('ally_changes').catch(() => [])  : Promise.resolve([]),
+      ]);
+
+      // Merge per giocatore
+      const playerMap = new Map();
+      const getOrCreate = (id, name, ally) => {
+        if (!playerMap.has(id)) {
+          playerMap.set(id, { id, name, ally, stateEvents: [], scoreEvents: [], allyEvents: [], lastDate: null });
+        }
+        return playerMap.get(id);
+      };
+
+      const passFilter = (name, ally) => {
+        if (filterName && !name?.toLowerCase().includes(filterName)) return false;
+        if (filterAlly && (ally || '').toLowerCase() !== filterAlly) return false;
         return true;
-      });
-      if (!filtered.length) {
-        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio di stato trovato.</p></div>`;
+      };
+
+      for (const c of stateChanges) {
+        if (!passFilter(c.playerName, c.allyName)) continue;
+        const rec = getOrCreate(c.playerId || c.playerName, c.playerName, c.allyName);
+        rec.stateEvents.push(c);
+        if (!rec.lastDate || c.newUpdate > rec.lastDate) rec.lastDate = c.newUpdate;
+      }
+      for (const c of scoreChanges) {
+        if (!passFilter(c.playerName, c.allyName)) continue;
+        const rec = getOrCreate(c.avatarId || c.playerName, c.playerName, c.allyName);
+        rec.scoreEvents.push(c);
+        if (!rec.lastDate || c.date > rec.lastDate) rec.lastDate = c.date;
+      }
+      for (const c of allyChanges) {
+        if (!passFilter(c.playerName, c.newAlly)) continue;
+        const rec = getOrCreate(c.playerId || c.playerName, c.playerName, c.newAlly);
+        rec.allyEvents.push(c);
+        if (!rec.lastDate || c.date > rec.lastDate) rec.lastDate = c.date;
+      }
+
+      if (!playerMap.size) {
+        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio trovato.</p></div>`;
         return;
       }
-      list.innerHTML = filtered.slice().reverse().map(c => {
-        const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
-        const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
-        return `<div class="ikp-change-row">
-          <div class="ikp-change-player">👤 ${c.playerName}${c.prevName ? ` <span style="font-size:11px;color:var(--text-muted)">(ex: ${c.prevName})</span>` : ''} ${c.allyName && c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
-          <div class="ikp-change-states">
-            <span class="ikp-state-badge ${prev.cls}">${prev.label}</span> → <span class="ikp-state-badge ${next.cls}">${next.label}</span>
+
+      const sorted = [...playerMap.values()].sort((a, b) =>
+        (b.lastDate || '') > (a.lastDate || '') ? 1 : -1
+      );
+
+      list.innerHTML = sorted.map(rec => {
+        const allyStr = rec.ally && rec.ally !== '—'
+          ? `<span style="font-size:11px;color:var(--text-muted)">[${rec.ally}]</span>` : '';
+
+        // Cambi stato
+        const stateHtml = rec.stateEvents
+          .slice().sort((a, b) => (a.newUpdate || '') > (b.newUpdate || '') ? 1 : -1)
+          .map(c => {
+            const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
+            const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
+            return `<div style="font-size:11px;margin-top:3px">
+              🔔 <span class="ikp-state-badge ${prev.cls}">${prev.label}</span>
+              → <span class="ikp-state-badge ${next.cls}">${next.label}</span>
+              <span style="color:var(--text-muted);margin-left:4px">${fmt(c.newUpdate)}</span>
+            </div>`;
+          }).join('');
+
+        // Variazioni punteggio raggruppate per tipo
+        const byType = {};
+        for (const e of rec.scoreEvents) {
+          if (!byType[e.scoreType]) byType[e.scoreType] = [];
+          byType[e.scoreType].push(e);
+        }
+        const scoreHtml = Object.entries(byType).map(([type, events]) => {
+          const evSorted   = events.slice().sort((a, b) => (a.date || '') > (b.date || '') ? 1 : -1);
+          const totalDelta = evSorted.reduce((s, e) => s + (e.delta || 0), 0);
+          const last       = evSorted[evSorted.length - 1];
+          const label      = SCORE_LABELS[type] || type;
+          const pips       = evSorted.map(e =>
+            `<span style="color:${deltaColor(e.delta)};font-size:10px">${deltaSign(e.delta)}</span>`
+          ).join(' ');
+          return `<div style="font-size:11px;margin-top:3px">
+            ${label}: ${pips}
+            = <b style="color:${deltaColor(totalDelta)}">${deltaSign(totalDelta)}</b>
+            <span style="color:var(--text-muted);margin-left:4px">
+              (${evSorted[0].prevScore?.toLocaleString('it')} → ${last.newScore?.toLocaleString('it')})
+              · ${fmt(last.date)}
+            </span>
+          </div>`;
+        }).join('');
+
+        // Cambi alleanza
+        const allyHtml = rec.allyEvents
+          .slice().sort((a, b) => (a.date || '') > (b.date || '') ? 1 : -1)
+          .map(c => `<div style="font-size:11px;margin-top:3px">
+            🏰 <span style="color:var(--text-muted)">${c.prevAlly || '—'}</span>
+            → <b>${c.newAlly || '—'}</b>
+            <span style="color:var(--text-muted);margin-left:4px">${fmt(c.date)}</span>
+          </div>`).join('');
+
+        return `<div class="ikp-change-row" style="padding:8px 10px">
+          <div class="ikp-change-player" style="margin-bottom:4px">
+            👤 <b>${rec.name}</b> ${allyStr}
           </div>
-          <div class="ikp-change-time">📅 Prec: ${fmt(c.prevUpdate)} → Nuovo: ${fmt(c.newUpdate)}</div>
+          ${stateHtml}${scoreHtml}${allyHtml}
+          ${!stateHtml && !scoreHtml && !allyHtml
+            ? '<span style="font-size:11px;color:var(--text-muted)">—</span>' : ''}
         </div>`;
       }).join('');
       return;
     }
 
-    // ── Vista punteggi classifica (da players.scores) ─────────
+    // ── Vista punteggi classifica (tabella players) ─────────────────────
     const players = await window.IkDB.getAll('players');
 
-    // Filtra per nome/alleanza
     let filtered = players.filter(p => {
       if (!p.scores || !Object.keys(p.scores).length) return false;
       if (filterName && !(p.name || '').toLowerCase().includes(filterName)) return false;
@@ -2956,8 +3061,8 @@
       return true;
     });
 
-    // Aggiorna pannello summary compatto in cima
-    const lastUpdate = filtered.reduce((best, p) => (!best || (p.lastUpdateDate||'') > best) ? (p.lastUpdateDate||null) : best, null);
+    const lastUpdate = filtered.reduce((best, p) =>
+      (!best || (p.lastUpdateDate || '') > best) ? (p.lastUpdateDate || null) : best, null);
     renderSummary(filtered, lastUpdate);
 
     if (!filtered.length) {
@@ -2965,7 +3070,6 @@
       return;
     }
 
-    // Determina le colonne da mostrare
     const allScoreKeys = filterType
       ? [filterType]
       : [...new Set(filtered.flatMap(p => Object.keys(p.scores || {})))];
@@ -2976,7 +3080,6 @@
       return;
     }
 
-    // Ordina per il primo tipo mostrato (decrescente)
     const sortKey = shownKeys[0];
     filtered.sort((a, b) => (b.scores?.[sortKey] ?? 0) - (a.scores?.[sortKey] ?? 0));
 
@@ -2989,20 +3092,19 @@
         ? `<span class="ikp-state-badge ${stateCfg[p.status].cls}" style="font-size:10px">${stateCfg[p.status].label}</span>`
         : '';
       const scoreCells = shownKeys.map(k => {
-        const v = p.scores?.[k];
+        const v   = p.scores?.[k];
         const pos = p.position?.[k];
         const posStr = pos ? `<span style="color:var(--text-muted);font-size:10px"> #${pos}</span>` : '';
         return `<td style="text-align:right;font-size:12px">${v != null ? v.toLocaleString('it') + posStr : '<span style="color:var(--text-muted)">—</span>'}</td>`;
       }).join('');
 
-      // Cambi stato del giocatore (se presenti)
-      const stateHistory = (p.nameHistory?.length)
+      const nameHistory = p.nameHistory?.length
         ? `<span style="font-size:10px;color:var(--text-muted)"> (ex: ${p.nameHistory.map(h => h.name).join(', ')})</span>`
         : '';
 
       return `<tr>
         <td style="white-space:nowrap;font-size:12px">
-          👤 ${p.name}${stateHistory} ${stBadge}
+          👤 ${p.name}${nameHistory} ${stBadge}
           ${p.ally ? `<span style="font-size:11px;color:var(--text-muted)">[${p.ally}]</span>` : ''}
         </td>
         ${scoreCells}
@@ -3010,7 +3112,6 @@
       </tr>`;
     }).join('');
 
-    const aggiornamento = fmt(new Date().toISOString());
     list.innerHTML = `
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">
         ${filtered.length} player · ordinati per ${RANKING_LABELS[sortKey] || sortKey}
@@ -3033,10 +3134,14 @@
   }
 
   async function clearChanges() {
-    if (!confirm('Eliminare tutti i cambi di stato?')) return;
-    await window.IkDB.clear('state_changes');
+    if (!confirm('Eliminare tutti i cambi di stato, punteggi e alleanze?')) return;
+    await Promise.all([
+      window.IkDB.clear('state_changes'),
+      window.IkDB.clear('score_changes').catch(() => {}),
+      window.IkDB.clear('ally_changes').catch(() => {}),
+    ]);
     renderChanges();
-    toast('🗑 Cambi stato eliminati');
+    toast('🗑 Cambi eliminati');
   }
 
   // ── DATABASE VIEWER ──────────────────────────
@@ -3368,7 +3473,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military','score_changes'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military','score_changes','ally_changes'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -3386,6 +3491,8 @@
     enemy_buildings: '🏢 Edifici nemici',
     players:         '👤 Players',
     state_changes:   '🔔 Cambi stato',
+    score_changes:   '⭐ Var. punteggi',
+    ally_changes:    '🏰 Cambi alleanza',
     entries:         '📋 JSON raw',
   };
 

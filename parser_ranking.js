@@ -128,6 +128,19 @@
         }];
       }
 
+      // Rilevamento cambio alleanza
+      if (prev && prev.ally !== undefined && prev.ally !== p.alleanza) {
+        try {
+          await window.IkDB.add('ally_changes', {
+            playerId:   p.avatarId,
+            playerName: p.nome,
+            prevAlly:   prev.ally || '—',
+            newAlly:    p.alleanza || '—',
+            date:       nowIso,
+          });
+        } catch {}
+      }
+
       // Rilevamento cambio stato
       if (prev && prev.status && prev.status !== p.status) {
         stateChanges.push({

@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 14;
+  const DB_VERSION = 15;
   let db = null;
 
   function open() {
@@ -196,6 +196,13 @@
           const s = d.createObjectStore('completed_timers', { keyPath: 'id' });
           s.createIndex('completedAt', 'completedAt', { unique: false });
           s.createIndex('type',        'type',        { unique: false });
+        }
+
+        // ally_changes — storico cambi alleanza per player
+        if (!d.objectStoreNames.contains('ally_changes')) {
+          const s = d.createObjectStore('ally_changes', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('playerId', 'playerId', { unique: false });
+          s.createIndex('date',     'date',     { unique: false });
         }
       };
 
