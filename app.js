@@ -462,8 +462,8 @@
         <div class="ikp-section" id="ikp-tab-db">
 
           <!-- Stats compatte -->
-          <div id="ikp-db-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;
-               gap:8px;margin-bottom:12px"></div>
+          <div id="ikp-db-stats" style="display:grid;grid-template-columns:repeat(6,1fr);
+               gap:5px;margin-bottom:12px"></div>
 
           <!-- Ricerca -->
           <div class="ikp-card" style="margin-bottom:10px">
@@ -1765,10 +1765,12 @@
     }
 
     // ── dati accessori ──────────────────────────────────────
-    const [myCities, enemyBuildings, unitData] = await Promise.all([
+    const [myCities, enemyBuildings, unitData, townHallAll, constructionsAll] = await Promise.all([
       window.IkDB.getAll('my_cities'),
       window.IkDB.getAll('enemy_buildings'),
       window.IkDB.getAll('unit_data'),
+      window.IkDB.getAll('town_hall_data').catch(() => []),
+      window.IkDB.getAll('constructions').catch(() => []),
     ]);
     const cityInfo = new Map();
     for (const c of myCities)       cityInfo.set(c.cityId, { name: c.name, x: c.islandX, y: c.islandY });
@@ -1887,6 +1889,26 @@
       return html;
     }
 
+    // ── CITTADINI / REDDITO MASSIMO ──────────────────────────
+    let totalCitizens = 0, totalPriests = 0;
+    for (const th of (townHallAll || [])) {
+      totalCitizens += th.citizens   || 0;
+      totalPriests  += th.priests    || 0;
+    }
+    const netCitizens = Math.max(0, totalCitizens - totalPriests);
+
+    // Benedizione Pluto attiva? (godKey = 'plutus', endTime > now)
+    const now = Date.now();
+    const plutusRec = (constructionsAll || []).find(
+      c => c.type === 'shrine' && c.godKey === 'plutus' && c.endTime > now
+    );
+    const plutusBonus = plutusRec?.currentBonus ?? 0;   // es. 67 → +67%
+    const maxIncome   = Math.round(netCitizens * 3 * (1 + plutusBonus / 100));
+
+    const plutusLabel = plutusBonus > 0
+      ? `⛩ Pluto +${plutusBonus}% (${plutusRec?.graceText || ''}) · `
+      : '';
+
     // ── RIDUZIONE MANTENIMENTO (campi editabili, persistiti in localStorage) ──
     const LS_KEY_LAND = 'ikp_upkeep_reduction_land';
     const LS_KEY_SEA  = 'ikp_upkeep_reduction_sea';
@@ -1921,27 +1943,45 @@
     }
 
     const reductionBarHtml = `
-      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;
+      <div style="display:flex;flex-direction:column;gap:8px;
                   padding:8px 10px;margin-bottom:10px;
                   background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;font-size:13px">
-        <span style="font-weight:600">✂️ Riduzione mantenimento:</span>
-        <label style="display:flex;align-items:center;gap:5px">
-          🪖 Truppe
-          <input id="ikp-mil-red-land" type="number" min="0" max="100" step="0.1"
-                 value="${savedLandRed}"
-                 style="width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
-                        background:var(--bg);color:var(--text);font-size:13px"
-                 oninput="window._ikpRefreshUpkeep?.()"> %
-        </label>
-        <label style="display:flex;align-items:center;gap:5px">
-          ⛴ Navi
-          <input id="ikp-mil-red-sea" type="number" min="0" max="100" step="0.1"
-                 value="${savedSeaRed}"
-                 style="width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
-                        background:var(--bg);color:var(--text);font-size:13px"
-                 oninput="window._ikpRefreshUpkeep?.()"> %
-        </label>
-        <span style="font-size:11px;color:var(--text-muted)">Es. 26% = ricerca livello massimo</span>
+        <!-- RIGA 1: Cittadini e reddito massimo -->
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;
+                    padding-bottom:8px;border-bottom:1px solid var(--border)">
+          <span>👥 Cittadini netti: <b>${netCitizens.toLocaleString('it')}</b>
+            <span style="font-size:11px;color:var(--text-muted)">
+              (${totalCitizens.toLocaleString('it')} − ${totalPriests.toLocaleString('it')} sacerdoti)
+            </span>
+          </span>
+          <span>💰 Reddito max: <b id="ikp-max-income" style="color:var(--ok,#2a8)">${maxIncome.toLocaleString('it')}/h</b>
+            <span style="font-size:11px;color:var(--text-muted)">
+              ${plutusLabel}(×3${plutusBonus > 0 ? ` ×${(1 + plutusBonus/100).toFixed(2)}` : ''})
+            </span>
+          </span>
+          ${townHallAll.length === 0 ? '<span style="font-size:11px;color:var(--text-muted)">ℹ️ Apri il Municipio di ogni polis per aggiornare i dati.</span>' : ''}
+        </div>
+        <!-- RIGA 2: Riduzione mantenimento -->
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+          <span style="font-weight:600">✂️ Riduzione mantenimento:</span>
+          <label style="display:flex;align-items:center;gap:5px">
+            🪖 Truppe
+            <input id="ikp-mil-red-land" type="number" min="0" max="100" step="0.1"
+                   value="${savedLandRed}"
+                   style="width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
+                          background:var(--bg);color:var(--text);font-size:13px"
+                   oninput="window._ikpRefreshUpkeep?.()"> %
+          </label>
+          <label style="display:flex;align-items:center;gap:5px">
+            ⛴ Navi
+            <input id="ikp-mil-red-sea" type="number" min="0" max="100" step="0.1"
+                   value="${savedSeaRed}"
+                   style="width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
+                          background:var(--bg);color:var(--text);font-size:13px"
+                   oninput="window._ikpRefreshUpkeep?.()"> %
+          </label>
+          <span style="font-size:11px;color:var(--text-muted)">Es. 26% = ricerca livello massimo</span>
+        </div>
       </div>`;
 
     // Espone la funzione globalmente così il handler oninput la trova
@@ -2304,6 +2344,18 @@
         </div>
       </div>`;
 
+    // Mantenimento truppe ATTUALI in tutte le polis (per confronto con reddito max)
+    // Map<unitId, totalCount> sommando tutte le polis
+    const currentTroopCount = new Map();
+    for (const rec of records) {
+      addGroupsToMap(rec.land?.garrison, currentTroopCount);
+      addGroupsToMap(rec.land?.allied,   currentTroopCount);
+      addGroupsToMap(rec.sea?.own,       currentTroopCount);
+      addGroupsToMap(rec.sea?.allied,    currentTroopCount);
+    }
+    // maxIncome è già calcolato sopra; passiamolo alla closure
+    const _maxIncome = maxIncome;
+
     // ── Logica JS simulatore (closure diretta, senza <script>) ──────────────
     {
       const LS_FLET   = 'ikp_sim_flet';
@@ -2324,6 +2376,8 @@
 
       const _lu = landUnits, _su = seaUnits;
       const _sm = simMeta,   _lr = landRes,  _sr = seaRes;   // alias closure
+      const _curTroops = currentTroopCount;
+      const _maxInc    = _maxIncome;
 
       function sFmt(n)  { return n % 1 === 0 ? n.toLocaleString('it') : n.toFixed(1); }
       function sFmtI(n) { return Math.round(n).toLocaleString('it'); }
@@ -2398,6 +2452,32 @@
             const el2 = document.getElementById(`sim-res-tot-${grp}-${r}`);
             const v2  = totRes[grp][r] || 0;
             if (el2) el2.textContent = v2 > 0 ? Math.ceil(v2).toLocaleString('it') : '—';
+          }
+        }
+
+        // ── Controllo reddito massimo ────────────────────────────
+        const red2 = sRed();
+        let currentUpkeepTotal = 0;
+        for (const [id, count] of _curTroops) {
+          const m = _sm.get(id); if (!m || m.upkeep == null) continue;
+          const rf = m.kind === 'ship' ? red2.sea / 100 : red2.land / 100;
+          currentUpkeepTotal += m.upkeep * count * (1 - rf);
+        }
+        const simUpkeepTotal = tot.land.flet + tot.sea.flet;
+        const grandTotal     = currentUpkeepTotal + simUpkeepTotal;
+
+        if (_maxInc > 0) {
+          const exceeded = grandTotal > _maxInc;
+          const col = exceeded ? 'var(--red,#d44)' : 'var(--text)';
+          ['sim-tot-land-upk','sim-tot-sea-upk','sim-tot-land-flet','sim-tot-sea-flet'].forEach(eid => {
+            const el = document.getElementById(eid); if (el) el.style.color = col;
+          });
+          const incEl = document.getElementById('ikp-max-income');
+          if (incEl) {
+            incEl.style.color = exceeded ? 'var(--red,#d44)' : 'var(--ok,#2a8)';
+            incEl.title = exceeded
+              ? `⚠️ Totale mantenimento ${Math.round(grandTotal).toLocaleString('it')}/h supera il reddito`
+              : '';
           }
         }
 
@@ -3156,11 +3236,11 @@
       ];
       statsEl.innerHTML = items.map(it => `
         <div style="background:var(--bg-card);border:1px solid var(--border);
-             border-radius:var(--radius);padding:10px 8px;text-align:center">
-          <div style="font-size:18px">${it.icon}</div>
-          <div style="font-size:16px;font-weight:700;color:var(--accent)">${it.val}</div>
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;
-               letter-spacing:.5px">${it.label}</div>
+             border-radius:var(--radius);padding:5px 4px;text-align:center;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;
+               overflow:hidden;text-overflow:ellipsis">${it.icon} ${it.val}</div>
+          <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;
+               letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${it.label}</div>
         </div>`).join('');
     }
 
