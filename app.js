@@ -393,6 +393,75 @@
               <div class="ikp-empty"><div class="ikp-empty-icon">⚔️</div><p>Nessun dato truppe ancora catturato.</p></div>
             </div>
           </div>
+
+          <!-- ══ CALCOLATORE DANNO MURA ══ -->
+          <div class="ikp-card" style="margin-top:10px">
+            <div class="ikp-card-title">
+              🏯 Calcolatore Danno Mura
+              <button class="ikp-btn small outline" onclick="window.IkWallCalc.reset()">↺ Reset</button>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+              Calcola i danni all'artiglieria su più round. I potenziamenti officina vengono letti dal DB se disponibili.
+            </p>
+
+            <!-- INPUTS PRINCIPALI -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">
+              <label style="font-size:12px">
+                ⛩ Liv. Efesto
+                <input id="ikwc-efesto" type="number" min="0" max="20" value="0"
+                  style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                  oninput="window.IkWallCalc.compute()">
+              </label>
+              <label style="font-size:12px">
+                🏛 Liv. Municipio
+                <input id="ikwc-townhall" type="number" min="1" max="50" value="20"
+                  style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                  oninput="window.IkWallCalc.compute()">
+              </label>
+              <label style="font-size:12px">
+                🏯 Liv. Mura
+                <input id="ikwc-wall" type="number" min="1" max="25" value="10"
+                  style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                  oninput="window.IkWallCalc.compute()">
+              </label>
+            </div>
+
+            <!-- OVERRIDE POTENZIAMENTI OFFICINA -->
+            <details style="margin-bottom:10px;font-size:12px">
+              <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:6px">🔧 Potenziamenti officina (letti dal DB — espandi per override)</summary>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px">
+                <label>🪨 Ariete liv. atk
+                  <input id="ikwc-up-ram" type="number" min="0" max="3" value=""
+                    placeholder="auto"
+                    style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                    oninput="window.IkWallCalc.compute()">
+                </label>
+                <label>🪨 Catapulta liv. atk
+                  <input id="ikwc-up-cat" type="number" min="0" max="3" value=""
+                    placeholder="auto"
+                    style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                    oninput="window.IkWallCalc.compute()">
+                </label>
+                <label>🪨 Mortaio liv. atk
+                  <input id="ikwc-up-mor" type="number" min="0" max="3" value=""
+                    placeholder="auto"
+                    style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                    oninput="window.IkWallCalc.compute()">
+                </label>
+              </div>
+            </details>
+
+            <!-- UNITÀ PER ROUND -->
+            <div style="font-size:12px;font-weight:600;margin-bottom:4px">🪖 Unità per round</div>
+            <div id="ikwc-rounds-container" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+            <div style="display:flex;gap:6px;margin-bottom:12px">
+              <button class="ikp-btn small outline" onclick="window.IkWallCalc.addRound()">＋ Aggiungi round</button>
+              <button class="ikp-btn small outline" onclick="window.IkWallCalc.removeRound()">－ Rimuovi round</button>
+            </div>
+
+            <!-- RISULTATI -->
+            <div id="ikwc-results"></div>
+          </div>
         </div>
 
         <!-- ══ CLASSIFICA ══ -->
@@ -434,9 +503,7 @@
                 <option value="donations">Donazioni</option>
                 <option value="pillaging">Saccheggio</option>
                 <option value="piracy">Punti predatore</option>
-                <option value="_all">👤 Cambi per giocatore (tutti)</option>
-                <option value="_state">🔔 Solo cambi stato</option>
-                <option value="_changes">⭐ Solo var. Generali/Attacco/Difesa</option>
+                <option value="_state">Solo cambi stato</option>
               </select>
             </div>
             <div id="ikp-changes-list">
@@ -1892,14 +1959,12 @@
     }
 
     // ── CITTADINI / REDDITO MASSIMO ──────────────────────────
-    // Il reddito max si calcola sulla popolazione massima di ogni polis
-    // (maxPopulation) meno i sacerdoti, non sui cittadini attualmente al lavoro.
-    let totalMaxPop = 0, totalPriests = 0;
+    let totalCitizens = 0, totalPriests = 0;
     for (const th of (townHallAll || [])) {
-      totalMaxPop  += th.maxPopulation || 0;
-      totalPriests += th.priests       || 0;
+      totalCitizens += th.citizens   || 0;
+      totalPriests  += th.priests    || 0;
     }
-    const netCitizens = Math.max(0, totalMaxPop - totalPriests);
+    const netCitizens = Math.max(0, totalCitizens - totalPriests);
 
     // Benedizione Pluto attiva? (godKey = 'plutus', endTime > now)
     const now = Date.now();
@@ -1955,7 +2020,7 @@
                     padding-bottom:8px;border-bottom:1px solid var(--border)">
           <span>👥 Cittadini netti: <b>${netCitizens.toLocaleString('it')}</b>
             <span style="font-size:11px;color:var(--text-muted)">
-              (max pop ${totalMaxPop.toLocaleString('it')} − ${totalPriests.toLocaleString('it')} sacerdoti)
+              (${totalCitizens.toLocaleString('it')} − ${totalPriests.toLocaleString('it')} sacerdoti)
             </span>
           </span>
           <span>💰 Reddito max: <b id="ikp-max-income" style="color:var(--ok,#2a8)">${maxIncome.toLocaleString('it')}/h</b>
@@ -2845,101 +2910,27 @@
       deleted:  { label:'Eliminato',cls:'state-banned'   },
     };
 
-    // ── Vista "Cambi per giocatore" (stato + generali/attacco/difesa merged) ──
-    if (filterType === '_state' || filterType === '_changes' || filterType === '_all') {
-      const wantState  = filterType === '_state'   || filterType === '_all';
-      const wantScores = filterType === '_changes' || filterType === '_all';
-
-      const [stateChanges, scoreChanges] = await Promise.all([
-        wantState  ? window.IkDB.getAll('state_changes')  : Promise.resolve([]),
-        wantScores ? window.IkDB.getAll('score_changes')  : Promise.resolve([]),
-      ]);
-
-      // Merge per giocatore (chiave: avatarId o playerName)
-      const playerMap = new Map();
-
-      const getOrCreate = (id, name, ally) => {
-        if (!playerMap.has(id)) {
-          playerMap.set(id, { id, name, ally, stateEvents: [], scoreEvents: [], lastDate: null });
-        }
-        return playerMap.get(id);
-      };
-
-      for (const c of stateChanges) {
-        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) continue;
-        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) continue;
-        const key = c.playerId || c.playerName;
-        const rec = getOrCreate(key, c.playerName, c.allyName);
-        rec.stateEvents.push(c);
-        if (!rec.lastDate || c.newUpdate > rec.lastDate) rec.lastDate = c.newUpdate;
-      }
-
-      for (const c of scoreChanges) {
-        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) continue;
-        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) continue;
-        const key = c.avatarId || c.playerName;
-        const rec = getOrCreate(key, c.playerName, c.allyName);
-        rec.scoreEvents.push(c);
-        if (!rec.lastDate || c.date > rec.lastDate) rec.lastDate = c.date;
-      }
-
-      if (!playerMap.size) {
-        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio trovato.</p></div>`;
+    // ── Vista "Solo cambi stato" ──────────────────────────────
+    if (filterType === '_state') {
+      const changes = await window.IkDB.getAll('state_changes');
+      const filtered = changes.filter(c => {
+        if (filterName && !c.playerName?.toLowerCase().includes(filterName)) return false;
+        if (filterAlly && (c.allyName || '').toLowerCase() !== filterAlly) return false;
+        return true;
+      });
+      if (!filtered.length) {
+        list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">😴</div><p>Nessun cambio di stato trovato.</p></div>`;
         return;
       }
-
-      // Ordina per data più recente
-      const sorted = [...playerMap.values()].sort((a, b) => (b.lastDate || '') > (a.lastDate || '') ? 1 : -1);
-
-      const SCORE_LABELS = { army_score_main: '⭐ Generali', offense: '⚔️ Attacco', defense: '🛡 Difesa' };
-      const deltaColor = d => d > 0 ? 'var(--ok,#2a8)' : 'var(--danger,#e44)';
-      const deltaSign  = d => d > 0 ? `+${d.toLocaleString('it')}` : d.toLocaleString('it');
-
-      list.innerHTML = sorted.map(rec => {
-        const allyStr = rec.ally && rec.ally !== '—'
-          ? `<span style="font-size:11px;color:var(--text-muted)">[${rec.ally}]</span>` : '';
-
-        // Cambi stato (cronologici, più recenti in fondo)
-        const stateHtml = rec.stateEvents.slice().sort((a,b) => (a.newUpdate||'') > (b.newUpdate||'') ? 1 : -1).map(c => {
-          const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
-          const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
-          return `<div style="font-size:11px;margin-top:3px">
-            🔔 <span class="ikp-state-badge ${prev.cls}">${prev.label}</span>
-            → <span class="ikp-state-badge ${next.cls}">${next.label}</span>
-            <span style="color:var(--text-muted);margin-left:4px">${fmt(c.newUpdate)}</span>
-          </div>`;
-        }).join('');
-
-        // Variazioni punteggio: raggruppa per tipo, mostra ultima variazione + totale delta
-        const byType = {};
-        for (const e of rec.scoreEvents) {
-          if (!byType[e.scoreType]) byType[e.scoreType] = [];
-          byType[e.scoreType].push(e);
-        }
-        const scoreHtml = Object.entries(byType).map(([type, events]) => {
-          const sorted = events.slice().sort((a,b) => (a.date||'') > (b.date||'') ? 1 : -1);
-          const totalDelta = sorted.reduce((s, e) => s + (e.delta || 0), 0);
-          const last = sorted[sorted.length - 1];
-          const label = SCORE_LABELS[type] || type;
-          const entriesHtml = sorted.map(e =>
-            `<span style="color:${deltaColor(e.delta)};font-size:10px">${deltaSign(e.delta)}</span>`
-          ).join(' ');
-          return `<div style="font-size:11px;margin-top:3px">
-            ${label}: ${entriesHtml}
-            = <b style="color:${deltaColor(totalDelta)}">${deltaSign(totalDelta)}</b>
-            <span style="color:var(--text-muted);margin-left:4px">
-              (${sorted[0].prevScore?.toLocaleString('it')} → ${last.newScore?.toLocaleString('it')})
-              · ${fmt(last.date)}
-            </span>
-          </div>`;
-        }).join('');
-
-        const hasContent = stateHtml || scoreHtml;
-        return `<div class="ikp-change-row" style="padding:8px 10px">
-          <div class="ikp-change-player" style="margin-bottom:4px">
-            👤 <b>${rec.name}</b> ${allyStr}
+      list.innerHTML = filtered.slice().reverse().map(c => {
+        const prev = stateCfg[c.prevState] || { label: c.prevState, cls: '' };
+        const next = stateCfg[c.newState]  || { label: c.newState,  cls: '' };
+        return `<div class="ikp-change-row">
+          <div class="ikp-change-player">👤 ${c.playerName}${c.prevName ? ` <span style="font-size:11px;color:var(--text-muted)">(ex: ${c.prevName})</span>` : ''} ${c.allyName && c.allyName !== '—' ? `<span style="font-size:11px;color:var(--text-muted)">[${c.allyName}]</span>` : ''}</div>
+          <div class="ikp-change-states">
+            <span class="ikp-state-badge ${prev.cls}">${prev.label}</span> → <span class="ikp-state-badge ${next.cls}">${next.label}</span>
           </div>
-          ${hasContent ? stateHtml + scoreHtml : '<span style="font-size:11px;color:var(--text-muted)">—</span>'}
+          <div class="ikp-change-time">📅 Prec: ${fmt(c.prevUpdate)} → Nuovo: ${fmt(c.newUpdate)}</div>
         </div>`;
       }).join('');
       return;
@@ -3834,4 +3825,356 @@
   };
   log('Modulo caricato');
 })();
+
+// ═══════════════════════════════════════════════
+// IkWallCalc — Calcolatore Danno Mura
+// Logica: mortai → catapulte → arieti per slot
+// Lo slot non completamente abbattuto trasferisce danno agli slot rimasti.
+// ═══════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  // ── Statistiche base delle unità di artiglieria ──────────────────────
+  // unitId: 305=Mortaio, 306=Catapulta, 307=Ariete
+  const ARTILLERY = [
+    { id: 307, label: '🪨 Ariete',    baseAtk: 1600, inputId: 'ikwc-up-ram', dbId: 'unit_307' },
+    { id: 306, label: '🎯 Catapulta', baseAtk: 2660, inputId: 'ikwc-up-cat', dbId: 'unit_306' },
+    { id: 305, label: '💣 Mortaio',   baseAtk: 5400, inputId: 'ikwc-up-mor', dbId: 'unit_305' },
+  ];
+
+  // Efesto: +3% sul danno base per livello
+  const EFESTO_BONUS_PER_LV = 0.03;
+
+  // ── Formule dal foglio Excel ──────────────────────────────────────────
+
+  // Numero slot mura in base al livello del municipio
+  // Dal foglio: slot = ROUNDDOWN(townhallLv / 5, 0) + 3 (min 3, max 7 per municipio lv 20+)
+  // Verifica: lv38 → 7 slot (coerente col foglio: 7)
+  function wallSlots(townhallLv) {
+    return Math.min(7, Math.max(3, Math.floor(townhallLv / 5) + 3));
+  }
+
+  // HP per slot mura in base al livello mura
+  // Dal foglio: HP slot = wallLv * 990 (per lv20 = 19800, coerente col foglio)
+  function wallSlotHp(wallLv) {
+    return wallLv * 990;
+  }
+
+  // Armatura mura per livello
+  // Dal foglio: lv20 → 1440. Formula: wallLv * 72
+  function wallArmor(wallLv) {
+    return wallLv * 72;
+  }
+
+  // Danno effettivo di un'unità tenendo conto del potenziamento officina, Efesto e armatura
+  // Officina attacco: +5 danno flat per livello (fonte: dati foglio Excel)
+  // Efesto: baseAtk * efestoLv * 3% (bonus percentuale sul base)
+  function unitEffectiveDmg(baseAtk, upgradeLv, efestoLv, armorVal) {
+    const efBonus  = Math.round(baseAtk * efestoLv * EFESTO_BONUS_PER_LV);
+    const upFlat   = upgradeLv * 5; // +5 per livello officina
+    const rawDmg   = baseAtk + efBonus + upFlat;
+    return Math.max(0, rawDmg - armorVal);
+  }
+
+  // ── Stato: numero di round e valori input ────────────────────────────
+  let numRounds = 1;
+
+  function getRoundInputIds(roundIdx) {
+    return ARTILLERY.map(u => `ikwc-r${roundIdx}-${u.id}`);
+  }
+
+  // ── Lettura potenziamenti dal DB ─────────────────────────────────────
+  async function readUpgradesFromDB() {
+    if (!window.IkDB) return {};
+    const result = {};
+    for (const u of ARTILLERY) {
+      try {
+        const rec = await window.IkDB.get('unit_data', u.dbId);
+        if (rec?.upgrades?.offensive?.currentLevel != null) {
+          result[u.id] = rec.upgrades.offensive.currentLevel;
+        }
+      } catch (_) {}
+    }
+    return result;
+  }
+
+  // ── Render dei round input ───────────────────────────────────────────
+  function renderRoundInputs() {
+    const container = document.getElementById('ikwc-rounds-container');
+    if (!container) return;
+
+    let html = '';
+    for (let r = 0; r < numRounds; r++) {
+      html += `<div style="display:flex;align-items:center;gap:8px;background:var(--bg-alt);
+                            padding:6px 10px;border-radius:6px;font-size:12px">
+        <span style="font-weight:600;min-width:60px">Round ${r + 1}</span>`;
+      for (const u of ARTILLERY) {
+        html += `<label style="display:flex;align-items:center;gap:4px">
+          ${u.label}
+          <input id="ikwc-r${r}-${u.id}" type="number" min="0" value="0"
+            style="width:52px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
+                   background:var(--bg);color:var(--text);font-size:12px"
+            oninput="window.IkWallCalc.compute()">
+        </label>`;
+      }
+      html += `</div>`;
+    }
+    container.innerHTML = html;
+  }
+
+  // ── Simulazione round per round ─────────────────────────────────────
+  function simulate(slots, slotHp, unitDmg) {
+    // slotHp: HP base iniziale di ogni slot
+    // unitDmg: array per round, ciascuno array di {label, dmgPerUnit, count, unitId}
+    //          unità in ordine mortaio → catapulta → ariete
+    // Regole:
+    //   - Ogni unità spara sul proprio slot corrente; se lo abbatte, il residuo è PERSO
+    //     e l'unità successiva inizia sul prossimo slot
+    //   - A fine round, il danno totale subito dagli slot ancora vivi viene diviso
+    //     equamente per slot vivi; tutti i slot vivi nel round successivo partono da
+    //     slotHpBase - (dannoTotaleVivi / nSlotVivi)
+
+    let currentSlotHp = slotHp; // HP base attuale (ridefinito ogni round per redistribuzione)
+    let hpSlots = Array.from({ length: slots }, () => currentSlotHp);
+
+    const roundResults = [];
+
+    for (let r = 0; r < unitDmg.length; r++) {
+      const roundUnits = unitDmg[r];
+      const hpBefore = [...hpSlots];
+
+      // Simula ogni singola unità di artiglieria (mortai first, poi catapulte, poi arieti)
+      let slotIdx = 0;
+      // Avanza al primo slot vivo
+      while (slotIdx < slots && hpSlots[slotIdx] <= 0) slotIdx++;
+
+      for (const unitGroup of roundUnits) {
+        for (let n = 0; n < unitGroup.count; n++) {
+          if (slotIdx >= slots) break;
+          const dmg = unitGroup.dmgPerUnit;
+          if (dmg >= hpSlots[slotIdx]) {
+            // Abbatte lo slot; residuo perso
+            hpSlots[slotIdx] = 0;
+            slotIdx++;
+            while (slotIdx < slots && hpSlots[slotIdx] <= 0) slotIdx++;
+          } else {
+            hpSlots[slotIdx] -= dmg;
+          }
+        }
+      }
+
+      const dmgBySlot = hpSlots.map((hp, i) => Math.max(0, hpBefore[i] - hp));
+      const activeSlotsAfter = hpSlots.filter(hp => hp > 0).length;
+      const totalDmgDealt = dmgBySlot.reduce((a, b) => a + b, 0);
+
+      roundResults.push({
+        round: r + 1,
+        hpBefore,
+        hpAfter: [...hpSlots],
+        dmgBySlot,
+        totalDmgRound: totalDmgDealt,
+        activeSlotsBefore: hpBefore.filter(hp => hp > 0).length,
+        activeSlotsAfter,
+        overflowDmg: 0, // nella logica per-unità non c'è overflow rilevante
+        units: roundUnits,
+        slotHpBase: currentSlotHp,
+      });
+
+      // Ridistribuzione per il round successivo:
+      // tutti gli slot rimasti partono da: currentSlotHp - (dannoSubitoVivi / nVivi)
+      if (r + 1 < unitDmg.length && activeSlotsAfter > 0) {
+        const dmgOnLiving = hpSlots.reduce((sum, hp, i) => {
+          return hp > 0 ? sum + dmgBySlot[i] : sum;
+        }, 0);
+        if (dmgOnLiving > 0) {
+          const reduction = dmgOnLiving / activeSlotsAfter;
+          currentSlotHp = Math.max(0, currentSlotHp - reduction);
+          hpSlots = hpSlots.map(hp => hp > 0 ? currentSlotHp : 0);
+        }
+      }
+    }
+
+    return roundResults;
+  }
+
+  // ── Compute e render risultati ───────────────────────────────────────
+  async function compute() {
+    const resultsDiv = document.getElementById('ikwc-results');
+    if (!resultsDiv) return;
+
+    const efestoLv   = parseInt(document.getElementById('ikwc-efesto')?.value)   || 0;
+    const townhallLv = parseInt(document.getElementById('ikwc-townhall')?.value) || 20;
+    const wallLv     = parseInt(document.getElementById('ikwc-wall')?.value)     || 10;
+
+    const slots   = wallSlots(townhallLv);
+    const slotHp  = wallSlotHp(wallLv);
+    const armor   = wallArmor(wallLv);
+
+    // Leggi potenziamenti: prima dal DB, poi eventuale override manuale
+    const dbUpgrades = await readUpgradesFromDB();
+
+    const upgradeLevels = {};
+    for (const u of ARTILLERY) {
+      const manualInput = document.getElementById(u.inputId);
+      const manualVal   = manualInput?.value !== '' ? parseInt(manualInput.value) : null;
+      upgradeLevels[u.id] = manualVal ?? dbUpgrades[u.id] ?? 0;
+    }
+
+    // Danno netto per unità
+    const unitStats = ARTILLERY.map(u => ({
+      id:         u.id,
+      label:      u.label,
+      upgradeLv:  upgradeLevels[u.id],
+      dmgPerUnit: unitEffectiveDmg(u.baseAtk, upgradeLevels[u.id], efestoLv, armor),
+      baseAtk:    u.baseAtk,
+    }));
+
+    // Leggi quantità per ogni round — ordinato mortaio, catapulta, ariete
+    const artilleryOrder = [305, 306, 307]; // mortaio first
+    const unitDmgPerRound = [];
+    for (let r = 0; r < numRounds; r++) {
+      const roundUnits = artilleryOrder.map(unitId => {
+        const inputEl = document.getElementById(`ikwc-r${r}-${unitId}`);
+        const count   = parseInt(inputEl?.value) || 0;
+        const stat    = unitStats.find(u => u.id === unitId);
+        return { label: stat.label, dmgPerUnit: stat.dmgPerUnit, count, unitId };
+      });
+      unitDmgPerRound.push(roundUnits);
+    }
+
+    // Simula
+    const results = simulate(slots, slotHp, unitDmgPerRound);
+
+    // ── HTML risultati ────────────────────────────────────────────────
+    const pct = hp => slotHp > 0 ? Math.floor(hp / slotHp * 100) : 0;
+    const hpColor = p => p === 0 ? 'var(--danger,#e44)' : p < 50 ? '#f90' : 'var(--ok,#2a8)';
+
+    // Tabella parametri
+    let html = `
+      <div style="background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;
+                  padding:8px 10px;margin-bottom:10px;font-size:12px">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+          <span>🏛 Municipio <b>lv ${townhallLv}</b></span>
+          <span>🏯 Mura <b>lv ${wallLv}</b></span>
+          <span>⛩ Efesto <b>lv ${efestoLv}</b></span>
+          <span>📦 Slot mura: <b>${slots}</b></span>
+          <span>❤️ HP/slot: <b>${slotHp.toLocaleString('it')}</b></span>
+          <span>🛡 Armatura: <b>${armor.toLocaleString('it')}</b></span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">`;
+
+    for (const u of unitStats) {
+      html += `<span>${u.label}: base <b>${u.baseAtk.toLocaleString('it')}</b>
+        → up lv${u.upgradeLv} + Efesto lv${efestoLv}
+        → <b style="color:var(--ok,#2a8)">${u.dmgPerUnit.toLocaleString('it')}</b> netto/unità</span>`;
+    }
+    html += `</div></div>`;
+
+    // Tabella round per round
+    for (const rr of results) {
+      const totalUnits = rr.units.reduce((s, u) => s + u.count, 0);
+      const unitSummary = rr.units.filter(u => u.count > 0)
+        .map(u => `${u.count} ${u.label} (${(u.dmgPerUnit * u.count).toLocaleString('it')} dmg)`)
+        .join(' + ') || '—';
+
+      html += `
+        <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
+          <div style="background:var(--bg-alt);padding:6px 10px;font-weight:600;font-size:12px;
+                      display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span>⚔️ Round ${rr.round}</span>
+            <span style="color:var(--text-muted);font-weight:400">${unitSummary}</span>
+            <span style="margin-left:auto;color:var(--text-muted)">
+              Danno totale: <b>${rr.totalDmgRound.toLocaleString('it')}</b>
+              · Slot attivi: <b>${rr.activeSlotsAfter}/${slots}</b>
+              ${rr.overflowDmg > 0 ? `· <span style="color:#f90">Overflow: ${Math.round(rr.overflowDmg).toLocaleString('it')}</span>` : ''}
+            </span>
+          </div>
+          <div style="padding:8px 10px">
+            <div style="display:flex;gap:4px;flex-wrap:wrap">`;
+
+      for (let s = 0; s < slots; s++) {
+        const hpAfter  = rr.hpAfter[s];
+        const hpBefore = rr.hpBefore[s];
+        const p        = pct(hpAfter);
+        const pBefore  = pct(hpBefore);
+        const dmg      = rr.dmgBySlot[s];
+        html += `
+              <div style="flex:1;min-width:60px;background:var(--bg);border:1px solid var(--border);
+                          border-radius:4px;padding:5px 6px;text-align:center;font-size:11px">
+                <div style="color:var(--text-muted);margin-bottom:2px">Slot ${s + 1}</div>
+                <div style="font-weight:700;color:${hpColor(p)}">${p}%</div>
+                <div style="font-size:10px;color:var(--text-muted)">${Math.round(hpAfter).toLocaleString('it')} HP</div>
+                ${dmg > 0 ? `<div style="font-size:10px;color:var(--danger,#e44)">−${Math.round(dmg).toLocaleString('it')}</div>` : ''}
+              </div>`;
+      }
+
+      html += `</div></div></div>`;
+    }
+
+    // Riepilogo finale
+    const finalHp   = results[results.length - 1]?.hpAfter || Array(slots).fill(slotHp);
+    const totalActive = finalHp.filter(hp => hp > 0).length;
+    const totalHpLeft = finalHp.reduce((s, hp) => s + hp, 0);
+    const pctLeft   = Math.round(totalHpLeft / (slots * slotHp) * 100);
+
+    html += `
+      <div style="background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;
+                  padding:8px 10px;font-size:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <span style="font-weight:600">📊 Riepilogo finale</span>
+        <span>Slot rimasti: <b style="color:${totalActive === 0 ? 'var(--danger,#e44)' : 'var(--ok,#2a8)'}">${totalActive}/${slots}</b></span>
+        <span>HP totali rimasti: <b>${Math.round(totalHpLeft).toLocaleString('it')}</b> (${pctLeft}%)</span>
+        ${totalActive === 0 ? '<span style="color:var(--danger,#e44);font-weight:700">🏴 Mura abbattute!</span>' : ''}
+      </div>`;
+
+    resultsDiv.innerHTML = html;
+  }
+
+  function addRound() {
+    if (numRounds >= 20) return;
+    numRounds++;
+    renderRoundInputs();
+    compute();
+  }
+
+  function removeRound() {
+    if (numRounds <= 1) return;
+    numRounds--;
+    renderRoundInputs();
+    compute();
+  }
+
+  function reset() {
+    numRounds = 1;
+    document.getElementById('ikwc-efesto')?.setAttribute('value', '0');
+    document.getElementById('ikwc-townhall')?.setAttribute('value', '20');
+    document.getElementById('ikwc-wall')?.setAttribute('value', '10');
+    ['ikwc-up-ram','ikwc-up-cat','ikwc-up-mor'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    renderRoundInputs();
+    compute();
+  }
+
+  // Inizializzazione: al primo caricamento del pannello
+  function init() {
+    renderRoundInputs();
+    compute();
+  }
+
+  // Esposto globalmente
+  window.IkWallCalc = { compute, addRound, removeRound, reset, init };
+
+  // Auto-init quando l'elemento risultati è presente nel DOM
+  const observer = new MutationObserver(() => {
+    if (document.getElementById('ikwc-results') && !window._ikWallCalcInited) {
+      window._ikWallCalcInited = true;
+      init();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  console.log('[IkWallCalc] v1 OK');
+})();
+
 
