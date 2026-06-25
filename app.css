@@ -104,9 +104,9 @@
 /* ── TOAST ──────────────────────────────────── */
 #ikp-toast {
   position: fixed !important;
-  bottom: 24px !important;
+  top: 16px !important;
   left: 50% !important;
-  transform: translateX(-50%) translateY(80px) !important;
+  transform: translateX(-50%) translateY(-80px) !important;
   background: #2c1f0e !important;
   color: #fff !important;
   border-radius: 24px !important;
@@ -348,12 +348,20 @@
 #ikp-panel .ikp-filter-input:focus { outline: none; border-color: var(--accent); }
 #ikp-panel .ikp-filter-input::placeholder { color: var(--text-muted); }
 #ikp-panel .ikp-map-legend {
-  display: flex; flex-wrap: wrap; gap: 10px;
-  font-size: 11px; color: var(--text-dim); margin-top: 8px;
+  display: flex; flex-wrap: wrap; gap: 6px 10px;
+  font-size: 11px; color: var(--text-dim);
+  margin: 6px 0 8px;
+  padding: 6px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
-#ikp-panel .ikp-legend-item { display: flex; align-items: center; gap: 5px; }
+#ikp-panel .ikp-legend-item {
+  display: flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
 #ikp-panel .ikp-legend-dot {
-  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0;
 }
 
 /* ── TIMER ───────────────────────────────────── */
@@ -532,4 +540,26 @@
 }
 #ikp-panel .ikp-db-table tfoot td {
   border-top: 2px solid var(--border); border-bottom: none;
+}
+
+/* ── SEZIONI EDIFICI PER POLIS ──────────────── */
+.ikp-buildings-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.ikp-buildings-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg-card);
+  user-select: none;
+}
+.ikp-buildings-header:hover {
+  background: var(--bg);
 }

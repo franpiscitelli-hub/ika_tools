@@ -395,72 +395,80 @@
           </div>
 
           <!-- ══ CALCOLATORE DANNO MURA ══ -->
-          <div class="ikp-card" style="margin-top:10px">
-            <div class="ikp-card-title">
+          <div style="margin-top:10px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <div style="padding:8px 10px;background:var(--bg-alt);font-weight:700;font-size:13px;
+                        display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
+                 onclick="(function(){var b=document.getElementById('ikwc-body'),arr=document.getElementById('ikwc-arrow'),open=b.style.display!=='none';b.style.display=open?'none':'block';arr.textContent=open?'▶':'▼';})()">
               💥 Calcolo Splash
-              <button class="ikp-btn small outline" onclick="window.IkWallCalc.reset()">↺ Reset</button>
+              <span id="ikwc-arrow" style="font-size:10px;color:var(--text-muted)">▶</span>
+              <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
+                      onclick="event.stopPropagation();window.IkWallCalc.reset()">↺ Reset</button>
             </div>
-            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-              Calcola i danni all'artiglieria su più round. I potenziamenti officina vengono letti dal DB se disponibili.
-            </p>
+            <div id="ikwc-body" style="display:none">
+              <div style="padding:10px;border-top:1px solid var(--border)">
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+                  Calcola i danni all'artiglieria su più round. I potenziamenti officina vengono letti dal DB se disponibili.
+                </p>
 
-            <!-- INPUTS PRINCIPALI -->
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">
-              <label style="font-size:12px">
-                ⛩ Liv. Efesto
-                <input id="ikwc-efesto" type="number" min="0" max="20" value="0"
-                  style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
-                  oninput="window.IkWallCalc.compute()">
-              </label>
-              <label style="font-size:12px">
-                🏛 Liv. Municipio
-                <input id="ikwc-townhall" type="number" min="1" max="50" value="20"
-                  style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
-                  oninput="window.IkWallCalc.compute()">
-              </label>
-              <label style="font-size:12px">
-                🏯 Liv. Mura
-                <input id="ikwc-wall" type="number" min="1" max="25" value="10"
-                  style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
-                  oninput="window.IkWallCalc.compute()">
-              </label>
-            </div>
+                <!-- INPUTS PRINCIPALI -->
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">
+                  <label style="font-size:12px">
+                    ⛩ Liv. Efesto
+                    <input id="ikwc-efesto" type="number" min="0" max="20" value="0"
+                      style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                      oninput="window.IkWallCalc.compute()">
+                  </label>
+                  <label style="font-size:12px">
+                    🏛 Liv. Municipio
+                    <input id="ikwc-townhall" type="number" min="1" max="50" value="20"
+                      style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                      oninput="window.IkWallCalc.compute()">
+                  </label>
+                  <label style="font-size:12px">
+                    🏯 Liv. Mura
+                    <input id="ikwc-wall" type="number" min="1" max="25" value="10"
+                      style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                      oninput="window.IkWallCalc.compute()">
+                  </label>
+                </div>
 
-            <!-- OVERRIDE POTENZIAMENTI OFFICINA -->
-            <details style="margin-bottom:10px;font-size:12px">
-              <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:6px">🔧 Potenziamenti officina (letti dal DB — espandi per override)</summary>
-              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px">
-                <label>🪨 Ariete liv. atk
-                  <input id="ikwc-up-ram" type="number" min="0" max="3" value=""
-                    placeholder="auto"
-                    style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
-                    oninput="window.IkWallCalc.compute()">
-                </label>
-                <label>🪨 Catapulta liv. atk
-                  <input id="ikwc-up-cat" type="number" min="0" max="3" value=""
-                    placeholder="auto"
-                    style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
-                    oninput="window.IkWallCalc.compute()">
-                </label>
-                <label>🪨 Mortaio liv. atk
-                  <input id="ikwc-up-mor" type="number" min="0" max="3" value=""
-                    placeholder="auto"
-                    style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
-                    oninput="window.IkWallCalc.compute()">
-                </label>
+                <!-- OVERRIDE POTENZIAMENTI OFFICINA -->
+                <details style="margin-bottom:10px;font-size:12px">
+                  <summary style="cursor:pointer;color:var(--text-muted);margin-bottom:6px">🔧 Potenziamenti officina (letti dal DB — espandi per override)</summary>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px">
+                    <label>🪨 Ariete liv. atk
+                      <input id="ikwc-up-ram" type="number" min="0" max="3" value=""
+                        placeholder="auto"
+                        style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                        oninput="window.IkWallCalc.compute()">
+                    </label>
+                    <label>🪨 Catapulta liv. atk
+                      <input id="ikwc-up-cat" type="number" min="0" max="3" value=""
+                        placeholder="auto"
+                        style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                        oninput="window.IkWallCalc.compute()">
+                    </label>
+                    <label>🪨 Mortaio liv. atk
+                      <input id="ikwc-up-mor" type="number" min="0" max="3" value=""
+                        placeholder="auto"
+                        style="width:100%;margin-top:3px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:13px"
+                        oninput="window.IkWallCalc.compute()">
+                    </label>
+                  </div>
+                </details>
+
+                <!-- UNITÀ PER ROUND -->
+                <div style="font-size:12px;font-weight:600;margin-bottom:4px">🪖 Unità per round</div>
+                <div id="ikwc-rounds-container" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+                <div style="display:flex;gap:6px;margin-bottom:12px">
+                  <button class="ikp-btn small outline" onclick="window.IkWallCalc.addRound()">＋ Aggiungi round</button>
+                  <button class="ikp-btn small outline" onclick="window.IkWallCalc.removeRound()">－ Rimuovi round</button>
+                </div>
+
+                <!-- RISULTATI -->
+                <div id="ikwc-results"></div>
               </div>
-            </details>
-
-            <!-- UNITÀ PER ROUND -->
-            <div style="font-size:12px;font-weight:600;margin-bottom:4px">🪖 Unità per round</div>
-            <div id="ikwc-rounds-container" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
-            <div style="display:flex;gap:6px;margin-bottom:12px">
-              <button class="ikp-btn small outline" onclick="window.IkWallCalc.addRound()">＋ Aggiungi round</button>
-              <button class="ikp-btn small outline" onclick="window.IkWallCalc.removeRound()">－ Rimuovi round</button>
             </div>
-
-            <!-- RISULTATI -->
-            <div id="ikwc-results"></div>
           </div>
         </div>
 
@@ -1959,12 +1967,13 @@
     }
 
     // ── CITTADINI / REDDITO MASSIMO ──────────────────────────
-    let totalCitizens = 0, totalPriests = 0;
+    // Il reddito max usa la popolazione massima (non i cittadini attivi)
+    let totalMaxPop = 0, totalPriests = 0;
     for (const th of (townHallAll || [])) {
-      totalCitizens += th.citizens   || 0;
-      totalPriests  += th.priests    || 0;
+      totalMaxPop  += th.maxPopulation || 0;
+      totalPriests += th.priests       || 0;
     }
-    const netCitizens = Math.max(0, totalCitizens - totalPriests);
+    const netCitizens = Math.max(0, totalMaxPop - totalPriests);
 
     // Benedizione Pluto attiva? (godKey = 'plutus', endTime > now)
     const now = Date.now();
@@ -2020,7 +2029,7 @@
                     padding-bottom:8px;border-bottom:1px solid var(--border)">
           <span>👥 Cittadini netti: <b>${netCitizens.toLocaleString('it')}</b>
             <span style="font-size:11px;color:var(--text-muted)">
-              (${totalCitizens.toLocaleString('it')} − ${totalPriests.toLocaleString('it')} sacerdoti)
+              (max pop ${totalMaxPop.toLocaleString('it')} − ${totalPriests.toLocaleString('it')} sacerdoti)
             </span>
           </span>
           <span>💰 Reddito max: <b id="ikp-max-income" style="color:var(--ok,#2a8)">${maxIncome.toLocaleString('it')}/h</b>
