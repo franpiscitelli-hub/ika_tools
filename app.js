@@ -397,7 +397,7 @@
           <!-- ══ CALCOLATORE DANNO MURA ══ -->
           <div class="ikp-card" style="margin-top:10px">
             <div class="ikp-card-title">
-              🏯 Calcolatore Danno Mura
+              💥 Calcolo Splash
               <button class="ikp-btn small outline" onclick="window.IkWallCalc.reset()">↺ Reset</button>
             </div>
             <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
@@ -3898,8 +3898,22 @@
     return result;
   }
 
+  // ── Salva e ripristina i valori degli input per round ───────────────
+  function saveRoundValues() {
+    const saved = [];
+    for (let r = 0; r < numRounds; r++) {
+      const row = {};
+      for (const u of ARTILLERY) {
+        const el = document.getElementById(`ikwc-r${r}-${u.id}`);
+        row[u.id] = el ? (parseInt(el.value) || 0) : 0;
+      }
+      saved.push(row);
+    }
+    return saved;
+  }
+
   // ── Render dei round input ───────────────────────────────────────────
-  function renderRoundInputs() {
+  function renderRoundInputs(savedValues) {
     const container = document.getElementById('ikwc-rounds-container');
     if (!container) return;
 
@@ -3909,9 +3923,10 @@
                             padding:6px 10px;border-radius:6px;font-size:12px">
         <span style="font-weight:600;min-width:60px">Round ${r + 1}</span>`;
       for (const u of ARTILLERY) {
+        const val = savedValues?.[r]?.[u.id] ?? 0;
         html += `<label style="display:flex;align-items:center;gap:4px">
           ${u.label}
-          <input id="ikwc-r${r}-${u.id}" type="number" min="0" value="0"
+          <input id="ikwc-r${r}-${u.id}" type="number" min="0" value="${val}"
             style="width:52px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;
                    background:var(--bg);color:var(--text);font-size:12px"
             oninput="window.IkWallCalc.compute()">
@@ -4131,15 +4146,17 @@
 
   function addRound() {
     if (numRounds >= 20) return;
+    const saved = saveRoundValues();
     numRounds++;
-    renderRoundInputs();
+    renderRoundInputs(saved);
     compute();
   }
 
   function removeRound() {
     if (numRounds <= 1) return;
+    const saved = saveRoundValues();
     numRounds--;
-    renderRoundInputs();
+    renderRoundInputs(saved);
     compute();
   }
 
