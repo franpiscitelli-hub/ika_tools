@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════
-// parser_ikalogs.js v6
+// parser_ikalogs.js v7
 //
 // Struttura JSON:
 // data.body.cities_info = { "X": { "Y": [{city}] } }
@@ -131,12 +131,20 @@
       islandsToWrite.push(rec);
     }
 
-    // ── STEP 4: scrittura batch — 1 transazione ────
-    try {
-      await window.IkDB.putMany('islands', islandsToWrite);
-    } catch (e) {
-      console.error('[parser_ikalogs] putMany error:', e.message);
+    // ── STEP 4: scrittura batch — chunk da 200 per evitare abort IDB ──
+    const CHUNK = 200;
+    let writeErrors = 0;
+    for (let i = 0; i < islandsToWrite.length; i += CHUNK) {
+      const chunk = islandsToWrite.slice(i, i + CHUNK);
+      try {
+        await window.IkDB.putMany('islands', chunk);
+      } catch (e) {
+        writeErrors++;
+        console.error(`[parser_ikalogs] putMany chunk ${i}–${i + CHUNK} error:`, e.message);
+      }
     }
+    if (writeErrors) console.warn(`[parser_ikalogs] ${writeErrors} chunk(s) con errore su ${Math.ceil(islandsToWrite.length / CHUNK)}`);
+
 
     const tot = countIslands + countCities;
     console.log(`[parser_ikalogs] ${countIslands} isole, ${countCities} città`);
@@ -153,5 +161,5 @@
     match: url => /ikalogs/i.test(url) || /\/common\/report/i.test(url),
     parse,
   });
-  console.log('[parser_ikalogs] v6 OK');
+  console.log('[parser_ikalogs] v7 OK');
 })();
