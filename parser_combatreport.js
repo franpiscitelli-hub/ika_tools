@@ -360,54 +360,34 @@
   }
 
   // ── Salva / aggiorna player_units ────────────────────────────
-  async function updatePlayerUnits(playerId, playerName, allyName, slots, reserve, blessings, combatId, date, unitUpgrades) {
+  // Dal report si importano SOLO gli upgrades delle unità che li hanno.
+  // Per le unità senza upgrades non si importa nulla dal report.
+  // unitUpgrades: Map<unitName, { upgrades:{}, ... }> estratti dai tooltip
+  async function updatePlayerUnits(playerId, playerName, allyName, blessings, combatId, date, unitUpgrades) {
     if (!playerId && !playerName) return;
+    if (!unitUpgrades || unitUpgrades.size === 0) return;
 
-    // Se non abbiamo playerId, prova a cercarlo in players per nome
+    // Risolvi playerId: prima dal report, poi dalla classifica per nome
     let resolvedId = playerId;
     let unresolvedName = false;
     if (!resolvedId && playerName) {
       try {
         const allPlayers = await window.IkDB.getAll('players');
+        const cleanName  = playerName.replace(/\s*\[[^\]]+\]$/, '').trim().toLowerCase();
         const found = allPlayers.find(p =>
-          p.name?.toLowerCase() === playerName.toLowerCase() ||
-          p.name?.toLowerCase().includes(playerName.toLowerCase())
+          p.name?.toLowerCase() === cleanName ||
+          p.name?.toLowerCase() === playerName.toLowerCase()
         );
         if (found) {
-          resolvedId = found.id; // es. "av_100141"
+          resolvedId = found.id;
         } else {
-          // Usa il nome come chiave (prefisso "name_")
-          resolvedId = `name_${playerName.toLowerCase().replace(/\s+/g,'_')}`;
+          resolvedId = `name_${cleanName.replace(/\s+/g,'_')}`;
           unresolvedName = true;
-          console.warn(`[IkCombat] Player "${playerName}" non trovato in classifica — usata chiave nome`);
+          console.warn(`[IkCombat] Player "${playerName}" non trovato in classifica — chiave: ${resolvedId}`);
         }
       } catch {
-        resolvedId = `name_${(playerName||'unknown').toLowerCase().replace(/\s+/g,'_')}`;
+        resolvedId = `name_${(playerName||'unknown').toLowerCase().replace(/\s*\[[^\]]+\]$/,'').replace(/\s+/g,'_')}`;
         unresolvedName = true;
-      }
-    }
-
-    // Aggrega le unità viste nel round (campo + riserva)
-    const unitsSeen = {};
-    for (const slot of (slots || [])) {
-      if (!slot.unitId) continue;
-      const total = (slot.count || 0) + (slot.losses || 0);
-      if (!unitsSeen[slot.unitId]) unitsSeen[slot.unitId] = { count: 0, losses: 0 };
-      unitsSeen[slot.unitId].count  += slot.count  || 0;
-      unitsSeen[slot.unitId].losses += slot.losses || 0;
-    }
-    for (const r of (reserve || [])) {
-      if (!r.unitId) continue;
-      if (!unitsSeen[r.unitId]) unitsSeen[r.unitId] = { count: 0, losses: 0 };
-      unitsSeen[r.unitId].count += r.count || 0;
-    }
-
-    // Aggiunge le informazioni di potenziamento dai tooltip (per nome unità)
-    // unitUpgrades: Map<unitName, { upgrades: {name→{name,level}}, slotsCount, ammo, ... }>
-    const upgradesByName = {};
-    if (unitUpgrades) {
-      for (const [unitName, ud] of unitUpgrades.entries()) {
-        upgradesByName[unitName] = ud;
       }
     }
 
@@ -415,60 +395,61 @@
     let existing = null;
     try { existing = await window.IkDB.get('player_units', resolvedId); } catch {}
 
-    const now = date || new Date().toISOString();
-    const prev = existing || { playerId: resolvedId, playerName, allyName, units: {}, blessings: [], combatHistory: [], unresolvedName };
+    const now  = date || new Date().toISOString();
+    const prev = existing || {
+      playerId: resolvedId, playerName, allyName,
+      units: {}, blessings: [], combatHistory: [], unresolvedName,
+    };
 
-    // Aggiorna le unità: teniamo il massimo osservato per tipo
+    // Aggiorna solo le unità che hanno almeno un upgrade
     const updatedUnits = { ...(prev.units || {}) };
-    for (const [id, data] of Object.entries(unitsSeen)) {
-      const prevU     = updatedUnits[id] || { maxCount: 0, totalLosses: 0, lastSeen: null, upgrades: {} };
-      const unitName  = UNIT_NAMES[id] || `unit_${id}`;
-      // Potenziamenti: cerca per nome unità nei tooltip data
-      const tooltipData = upgradesByName[unitName] || null;
-      const prevUpgrades = prevU.upgrades || {};
-      const mergedUpgrades = { ...prevUpgrades };
-      if (tooltipData) {
-        for (const [upgName, upgData] of Object.entries(tooltipData.upgrades || {})) {
-          const existing = mergedUpgrades[upgName];
-          if (!existing || existing.level < upgData.level) {
-            mergedUpgrades[upgName] = upgData;
-          }
-        }
+    for (const [unitName, ud] of unitUpgrades.entries()) {
+      const upgrades = ud.upgrades || {};
+      if (Object.keys(upgrades).length === 0) continue;  // salta se nessun upgrade
+
+      // Ricava unitId dal nome
+      const unitId = Object.entries(UNIT_NAMES).find(([, n]) => n === unitName)?.[0];
+      if (!unitId) {
+        console.warn(`[IkCombat] unitId non trovato per "${unitName}"`);
+        continue;
       }
-      updatedUnits[id] = {
-        unitId:      parseInt(id),
+
+      const prevU          = updatedUnits[unitId] || {};
+      const mergedUpgrades = { ...(prevU.upgrades || {}) };
+      for (const [upgName, upgData] of Object.entries(upgrades)) {
+        const ex = mergedUpgrades[upgName];
+        if (!ex || ex.level < upgData.level) mergedUpgrades[upgName] = upgData;
+      }
+
+      updatedUnits[unitId] = {
+        ...prevU,              // mantieni maxCount, totalLosses, source, ecc.
+        unitId:   parseInt(unitId),
         unitName,
-        maxCount:    Math.max(prevU.maxCount || 0, data.count + data.losses),
-        totalLosses: (prevU.totalLosses || 0) + data.losses,
-        lastSeen:    now,
-        source:      'combat',
-        upgrades:    mergedUpgrades,
-        ...(tooltipData?.ammo != null ? { lastAmmo: tooltipData.ammo } : {}),
+        upgrades: mergedUpgrades,
+        lastSeen: now,
       };
     }
 
-    // Aggiungi benedizioni (no duplicati per nome+data)
+    // Storico combattimenti
+    const prevHistory = prev.combatHistory || [];
+    if (combatId && !prevHistory.find(h => h.combatId === combatId))
+      prevHistory.push({ combatId, date: now });
+
+    // Benedizioni (no duplicati)
     const prevBlessings = prev.blessings || [];
     const newBlessings  = [...prevBlessings];
-    for (const b of (blessings || [])) {
-      const dup = newBlessings.find(x => x.name === b.name && x.date === b.date);
-      if (!dup) newBlessings.push(b);
-    }
-
-    // Storico combattimenti (solo combatId e data)
-    const prevHistory = prev.combatHistory || [];
-    if (combatId && !prevHistory.find(h => h.combatId === combatId)) {
-      prevHistory.push({ combatId, date: now });
-    }
+    for (const b of (blessings || []))
+      if (!newBlessings.find(x => x.name === b.name && x.date === b.date))
+        newBlessings.push(b);
 
     const updated = {
       ...prev,
-      playerName:     playerName || prev.playerName,
-      allyName:       allyName   || prev.allyName,
-      units:          updatedUnits,
-      blessings:      newBlessings,
-      combatHistory:  prevHistory,
-      lastSeen:       now,
+      playerName:    playerName || prev.playerName,
+      allyName:      allyName   || prev.allyName,
+      units:         updatedUnits,
+      blessings:     newBlessings,
+      combatHistory: prevHistory,
+      lastSeen:      now,
       unresolvedName,
     };
 
@@ -729,25 +710,21 @@
 
         await saveCombatReport(combatId, patch);
 
-        // Aggiorna player_units per attaccante
+        // Aggiorna player_units per attaccante (solo upgrades dai tooltip)
         await updatePlayerUnits(
           round.morale?.attacker?.playerId,
           attName,
           null,
-          round.attacker?.slots,
-          round.attacker?.reserve,
           blessings.filter(b => b.playerName === attName),
           combatId,
           round.date,
           getPlayerUpgrades(attName)
         );
-        // Aggiorna player_units per difensore
+        // Aggiorna player_units per difensore (solo upgrades dai tooltip)
         await updatePlayerUnits(
           round.morale?.defender?.playerId,
           defName,
           null,
-          round.defender?.slots,
-          round.defender?.reserve,
           blessings.filter(b => b.playerName === defName),
           combatId,
           round.date,

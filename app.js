@@ -404,7 +404,7 @@
               <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
                       onclick="event.stopPropagation();window.IkWallCalc.reset()">↺ Reset</button>
             </div>
-            <div id="ikwc-body" style="display:none">
+            <div id="ikwc-body" style="display:none;background:var(--bg,#fff)">
               <div style="padding:10px;border-top:1px solid var(--border)">
                 <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
                   Calcola i danni all'artiglieria su più round. I potenziamenti officina vengono letti dal DB se disponibili.
@@ -3237,6 +3237,23 @@
       { k: '_parserCount',label: 'Records' },
       { k: '_actions',    label: 'Azioni' },
     ],
+    combat_reports: [
+      { k: 'combatId',      label: 'ID' },
+      { k: 'date',          label: 'Data' },
+      { k: 'type',          label: 'Tipo' },
+      { k: 'attackerName',  label: 'Attaccante' },
+      { k: 'defenderName',  label: 'Difensore' },
+      { k: 'totalRounds',   label: 'Round' },
+      { k: 'winner',        label: 'Vincitore' },
+      { k: 'capturedDate',  label: 'Catturato' },
+    ],
+    player_units: [
+      { k: 'playerId',    label: 'ID' },
+      { k: 'playerName',  label: 'Player' },
+      { k: 'allyName',    label: 'Ally' },
+      { k: 'units',       label: 'Unità (con up.)' },
+      { k: 'lastSeen',    label: 'Ultimo visto' },
+    ],
   };
 
   const STORE_SEARCH = {
@@ -3250,6 +3267,8 @@
     players:       r => `${r.name} ${r.ally} ${r.status} ${r.stateSource}`.toLowerCase(),
     state_changes: r => `${r.playerName} ${r.allyName} ${r.prevState} ${r.newState}`.toLowerCase(),
     entries:       r => `${r.type} ${r.url}`.toLowerCase(),
+    combat_reports:r => `${r.combatId} ${r.attackerName||''} ${r.defenderName||''} ${r.winner||''}`.toLowerCase(),
+    player_units:  r => `${r.playerId} ${r.playerName||''} ${r.allyName||''}`.toLowerCase(),
   };
 
   // Formatta valore per cella tabella
@@ -3265,7 +3284,7 @@
       }
       return `<span style="color:var(--text-muted)">${d.toLocaleTimeString('it')}</span>`;
     }
-    if (key === 'newUpdate' || key === 'updated') {
+    if (key === 'newUpdate' || key === 'updated' || key === 'date' || key === 'capturedDate' || key === 'lastSeen') {
       try { return new Date(v).toLocaleString('it-IT', { dateStyle:'short', timeStyle:'short' }); } catch {}
     }
     if (key === 'score') return Number(v) > 1000000 ? (Number(v)/1000000).toFixed(2)+'M' : Number(v).toLocaleString('it');
@@ -3273,6 +3292,12 @@
       const cls = { active:'state-active', inactive:'state-inactive', vacation:'state-vacation', banned:'state-banned' };
       const lbl = { active:'Attivo', inactive:'Inattivo', vacation:'Vacanza', banned:'Bannato' };
       return `<span class="ikp-state-badge ${cls[v]||''}">${lbl[v]||v}</span>`;
+    }
+    if (key === 'units' && v && typeof v === 'object') {
+      // Mostra solo le unità con almeno un upgrade
+      const withUpg = Object.values(v).filter(u => u.upgrades && Object.keys(u.upgrades).length > 0);
+      if (!withUpg.length) return '<span style="color:#aaa">—</span>';
+      return withUpg.map(u => `${u.unitName} (${Object.keys(u.upgrades).length} up.)`).join(', ');
     }
     if (key === 'isBusy') return v ? '🔴' : '🟢';
     if (key === 'isRanged') return v ? '🏹 Sì' : '⚔️ No';
