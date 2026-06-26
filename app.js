@@ -1222,13 +1222,27 @@
   // ── DETTAGLIO PLAYER (aperto dal pulsante 📊 nel popup) ──
   // ── TRUPPE E POTENZIAMENTI PLAYER (pulsante 🪖 nella classifica) ──
   async function showPlayerUnits(playerId, playerName) {
-    const overlay = document.getElementById('ikp-overlay');
-    const popup   = document.getElementById('ikp-island-popup');
-    if (!overlay || !popup) return;
+    // Usa un overlay proprio (come showPlayerDetail) per funzionare da qualsiasi tab
+    const existingOverlay = document.getElementById('ikp-units-overlay');
+    if (existingOverlay) existingOverlay.remove();
 
-    overlay.classList.add('show');
-    popup.style.display = 'block';
-    popup.innerHTML = `<div style="padding:12px;font-size:13px">⏳ Caricamento truppe di <b>${playerName}</b>…</div>`;
+    const overlay = document.createElement('div');
+    overlay.id = 'ikp-units-overlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.55);
+      display:flex;align-items:flex-end;justify-content:center;
+    `;
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+
+    const popup = document.createElement('div');
+    popup.style.cssText = `
+      background:var(--bg-card,#fff);border-radius:14px 14px 0 0;
+      width:100%;max-width:520px;max-height:80vh;overflow-y:auto;
+      padding:16px 16px 24px;box-shadow:0 -4px 24px rgba(0,0,0,0.3);
+    `;
+    popup.innerHTML = `<div style="padding:4px;font-size:13px">⏳ Caricamento truppe di <b>${playerName}</b>…</div>`;
+    overlay.appendChild(popup);
 
     let rec = null;
     if (window.IkDB) {
@@ -1247,13 +1261,13 @@
 
     if (!rec || !rec.units || !Object.keys(rec.units).length) {
       popup.innerHTML = `
-        <div style="padding:14px">
+        <div style="padding:4px">
           <div style="font-weight:700;font-size:14px;margin-bottom:8px">🪖 ${playerName}</div>
           <p style="font-size:12px;color:var(--text-muted)">
             Nessun dato truppe. Naviga un report di combattimento che lo include.
           </p>
           <button class="ikp-btn small outline" style="margin-top:8px"
-            onclick="window.IkApp.closePopup()">Chiudi</button>
+            onclick="document.getElementById('ikp-units-overlay')?.remove()">Chiudi</button>
         </div>`;
       return;
     }
@@ -1287,10 +1301,16 @@
       : '';
 
     popup.innerHTML = `
-      <div style="padding:14px;max-height:70vh;overflow-y:auto">
-        <div style="font-weight:700;font-size:14px;margin-bottom:2px">🪖 ${playerName}${allyStr}</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-          ID: ${rec.playerId} · Ultimo visto: ${lastSeen}
+      <div style="padding:4px;max-height:70vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div>
+            <div style="font-weight:700;font-size:14px;margin-bottom:2px">🪖 ${playerName}${allyStr}</div>
+            <div style="font-size:11px;color:var(--text-muted)">
+              ID: ${rec.playerId} · Ultimo visto: ${lastSeen}
+            </div>
+          </div>
+          <button onclick="document.getElementById('ikp-units-overlay')?.remove()"
+            style="background:none;border:none;font-size:20px;color:var(--text-muted);cursor:pointer;padding:0 4px">✕</button>
         </div>
         ${unresolvedWarn}
 
@@ -1317,7 +1337,7 @@
         ` : ''}
 
         <button class="ikp-btn small outline" style="margin-top:12px"
-          onclick="window.IkApp.closePopup()">Chiudi</button>
+          onclick="document.getElementById('ikp-units-overlay')?.remove()">Chiudi</button>
       </div>`;
   }
 
