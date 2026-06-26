@@ -404,7 +404,7 @@
               <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
                       onclick="event.stopPropagation();window.IkWallCalc.reset()">↺ Reset</button>
             </div>
-            <div id="ikwc-body" style="display:none;background:var(--bg,#fff)">
+            <div id="ikwc-body" style="display:none;background:var(--bg-card,#fff)">
               <div style="padding:10px;border-top:1px solid var(--border)">
                 <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
                   Calcola i danni all'artiglieria su più round. I potenziamenti officina vengono letti dal DB se disponibili.
@@ -467,6 +467,35 @@
 
                 <!-- RISULTATI -->
                 <div id="ikwc-results"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ══ VISUALIZZATORE REPORT COMBATTIMENTO ══ -->
+          <div style="margin-top:10px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <div style="padding:8px 10px;background:var(--bg-alt);font-weight:700;font-size:13px;
+                        display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
+                 onclick="(function(){var b=document.getElementById('ikcr-body'),arr=document.getElementById('ikcr-arrow'),open=b.style.display!=='none';b.style.display=open?'none':'block';arr.textContent=open?'▶':'▼';if(open===false)window.IkApp.renderCombatReports();})()">
+              ⚔️ Report Combattimento
+              <span id="ikcr-arrow" style="font-size:10px;color:var(--text-muted)">▶</span>
+              <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
+                      onclick="event.stopPropagation();window.IkApp.renderCombatReports()">↻</button>
+            </div>
+            <div id="ikcr-body" style="display:none;background:var(--bg-card,#fff)">
+              <div style="padding:10px;border-top:1px solid var(--border)">
+                <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+                  <input id="ikcr-q" class="ikp-input" placeholder="Cerca player…"
+                         style="flex:1;min-width:100px;font-size:12px"
+                         oninput="window.IkApp.renderCombatReports()">
+                  <select id="ikcr-type" style="padding:4px 6px;border:1px solid var(--border);
+                          border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                          onchange="window.IkApp.renderCombatReports()">
+                    <option value="">Tutti</option>
+                    <option value="naval">⛴ Navale</option>
+                    <option value="land">🪖 Terra</option>
+                  </select>
+                </div>
+                <div id="ikcr-list"></div>
               </div>
             </div>
           </div>
@@ -1191,6 +1220,107 @@
   }
 
   // ── DETTAGLIO PLAYER (aperto dal pulsante 📊 nel popup) ──
+  // ── TRUPPE E POTENZIAMENTI PLAYER (pulsante 🪖 nella classifica) ──
+  async function showPlayerUnits(playerId, playerName) {
+    const overlay = document.getElementById('ikp-overlay');
+    const popup   = document.getElementById('ikp-island-popup');
+    if (!overlay || !popup) return;
+
+    overlay.classList.add('show');
+    popup.style.display = 'block';
+    popup.innerHTML = `<div style="padding:12px;font-size:13px">⏳ Caricamento truppe di <b>${playerName}</b>…</div>`;
+
+    let rec = null;
+    if (window.IkDB) {
+      // Prova prima per playerId, poi per nome
+      try { rec = await window.IkDB.get('player_units', playerId); } catch {}
+      if (!rec) {
+        try {
+          const all  = await window.IkDB.getAll('player_units');
+          const clean = playerName.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim();
+          rec = all.find(r =>
+            r.playerName?.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim() === clean
+          ) || null;
+        } catch {}
+      }
+    }
+
+    if (!rec || !rec.units || !Object.keys(rec.units).length) {
+      popup.innerHTML = `
+        <div style="padding:14px">
+          <div style="font-weight:700;font-size:14px;margin-bottom:8px">🪖 ${playerName}</div>
+          <p style="font-size:12px;color:var(--text-muted)">
+            Nessun dato truppe. Naviga un report di combattimento che lo include.
+          </p>
+          <button class="ikp-btn small outline" style="margin-top:8px"
+            onclick="window.IkApp.closePopup()">Chiudi</button>
+        </div>`;
+      return;
+    }
+
+    const units    = Object.values(rec.units);
+    const withUpg  = units.filter(u => u.upgrades && Object.keys(u.upgrades).length > 0);
+    const noUpg    = units.filter(u => !u.upgrades || Object.keys(u.upgrades).length === 0);
+
+    const renderUnit = u => {
+      const upgs = Object.values(u.upgrades || {});
+      const upgsHtml = upgs.map(upg =>
+        `<div style="font-size:11px;color:var(--text-muted);margin-left:8px">
+          └ ${upg.name}: <b style="color:var(--accent)">lv ${upg.level}</b>
+        </div>`
+      ).join('');
+      return `
+        <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600">
+            ${u.unitName}
+            ${u.maxCount ? `<span style="font-size:11px;color:var(--text-muted);font-weight:400"> · max ${u.maxCount.toLocaleString('it')}</span>` : ''}
+            ${u.totalLosses ? `<span style="font-size:11px;color:var(--danger,#e44);font-weight:400"> · perdite ${u.totalLosses.toLocaleString('it')}</span>` : ''}
+          </div>
+          ${upgsHtml}
+        </div>`;
+    };
+
+    const lastSeen = rec.lastSeen ? fmt(rec.lastSeen) : '—';
+    const allyStr  = rec.allyName && rec.allyName !== '—' ? ` [${rec.allyName}]` : '';
+    const unresolvedWarn = rec.unresolvedName
+      ? `<div style="font-size:11px;color:var(--danger,#e44);margin-bottom:6px">⚠️ ID player non risolto — dati collegati per nome</div>`
+      : '';
+
+    popup.innerHTML = `
+      <div style="padding:14px;max-height:70vh;overflow-y:auto">
+        <div style="font-weight:700;font-size:14px;margin-bottom:2px">🪖 ${playerName}${allyStr}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+          ID: ${rec.playerId} · Ultimo visto: ${lastSeen}
+        </div>
+        ${unresolvedWarn}
+
+        ${withUpg.length ? `
+          <div style="font-weight:600;font-size:12px;margin-bottom:4px;color:var(--accent)">
+            ⬆️ Unità con potenziamenti noti (${withUpg.length})
+          </div>
+          ${withUpg.map(renderUnit).join('')}
+        ` : ''}
+
+        ${noUpg.length ? `
+          <div style="font-weight:600;font-size:12px;margin:10px 0 4px;color:var(--text-muted)">
+            Altre unità note — senza dati upgrades (${noUpg.length})
+          </div>
+          <div style="font-size:11px;color:var(--text-muted)">
+            ${noUpg.map(u => `${u.unitName}${u.maxCount ? ` (max ${u.maxCount})` : ''}`).join(' · ')}
+          </div>
+        ` : ''}
+
+        ${rec.combatHistory?.length ? `
+          <div style="font-size:11px;color:var(--text-muted);margin-top:10px">
+            📋 ${rec.combatHistory.length} combattimento/i nel DB
+          </div>
+        ` : ''}
+
+        <button class="ikp-btn small outline" style="margin-top:12px"
+          onclick="window.IkApp.closePopup()">Chiudi</button>
+      </div>`;
+  }
+
   function showPlayerDetail(playerName) {
     // Cerca il player nel DB (mapPlayers è indicizzato per nome lowercase)
     const pl = mapPlayers.get(playerName.toLowerCase());
@@ -1838,6 +1968,160 @@
 
 
   // ── TRUPPE / NAVI PER POLIS ───────────────────
+  // ── VISUALIZZATORE REPORT COMBATTIMENTO ─────────────────────
+  async function renderCombatReports() {
+    const el = document.getElementById('ikcr-list');
+    if (!el || !window.IkDB) return;
+
+    const q    = (document.getElementById('ikcr-q')?.value || '').trim().toLowerCase();
+    const type = document.getElementById('ikcr-type')?.value || '';
+
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px">⏳ Caricamento…</div>';
+
+    let reports = [];
+    try { reports = await window.IkDB.getAll('combat_reports'); } catch {}
+
+    // Filtra
+    if (q)    reports = reports.filter(r =>
+      `${r.attackerName} ${r.defenderName} ${r.combatId}`.toLowerCase().includes(q)
+    );
+    if (type) reports = reports.filter(r => r.type === type);
+
+    // Ordina per data decrescente
+    reports.sort((a, b) => (b.date || '') > (a.date || '') ? 1 : -1);
+
+    if (!reports.length) {
+      el.innerHTML = `<div class="ikp-empty" style="padding:12px">
+        <div class="ikp-empty-icon">⚔️</div>
+        <p>Nessun report. Naviga i rapporti di combattimento nel gioco.</p>
+      </div>`;
+      return;
+    }
+
+    const UNIT_ICON = { naval: '⛴', land: '🪖' };
+
+    el.innerHTML = reports.map(r => {
+      const ico      = UNIT_ICON[r.type] || '⚔️';
+      const dateStr  = r.date ? fmt(r.date) : '—';
+      const roundsOk = r.capturedRounds?.length || 0;
+      const roundsTot= r.totalRounds || '?';
+
+      // Riepilogo unità dalla unitSummary (riepilogo finale del report)
+      const summarySide = side => {
+        const units = r.unitSummary?.[side] || [];
+        if (!units.length) return '<span style="color:var(--text-muted)">—</span>';
+        return units.map(u =>
+          `<span style="white-space:nowrap">${u.name}: <b>${u.count.toLocaleString('it')}</b>`
+          + (u.losses ? ` <span style="color:var(--danger,#e44)">(-${u.losses})</span>` : '')
+          + `</span>`
+        ).join(' · ');
+      };
+
+      // Round dettaglio espandibile
+      const roundsHtml = (r.rounds || []).map(rd => {
+        const attSlots = rd.attacker?.slots || [];
+        const defSlots = rd.defender?.slots || [];
+
+        const renderSlots = slots => {
+          if (!slots.length) return '<span style="color:var(--text-muted)">—</span>';
+          // Raggruppa per unitName
+          const byUnit = {};
+          for (const s of slots) {
+            const k = s.unitName || s.unitId;
+            if (!byUnit[k]) byUnit[k] = { count: 0, losses: 0, upgrades: s.upgrades };
+            byUnit[k].count  += s.count  || 0;
+            byUnit[k].losses += s.losses || 0;
+          }
+          return Object.entries(byUnit).map(([name, d]) => {
+            const upgHtml = d.upgrades && Object.keys(d.upgrades).length
+              ? ` <span style="font-size:10px;color:var(--accent)" title="${
+                  Object.values(d.upgrades).map(u => `${u.name} lv${u.level}`).join(', ')
+                }">⬆️${Object.keys(d.upgrades).length}</span>`
+              : '';
+            return `<span style="white-space:nowrap">${name}: <b>${d.count}</b>`
+              + (d.losses ? ` <span style="color:var(--danger,#e44)">(-${d.losses})</span>` : '')
+              + upgHtml + `</span>`;
+          }).join(' · ');
+        };
+
+        const blessStr = (rd.blessings || []).map(b => `✨ ${b.playerName}: ${b.name}`).join(' · ');
+
+        return `
+          <div style="margin-top:6px;background:var(--bg-alt);border-radius:4px;padding:6px 8px;font-size:11px">
+            <div style="font-weight:600;margin-bottom:4px">
+              Round ${rd.round}/${roundsTot}
+              <span style="font-weight:400;color:var(--text-muted);margin-left:6px">${rd.date ? fmt(rd.date) : ''}</span>
+              ${rd.attacker?.morale?.moralePct != null
+                ? `<span style="color:var(--text-muted);margin-left:6px">
+                    ATK morale ${rd.attacker.morale.moralePct}%
+                    · DEF morale ${rd.defender?.morale?.moralePct ?? '?'}%
+                  </span>` : ''}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div>
+                <div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">
+                  ⚔️ ${rd.attackerName || r.attackerName || 'ATK'}
+                  ${rd.attacker?.morale?.totalUnits != null
+                    ? `(${rd.attacker.morale.totalUnits}${rd.attacker.morale.losses ? ` -${rd.attacker.morale.losses}` : ''})` : ''}
+                </div>
+                <div style="line-height:1.6">${renderSlots(attSlots)}</div>
+              </div>
+              <div>
+                <div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">
+                  🛡 ${rd.defenderName || r.defenderName || 'DEF'}
+                  ${rd.defender?.morale?.totalUnits != null
+                    ? `(${rd.defender.morale.totalUnits}${rd.defender.morale.losses ? ` -${rd.defender.morale.losses}` : ''})` : ''}
+                </div>
+                <div style="line-height:1.6">${renderSlots(defSlots)}</div>
+              </div>
+            </div>
+            ${blessStr ? `<div style="margin-top:4px;color:var(--text-muted)">${blessStr}</div>` : ''}
+          </div>`;
+      }).join('');
+
+      // Stats dal BBCode
+      const statsHtml = r.stats ? `
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin-top:4px">
+          ${r.stats.attacker?.generals   != null ? `<span>⭐ Gen ATK: <b>${r.stats.attacker.generals}</b></span>` : ''}
+          ${r.stats.attacker?.attackPts  != null ? `<span>⚔️ Pt ATK: <b>${r.stats.attacker.attackPts?.toLocaleString('it')}</b></span>` : ''}
+          ${r.stats.defender?.defensePts != null ? `<span>🛡 Pt DEF: <b>${r.stats.defender.defensePts?.toLocaleString('it')}</b></span>` : ''}
+          ${r.stats.attacker?.dmgPct     != null ? `<span>💥 Danno ATK: <b>${r.stats.attacker.dmgPct}%</b></span>` : ''}
+          ${r.stats.defender?.dmgPct     != null ? `<span>💥 Danno DEF: <b>${r.stats.defender.dmgPct}%</b></span>` : ''}
+        </div>` : '';
+
+      const expandId = `ikcr-exp-${r.combatId}`;
+      return `
+        <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
+          <!-- Header cliccabile -->
+          <div style="padding:8px 10px;background:var(--bg-alt);cursor:pointer"
+               onclick="(function(){var d=document.getElementById('${expandId}');d.style.display=d.style.display==='none'?'block':'none';})()">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span style="font-weight:700;font-size:12px">${ico} #${r.combatId}</span>
+              <span style="font-size:12px">${r.attackerName || '?'} vs ${r.defenderName || '?'}</span>
+              <span style="font-size:11px;color:var(--text-muted)">${dateStr}</span>
+              <span style="font-size:11px;margin-left:auto;color:var(--text-muted)">
+                ${roundsOk}/${roundsTot} round catturati
+              </span>
+              ${r.winner ? `<span style="font-size:11px;color:var(--ok,#2a8)">🏆 ${r.winner}</span>` : ''}
+            </div>
+            ${statsHtml}
+          </div>
+          <!-- Dettaglio espandibile -->
+          <div id="${expandId}" style="display:none;padding:8px 10px">
+            <!-- Riepilogo finale unità -->
+            ${r.unitSummary ? `
+              <div style="font-size:11px;margin-bottom:6px">
+                <div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">Riepilogo finale</div>
+                <div>⚔️ ${summarySide('attacker')}</div>
+                <div>🛡 ${summarySide('defender')}</div>
+              </div>` : ''}
+            <!-- Round dettagliati -->
+            ${roundsHtml || '<div style="font-size:11px;color:var(--text-muted)">Nessun round dettagliato catturato. Naviga i round nel gioco.</div>'}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
   async function renderMilitary() {
     const list = document.getElementById('ikp-military-list');
     if (!list || !window.IkDB) return;
@@ -3104,10 +3388,16 @@
         ? `<span style="font-size:10px;color:var(--text-muted)"> (ex: ${p.nameHistory.map(h => h.name).join(', ')})</span>`
         : '';
 
+      const safeId   = (p.id || '').replace(/'/g, "\\'");
+      const safeName = (p.name || '').replace(/'/g, "\\'");
+
       return `<tr>
         <td style="white-space:nowrap;font-size:12px">
           👤 ${p.name}${nameHistory} ${stBadge}
           ${p.ally ? `<span style="font-size:11px;color:var(--text-muted)">[${p.ally}]</span>` : ''}
+          <button class="ikp-btn small outline" style="padding:2px 6px;font-size:11px;margin-left:4px"
+            onclick="window.IkApp.showPlayerUnits('${safeId}','${safeName}')"
+            title="Truppe e potenziamenti noti">🪖</button>
         </td>
         ${scoreCells}
         <td style="font-size:10px;color:var(--text-muted);text-align:right">${fmt(p.lastUpdateDate)}</td>
@@ -3960,13 +4250,13 @@
     downloadRecord, downloadSearchResults, downloadLog, clearLog, renderLogTab,
     renderCaptured, downloadCaptured, downloadAllCaptured, clearCaptured,
     renderMyCities, resetMyCities, renderWineTimers,
-    renderMilitary, onMilitaryUpdated,
+    renderMilitary, onMilitaryUpdated, renderCombatReports,
     renderSummary, renderChanges,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
     onTownHallUpdated: (cityId) => { /* aggiorna vista mie città se aperta */ if (panelOpen && activeTab === 'mycities') renderMyCities(); },
     onBlessingUpdated: (cityId, blessing) => { console.log('[IkApp] benedizione aggiornata city='+cityId, blessing?.godName); },
-    showPlayerDetail,
+    showPlayerDetail, showPlayerUnits,
   };
   log('Modulo caricato');
 })();
