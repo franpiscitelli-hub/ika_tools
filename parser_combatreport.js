@@ -12,30 +12,77 @@
 (function () {
   'use strict';
 
-  // ── Mappa class CSS → unitId numerico ──────────────────────────
-  // La classe è "s<N>" dove N è l'ID interno Ikariam
-  // Truppe di terra
-  const UNIT_NAMES = {
+  // ── Mappa unitId → nome (da unit_data DB, aggiornata dai dati reali) ──
+  // Viene completata a runtime leggendo unit_data dal DB (vedi getUnitName)
+  const UNIT_NAMES_FALLBACK = {
     // Navi
+    201: 'Nave mercantile',
+    204: 'Nave merci',
+    210: 'Nave con Ariete',
     211: 'Nave lanciafiamme',
-    212: 'Ariete a vapore',
-    213: 'Bombardiere',
-    214: 'Nave da guerra',
-    215: 'Incrociatore corazzato',
-    216: 'Ariete a vapore',   // alt (alcuni server usano 216)
-    217: 'Sommergibile',
+    212: 'Sottomarino',
+    213: 'Nave con Balestra',
+    214: 'Nave con Catapulta',
+    215: 'Nave con Mortaio',
+    216: 'Ariete a vapore',
+    217: 'Nave lanciamissili',
+    218: 'Ariete con ruote a pale',
+    219: 'Portapalloni',
+    220: 'Nave appoggio',
+    221: 'Speronatrice',
+    222: 'Tagliavele',
+    223: 'Battello sputafuoco',
+    224: 'Battello frombola',
+    225: 'Ascia speronatrice',
+    226: 'Nave catapulta',
+    227: 'Terrore sottomarino',
+    228: 'Fuoco di drago',
+    229: 'Battello anti-dirigibili',
+    230: 'Nido dei Barbari',
     // Truppe terra
-    301: 'Tiratore',
-    302: 'Oplita',
-    303: 'Arciere',
-    304: 'Carro',
+    301: 'Fromboliere',
+    302: 'Spadaccino',
+    303: 'Oplita',
+    304: 'Tiratore fucile a zolfo',
     305: 'Mortaio',
     306: 'Catapulta',
     307: 'Ariete',
-    308: 'Dottore',
-    309: 'Cuoco',
-    310: 'Spia',
+    308: 'Gigante a Vapore',
+    309: 'Pallone aerostatico bombardiere',
+    310: 'Cuoco',
+    311: 'Guaritore',
+    312: 'Girocottero',
+    313: 'Arciere',
+    315: 'Giavellottiere',
+    316: 'Branditore di asce dei Barbari',
+    319: 'Spartano',
+    320: 'Branditori di mazze dei Barbari',
+    321: 'Accoltellatori dei Barbari',
+    322: 'Lanciatori di asce dei Barbari',
+    323: 'Rotori da guerra dei Barbari',
+    324: 'Arieti dei Barbari',
+    325: 'Catapulta dei Barbari',
+    326: 'Caccia dei Barbari',
+    327: 'Dirigibile dei Barbari',
   };
+
+  // Cache runtime: popolata leggendo unit_data dal DB al primo parse
+  let _unitNamesCache = null;
+
+  async function getUnitNameMap() {
+    if (_unitNamesCache) return _unitNamesCache;
+    _unitNamesCache = { ...UNIT_NAMES_FALLBACK };
+    try {
+      const units = await window.IkDB.getAll('unit_data');
+      for (const u of (units || [])) {
+        if (u.unitId && u.name) _unitNamesCache[u.unitId] = u.name;
+      }
+    } catch {}
+    return _unitNamesCache;
+  }
+
+  // Alias sincrono per retrocompatibilità (usa il fallback se la cache non è pronta)
+  const UNIT_NAMES = UNIT_NAMES_FALLBACK;
 
   // Posizioni slot → nome posizione
   const SLOT_POSITIONS = {
@@ -82,7 +129,7 @@
   }
 
   // ── Parser HTML riepilogo battaglia (militaryAdvisorReportView) ──
-  function parseReportView(html, combatId) {
+  function parseReportView(html, combatId, unitNames) {
     const $ = (sel, ctx) => (ctx || document.createElement('div'));
     // Usiamo DOMParser se disponibile (browser), altrimenti BeautifulSoup non è disponibile in JS
     let doc;
@@ -162,7 +209,7 @@
           if (countStr) {
             unitSummary[side].push({
               unitId,
-              name:   UNIT_NAMES[unitId] || `unit_${unitId}`,
+              name:   (unitNames[unitId] || UNIT_NAMES_FALLBACK[unitId] || `unit_${unitId}`),
               count:  parseInt(countStr) || 0,
               losses: parseInt(lossStr)  || 0,
             });
@@ -190,7 +237,7 @@
   }
 
   // ── Parser HTML round dettagliato (militaryAdvisorDetailedReportView) ──
-  function parseDetailedRound(html, combatId) {
+  function parseDetailedRound(html, combatId, unitNames) {
     let doc;
     try {
       doc = new DOMParser().parseFromString(html, 'text/html');
@@ -260,7 +307,7 @@
             slotId,
             position,
             unitId,
-            unitName: UNIT_NAMES[unitId] || `unit_${unitId}`,
+            unitName: (unitNames[unitId] || UNIT_NAMES_FALLBACK[unitId] || `unit_${unitId}`),
             count:    numM ? parseInt(numM[1]) : null,
             losses:   numM ? parseInt(numM[2]) : null,
             lossBarPx:lossPx ? parseInt(lossPx) : 0,
@@ -275,7 +322,7 @@
         resDiv.querySelectorAll('li').forEach(li => {
           const unitId = unitIdFromClass(li.querySelector('div')?.className || '');
           const cnt    = li.textContent.trim().replace(/[^0-9]/g,'');
-          if (unitId && cnt) reserveUnits.push({ unitId, unitName: UNIT_NAMES[unitId] || `unit_${unitId}`, count: parseInt(cnt) });
+          if (unitId && cnt) reserveUnits.push({ unitId, unitName: (unitNames[unitId] || UNIT_NAMES_FALLBACK[unitId] || `unit_${unitId}`), count: parseInt(cnt) });
         });
       }
 
@@ -366,6 +413,7 @@
   async function updatePlayerUnits(playerId, playerName, allyName, blessings, combatId, date, unitUpgrades) {
     if (!playerId && !playerName) return;
     if (!unitUpgrades || unitUpgrades.size === 0) return;
+    const unitNames = await getUnitNameMap();
 
     // Risolvi playerId: prima dal report, poi dalla classifica per nome
     let resolvedId = playerId;
@@ -408,7 +456,8 @@
       if (Object.keys(upgrades).length === 0) continue;  // salta se nessun upgrade
 
       // Ricava unitId dal nome
-      const unitId = Object.entries(UNIT_NAMES).find(([, n]) => n === unitName)?.[0];
+      const unitId = Object.entries(unitNames).find(([, n]) => n === unitName)?.[0]
+                  || Object.entries(UNIT_NAMES_FALLBACK).find(([, n]) => n === unitName)?.[0];
       if (!unitId) {
         console.warn(`[IkCombat] unitId non trovato per "${unitName}"`);
         continue;
@@ -599,6 +648,9 @@
   async function parse(url, data, meta) {
     if (!Array.isArray(data)) return { parsed: 0 };
 
+    // Carica mappa unitId→nome dal DB (con cache)
+    const unitNames = await getUnitNameMap();
+
     const urlObj  = new URL('https://x.com/?' + url.split('?')[1]);
     const view    = urlObj.searchParams.get('view') || '';
     const combatId= parseInt(urlObj.searchParams.get('combatId') || urlObj.searchParams.get('detailedCombatId')) || null;
@@ -608,7 +660,7 @@
 
     // ── militaryAdvisorReportView ────────────────────────────────
     if (cv?.viewType === 'militaryAdvisorReportView' && combatId) {
-      const report = parseReportView(cv.html, combatId);
+      const report = parseReportView(cv.html, combatId, unitNames);
       if (report) {
         const patch = {
           type:          report.type,
@@ -631,7 +683,7 @@
 
     // ── militaryAdvisorDetailedReportView ───────────────────────
     if (cv?.viewType === 'militaryAdvisorDetailedReportView' && combatId) {
-      const round = parseDetailedRound(cv.html, combatId);
+      const round = parseDetailedRound(cv.html, combatId, unitNames);
       if (round?.round != null) {
         const blessings = extractBlessings(round.events);
 

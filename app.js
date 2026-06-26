@@ -404,7 +404,7 @@
               <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
                       onclick="event.stopPropagation();window.IkWallCalc.reset()">↺ Reset</button>
             </div>
-            <div id="ikwc-body" style="display:none;background:var(--bg-card,#fff)">
+            <div id="ikwc-body" class="ikp-card" style="display:none;margin:0;border:none;border-radius:0;box-shadow:none">
               <div style="padding:10px;border-top:1px solid var(--border)">
                 <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
                   Calcola i danni all'artiglieria su più round. I potenziamenti officina vengono letti dal DB se disponibili.
@@ -481,7 +481,7 @@
               <button class="ikp-btn small outline" style="margin-left:auto;font-size:11px"
                       onclick="event.stopPropagation();window.IkApp.renderCombatReports()">↻</button>
             </div>
-            <div id="ikcr-body" style="display:none;background:var(--bg-card,#fff)">
+            <div id="ikcr-body" class="ikp-card" style="display:none;margin:0;border:none;border-radius:0;box-shadow:none">
               <div style="padding:10px;border-top:1px solid var(--border)">
                 <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
                   <input id="ikcr-q" class="ikp-input" placeholder="Cerca player…"
@@ -3369,6 +3369,21 @@
     const sortKey = shownKeys[0];
     filtered.sort((a, b) => (b.scores?.[sortKey] ?? 0) - (a.scores?.[sortKey] ?? 0));
 
+    // Carica i playerId per cui esistono dati truppe con upgrades
+    const knownUnitsIds = new Set();
+    try {
+      const allUnits = await window.IkDB.getAll('player_units');
+      for (const pu of allUnits) {
+        const hasUpgrades = Object.values(pu.units || {}).some(u =>
+          u.upgrades && Object.keys(u.upgrades).length > 0
+        );
+        if (hasUpgrades) {
+          knownUnitsIds.add(pu.playerId);
+          if (pu.playerName) knownUnitsIds.add(pu.playerName.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim());
+        }
+      }
+    } catch {}
+
     const scoreTh = shownKeys.map(k =>
       `<th style="text-align:right;white-space:nowrap;font-size:11px">${RANKING_LABELS[k] || k}</th>`
     ).join('');
@@ -3390,14 +3405,16 @@
 
       const safeId   = (p.id || '').replace(/'/g, "\\'");
       const safeName = (p.name || '').replace(/'/g, "\\'");
+      const cleanName = (p.name || '').toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim();
+      const hasUnitData = knownUnitsIds.has(p.id) || knownUnitsIds.has(cleanName);
 
       return `<tr>
         <td style="white-space:nowrap;font-size:12px">
           👤 ${p.name}${nameHistory} ${stBadge}
           ${p.ally ? `<span style="font-size:11px;color:var(--text-muted)">[${p.ally}]</span>` : ''}
-          <button class="ikp-btn small outline" style="padding:2px 6px;font-size:11px;margin-left:4px"
+          ${hasUnitData ? `<button class="ikp-btn small outline" style="padding:2px 6px;font-size:11px;margin-left:4px"
             onclick="window.IkApp.showPlayerUnits('${safeId}','${safeName}')"
-            title="Truppe e potenziamenti noti">🪖</button>
+            title="Truppe e potenziamenti noti">🪖</button>` : ''}
         </td>
         ${scoreCells}
         <td style="font-size:10px;color:var(--text-muted);text-align:right">${fmt(p.lastUpdateDate)}</td>
