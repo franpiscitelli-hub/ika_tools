@@ -360,7 +360,7 @@
   }
 
   // ── Salva / aggiorna player_units ────────────────────────────
-  async function updatePlayerUnits(playerId, playerName, allyName, slots, reserve, blessings, combatId, date) {
+  async function updatePlayerUnits(playerId, playerName, allyName, slots, reserve, blessings, combatId, date, unitUpgrades) {
     if (!playerId && !playerName) return;
 
     // Se non abbiamo playerId, prova a cercarlo in players per nome
@@ -402,6 +402,15 @@
       unitsSeen[r.unitId].count += r.count || 0;
     }
 
+    // Aggiunge le informazioni di potenziamento dai tooltip (per nome unità)
+    // unitUpgrades: Map<unitName, { upgrades: {name→{name,level}}, slotsCount, ammo, ... }>
+    const upgradesByName = {};
+    if (unitUpgrades) {
+      for (const [unitName, ud] of unitUpgrades.entries()) {
+        upgradesByName[unitName] = ud;
+      }
+    }
+
     // Leggi record esistente
     let existing = null;
     try { existing = await window.IkDB.get('player_units', resolvedId); } catch {}
@@ -412,14 +421,29 @@
     // Aggiorna le unità: teniamo il massimo osservato per tipo
     const updatedUnits = { ...(prev.units || {}) };
     for (const [id, data] of Object.entries(unitsSeen)) {
-      const prevU = updatedUnits[id] || { maxCount: 0, totalLosses: 0, lastSeen: null };
+      const prevU     = updatedUnits[id] || { maxCount: 0, totalLosses: 0, lastSeen: null, upgrades: {} };
+      const unitName  = UNIT_NAMES[id] || `unit_${id}`;
+      // Potenziamenti: cerca per nome unità nei tooltip data
+      const tooltipData = upgradesByName[unitName] || null;
+      const prevUpgrades = prevU.upgrades || {};
+      const mergedUpgrades = { ...prevUpgrades };
+      if (tooltipData) {
+        for (const [upgName, upgData] of Object.entries(tooltipData.upgrades || {})) {
+          const existing = mergedUpgrades[upgName];
+          if (!existing || existing.level < upgData.level) {
+            mergedUpgrades[upgName] = upgData;
+          }
+        }
+      }
       updatedUnits[id] = {
         unitId:      parseInt(id),
-        unitName:    UNIT_NAMES[id] || `unit_${id}`,
-        maxCount:    Math.max(prevU.maxCount || 0, data.count + data.losses), // max schierato
+        unitName,
+        maxCount:    Math.max(prevU.maxCount || 0, data.count + data.losses),
         totalLosses: (prevU.totalLosses || 0) + data.losses,
         lastSeen:    now,
         source:      'combat',
+        upgrades:    mergedUpgrades,
+        ...(tooltipData?.ammo != null ? { lastAmmo: tooltipData.ammo } : {}),
       };
     }
 
@@ -505,6 +529,91 @@
     return blessings;
   }
 
+  // ── Estrai potenziamenti dai tooltip registerMouseOver ────────
+  // Formato slotId: "side_row_col"  es. "11_22_5"
+  //   side: 11=attacker, 12=defender
+  //   row:  21=main, 22=flankLeft/Right, 23=longRange, 24=artillery, 25=air, ...
+  //   col:  posizione nello slot
+  //
+  // Tooltip: <h2>Nome Unità (Player[Ally])</h2>
+  //          <p>Potenziamento attacco superiore (LV)</p>
+  //          <p>Potenziamento difesa superiore (LV)</p>
+  //          <p>Munizione: XX%</p>  (se presente)
+  //          <p>Punti vita: XX%</p>
+  //          <p>Perdite: N</p>       (se sconfitti)
+  //
+  // Ritorna: Map<playerKey, { playerName, allyName, units: Map<unitName, { upgrades, ammo, slots }> }>
+  function extractUpgradesFromTooltips(html) {
+    const playerData = new Map();
+
+    // Estrai tutte le chiamate registerMouseOver
+    const RE = /registerMouseOver\("([^"]+)",\s*"((?:[^"\\]|\\.)*)"\)/g;
+    let m;
+    while ((m = RE.exec(html)) !== null) {
+      const slotRaw  = m[1];
+      const tipRaw   = m[2].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+
+      // Parse header: nome unità e player
+      const h2M = tipRaw.match(/<h2>([^(]+)\(([^)]+)\)<\/h2>/);
+      if (!h2M) continue;
+
+      const unitName   = h2M[1].trim();
+      const playerFull = h2M[2].trim();
+      // playerFull può essere "Diesel[TIGRE]" o "Diesel"
+      const allyM      = playerFull.match(/\[([^\]]+)\]$/);
+      const playerName = playerFull.replace(/\s*\[[^\]]+\]$/, '').trim();
+      const allyName   = allyM ? allyM[1] : null;
+      const playerKey  = playerName.toLowerCase();
+
+      // Parse potenziamenti: ogni <p> con "(N)" è un upgrade
+      const upgrades = [];
+      const upgRE = /<p>([^(<]+)\((\d+)\)<\/p>/g;
+      let um;
+      while ((um = upgRE.exec(tipRaw)) !== null) {
+        const upgName = um[1].trim();
+        const upgLv   = parseInt(um[2]);
+        // Categorizza: "superiore" indica una ricerca avanzata
+        // La prima <p> è tipicamente attacco, la seconda difesa
+        upgrades.push({ name: upgName, level: upgLv });
+      }
+
+      // Parse munizioni e HP
+      const ammoM   = tipRaw.match(/Munizione:\s*(\d+)%/);
+      const hpM     = tipRaw.match(/Punti vita:\s*(\d+)%/);
+      const lossesM = tipRaw.match(/Perdite:\s*(\d+)/);
+
+      // Side dal primo numero dello slotId
+      const sidePart = slotRaw.split('_')[0];
+      const side     = sidePart === '12' ? 'defender' : 'attacker';
+
+      // Aggrega per player → per unitName
+      if (!playerData.has(playerKey)) {
+        playerData.set(playerKey, { playerName, allyName, side, units: new Map() });
+      }
+      const pd = playerData.get(playerKey);
+
+      if (!pd.units.has(unitName)) {
+        pd.units.set(unitName, { unitName, upgrades: {}, slotsCount: 0, minHp: 100, totalLosses: 0, ammo: null });
+      }
+      const ud = pd.units.get(unitName);
+      ud.slotsCount++;
+
+      // Potenziamenti: tieni il massimo (tutti gli slot dello stesso tipo hanno gli stessi lv)
+      for (const upg of upgrades) {
+        const existing = ud.upgrades[upg.name];
+        if (!existing || existing.level < upg.level) {
+          ud.upgrades[upg.name] = { name: upg.name, level: upg.level };
+        }
+      }
+
+      if (hpM)     ud.minHp      = Math.min(ud.minHp, parseInt(hpM[1]));
+      if (lossesM) ud.totalLosses += parseInt(lossesM[1]);
+      if (ammoM && ud.ammo === null) ud.ammo = parseInt(ammoM[1]);
+    }
+
+    return playerData;
+  }
+
   // ── Funzione principale parse ─────────────────────────────────
   async function parse(url, data, meta) {
     if (!Array.isArray(data)) return { parsed: 0 };
@@ -545,21 +654,60 @@
       if (round?.round != null) {
         const blessings = extractBlessings(round.events);
 
-        // Aggrega il roundData per salvarlo
+        // Estrai potenziamenti dai tooltip registerMouseOver
+        const allTooltipData = extractUpgradesFromTooltips(cv.html);
+        // Separa per side (basato sul campo "side" nel playerData)
+        const getPlayerUpgrades = (pName) => {
+          const key = pName?.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim();
+          return allTooltipData.get(key)?.units || null;
+        };
+
+        const attName = round.morale?.attacker?.playerName || round.attackerName;
+        const defName = round.morale?.defender?.playerName || round.defenderName;
+
+        // Aggiungi upgrades ai slot del round (per salvarli nel combat_report)
+        const enrichSlots = (slots, pName) => {
+          const upgData = allTooltipData.get(pName?.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim());
+          if (!upgData) return slots;
+          return (slots || []).map(slot => {
+            const ud = upgData.units.get(slot.unitName);
+            if (!ud) return slot;
+            return { ...slot, upgrades: ud.upgrades, ammo: ud.ammo };
+          });
+        };
+
+        // Aggiungi anche le unità viste solo nei tooltip (non nei slot DOM, es. riserva non visibile)
+        // Le aggiunge come slotExtra per completezza
+        const tooltipOnlyUnits = (pName, existingSlots) => {
+          const key = pName?.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim();
+          const pd  = allTooltipData.get(key);
+          if (!pd) return [];
+          const existingNames = new Set((existingSlots||[]).map(s => s.unitName));
+          const extras = [];
+          for (const [uName, ud] of pd.units.entries()) {
+            if (!existingNames.has(uName)) {
+              extras.push({ unitName: uName, slotsCount: ud.slotsCount, upgrades: ud.upgrades, fromTooltipOnly: true });
+            }
+          }
+          return extras;
+        };
+
         const roundData = {
           round:         round.round,
           date:          round.date,
-          attackerName:  round.morale?.attacker?.playerName || round.attackerName,
-          defenderName:  round.morale?.defender?.playerName || round.defenderName,
+          attackerName:  attName,
+          defenderName:  defName,
           attacker: {
-            slots:   round.attacker?.slots || [],
-            reserve: round.attacker?.reserve || [],
-            morale:  round.morale?.attacker || {},
+            slots:        enrichSlots(round.attacker?.slots, attName),
+            reserve:      round.attacker?.reserve || [],
+            morale:       round.morale?.attacker || {},
+            tooltipExtra: tooltipOnlyUnits(attName, round.attacker?.slots),
           },
           defender: {
-            slots:   round.defender?.slots || [],
-            reserve: round.defender?.reserve || [],
-            morale:  round.morale?.defender || {},
+            slots:        enrichSlots(round.defender?.slots, defName),
+            reserve:      round.defender?.reserve || [],
+            morale:       round.morale?.defender || {},
+            tooltipExtra: tooltipOnlyUnits(defName, round.defender?.slots),
           },
           events:    round.events,
           blessings,
@@ -570,14 +718,13 @@
           _roundData:   roundData,
           capturedDate: meta.date || new Date().toISOString(),
         };
-        // Se non abbiamo ancora attacker/defender salvati, salva anche quelli
         if (round.morale?.attacker?.playerId) {
           patch.attackerPlayerId = round.morale.attacker.playerId;
-          patch.attackerName     = round.morale.attacker.playerName;
+          patch.attackerName     = attName;
         }
         if (round.morale?.defender?.playerId) {
           patch.defenderPlayerId = round.morale.defender.playerId;
-          patch.defenderName     = round.morale.defender.playerName;
+          patch.defenderName     = defName;
         }
 
         await saveCombatReport(combatId, patch);
@@ -585,24 +732,26 @@
         // Aggiorna player_units per attaccante
         await updatePlayerUnits(
           round.morale?.attacker?.playerId,
-          round.morale?.attacker?.playerName || round.attackerName,
+          attName,
           null,
           round.attacker?.slots,
           round.attacker?.reserve,
-          blessings.filter(b => b.playerName === (round.morale?.attacker?.playerName || round.attackerName)),
+          blessings.filter(b => b.playerName === attName),
           combatId,
-          round.date
+          round.date,
+          getPlayerUpgrades(attName)
         );
         // Aggiorna player_units per difensore
         await updatePlayerUnits(
           round.morale?.defender?.playerId,
-          round.morale?.defender?.playerName || round.defenderName,
+          defName,
           null,
           round.defender?.slots,
           round.defender?.reserve,
-          blessings.filter(b => b.playerName === (round.morale?.defender?.playerName || round.defenderName)),
+          blessings.filter(b => b.playerName === defName),
           combatId,
-          round.date
+          round.date,
+          getPlayerUpgrades(defName)
         );
 
         parsed++;
