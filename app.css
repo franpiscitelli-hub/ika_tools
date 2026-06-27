@@ -85,6 +85,77 @@
   line-height: 1.2 !important;
 }
 
+/* ── CITY HUD FAB ────────────────────────────── */
+#ikp-city-fab {
+  position: fixed !important;
+  bottom: 140px !important;
+  right: 14px !important;
+  z-index: 2147483646 !important;
+  width: 50px !important;
+  height: 50px !important;
+  border-radius: 50% !important;
+  background: #5a7a3c !important;
+  border: none !important;
+  color: #fff !important;
+  font-size: 22px !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: transform .2s !important;
+  user-select: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+  font-family: sans-serif !important;
+  box-sizing: border-box !important;
+}
+#ikp-city-fab:hover  { transform: scale(1.08) !important; }
+#ikp-city-fab:active { transform: scale(0.95) !important; }
+
+/* ── CITY PANEL ──────────────────────────────── */
+#ikp-city-panel {
+  position: fixed !important;
+  bottom: 140px !important;
+  right: 74px !important;
+  z-index: 2147483645 !important;
+  width: 270px !important;
+  max-height: 70vh !important;
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3) !important;
+  display: none !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+#ikp-city-panel.open {
+  display: flex !important;
+}
+#ikp-city-panel-header {
+  background: #5a7a3c !important;
+  color: #fff !important;
+  padding: 10px 14px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-shrink: 0 !important;
+}
+#ikp-city-panel-select {
+  padding: 10px 12px 0 !important;
+  flex-shrink: 0 !important;
+}
+#ikp-city-panel-body {
+  padding: 0 12px 12px !important;
+  overflow-y: auto !important;
+  flex: 1 !important;
+  color: #2c1f0e !important;
+  font-size: 13px !important;
+}
+
 /* ── CITY HUD — stesso z-index e stile del FAB ── */
 #ikp-city-hud {
   position: fixed !important;

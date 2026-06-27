@@ -226,12 +226,47 @@
   function buildUI() {
     if (!document.body) { setTimeout(buildUI, 300); return; }
 
-    // FAB
+    // FAB principale (⚓)
     const fab = document.createElement('div');
     fab.id = 'ikp-fab';
     fab.innerHTML = `⚓<span id="ikp-fab-badge"></span>`;
     fab.onclick = toggle;
     document.body.appendChild(fab);
+
+    // FAB città (🏛) — sempre visibile su Ikariam, apre mini-pannello polis
+    if (!isIkalogsSite) {
+      const cityFab = document.createElement('div');
+      cityFab.id = 'ikp-city-fab';
+      cityFab.innerHTML = `🏛`;
+      cityFab.onclick = toggleCityHUD;
+      document.body.appendChild(cityFab);
+
+      // Pannello città
+      const cityPanel = document.createElement('div');
+      cityPanel.id = 'ikp-city-panel';
+      cityPanel.innerHTML = `
+        <div id="ikp-city-panel-header">
+          <span>🏛 Info Polis</span>
+          <button onclick="window.IkApp.toggleCityHUD()" style="
+            background:none;border:none;color:#fff;font-size:16px;
+            cursor:pointer;padding:0;line-height:1">✕</button>
+        </div>
+        <div id="ikp-city-panel-select">
+          <select id="ikp-city-hud-select" style="
+            width:100%;padding:6px 8px;border-radius:6px;
+            border:1px solid #d4c5a9;font-size:13px;
+            background:#fff;color:#2c1f0e;margin-bottom:8px">
+            <option value="">⏳ Caricamento città…</option>
+          </select>
+        </div>
+        <div id="ikp-city-panel-body">
+          <p style="color:#9e8060;font-size:12px;text-align:center;padding:8px 0">
+            Seleziona una città dal menu
+          </p>
+        </div>
+      `;
+      document.body.appendChild(cityPanel);
+    }
 
     // Overlay
     const overlay = document.createElement('div');
@@ -4303,9 +4338,59 @@
       refreshCityHUD(cityId);
     },
     onBlessingUpdated: (cityId, blessing) => { console.log('[IkApp] benedizione aggiornata city='+cityId, blessing?.godName); },
-    showPlayerDetail, showPlayerUnits,
+    showPlayerDetail, showPlayerUnits, toggleCityHUD,
   };
   log('Modulo caricato');
+
+  // ── FAB CITTÀ ────────────────────────────────
+  let cityHudOpen = false;
+
+  async function toggleCityHUD() {
+    cityHudOpen = !cityHudOpen;
+    const panel = document.getElementById('ikp-city-panel');
+    if (!panel) return;
+    panel.classList.toggle('open', cityHudOpen);
+    if (cityHudOpen) await loadCityHUDSelect();
+  }
+
+  async function loadCityHUDSelect() {
+    if (!window.IkDB) return;
+    const select = document.getElementById('ikp-city-hud-select');
+    if (!select) return;
+
+    let cities = [];
+    try { cities = await window.IkDB.getAll('my_cities'); } catch {}
+    cities = cities.filter(c => c.name);
+    cities.sort((a, b) => (a.islandX - b.islandX) || (a.islandY - b.islandY));
+
+    if (!cities.length) {
+      select.innerHTML = '<option value="">Nessuna città nel DB — visita una polis</option>';
+      return;
+    }
+
+    select.innerHTML = '<option value="">— Scegli una polis —</option>'
+      + cities.map(c => `<option value="${c.cityId}">${c.name} [${c.islandX}:${c.islandY}]</option>`).join('');
+
+    select.onchange = async () => {
+      const id = Number(select.value);
+      if (!id) return;
+      const body = document.getElementById('ikp-city-panel-body');
+      if (body) {
+        body.innerHTML = '<p style="color:#9e8060;font-size:12px;text-align:center;padding:8px">⏳ Caricamento…</p>';
+        body.innerHTML = await buildHudContent(id);
+      }
+    };
+
+    // Preseleziona la prima città o quella corrente
+    if (hudCurrentCityId) {
+      const opt = select.querySelector(`option[value="${hudCurrentCityId}"]`);
+      if (opt) { opt.selected = true; select.dispatchEvent(new Event('change')); return; }
+    }
+    if (cities.length === 1) {
+      select.value = cities[0].cityId;
+      select.dispatchEvent(new Event('change'));
+    }
+  }
 
   // ── HUD CITTÀ IN-PAGE ─────────────────────────────────────────────────────
   // Pannello a scomparsa iniettato nell'angolo in alto a sinistra del gioco,
