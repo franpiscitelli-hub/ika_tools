@@ -128,16 +128,17 @@
 
 /* ── PANNELLO POLIS (inline sotto la mappa) ──── */
 #ikp-panel #ikp-island-popup {
-  background: var(--bg-card) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--radius) !important;
+  background: #ffffff !important;
+  border: 1px solid #d4c5a9 !important;
+  border-radius: 8px !important;
   padding: 14px !important;
   margin-bottom: 10px !important;
   max-height: 320px !important;
   overflow-y: auto !important;
-  box-shadow: var(--shadow) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
   box-sizing: border-box !important;
+  color: #2c1f0e !important;
 }
 #ikp-panel #ikp-island-popup * {
   box-sizing: border-box;
@@ -164,6 +165,48 @@
   background: #f0ebe0; padding: 2px 7px;
   border-radius: 10px; margin-left: auto;
   white-space: nowrap;
+}
+
+/* ── OVERLAY DETTAGLIO PLAYER (appended to body, fuori da #ikp-panel) ── */
+#ikp-player-detail-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  background: rgba(0,0,0,0.55) !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  color: #2c1f0e !important;
+  font-size: 14px !important;
+}
+#ikp-player-detail-overlay > div {
+  background: #ffffff !important;
+  border-radius: 14px 14px 0 0 !important;
+  width: 100% !important;
+  max-width: 520px !important;
+  max-height: 80vh !important;
+  overflow-y: auto !important;
+  padding: 16px 16px 24px !important;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.3) !important;
+  box-sizing: border-box !important;
+  /* Override qualsiasi stile scuro del gioco */
+  color: #2c1f0e !important;
+}
+#ikp-player-detail-overlay * {
+  box-sizing: border-box;
+  /* Colori leggibili di base */
+}
+/* Classi usate internamente nel popup player */
+#ikp-player-detail-overlay table {
+  border-collapse: collapse !important;
+}
+#ikp-player-detail-overlay th,
+#ikp-player-detail-overlay td {
+  padding: 3px 4px !important;
+}
+#ikp-player-detail-overlay button {
+  cursor: pointer !important;
 }
 
 /* ── TOOLTIP MAPPA ──────────────────────────── */

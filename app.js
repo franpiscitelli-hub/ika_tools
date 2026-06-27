@@ -1222,20 +1222,28 @@
   // ── DETTAGLIO PLAYER (aperto dal pulsante 📊 nel popup) ──
   // ── TRUPPE E POTENZIAMENTI PLAYER (pulsante 🪖 nella classifica) ──
   async function showPlayerUnits(playerId, playerName) {
-    // Usa un overlay proprio per funzionare da qualsiasi tab
-    const existingOverlay = document.getElementById('ikp-units-overlay');
-    if (existingOverlay) existingOverlay.remove();
+    // Rimuovi eventuale popup precedente
+    const existing = document.getElementById('ikp-player-units-overlay');
+    if (existing) existing.remove();
 
+    // Crea overlay modale bianco (stesso approccio di showPlayerDetail)
     const overlay = document.createElement('div');
-    overlay.id = 'ikp-units-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;justify-content:center;';
-    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.id = 'ikp-player-units-overlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.55);
+      display:flex;align-items:flex-end;justify-content:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    `;
+    overlay.innerHTML = `
+      <div style="background:#ffffff;border-radius:14px 14px 0 0;width:100%;max-width:520px;
+        max-height:75vh;overflow-y:auto;padding:16px 16px 24px;
+        box-shadow:0 -4px 24px rgba(0,0,0,0.3);box-sizing:border-box;color:#2c1f0e">
+        <div style="padding:12px 0 8px;font-size:13px;color:#9e8060">⏳ Caricamento truppe di <b style="color:#2c1f0e">${playerName}</b>…</div>
+      </div>`;
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
 
-    const popup = document.createElement('div');
-    popup.style.cssText = 'background:var(--bg-card,#1e1e2e);border-radius:14px 14px 0 0;width:100%;max-width:520px;max-height:80vh;overflow-y:auto;padding:16px 16px 24px;box-shadow:0 -4px 24px rgba(0,0,0,0.3);';
-    popup.innerHTML = `<div style="padding:4px;font-size:13px">⏳ Caricamento truppe di <b>${playerName}</b>…</div>`;
-    overlay.appendChild(popup);
+    const innerDiv = overlay.querySelector('div');
 
     let rec = null;
     if (window.IkDB) {
@@ -1252,16 +1260,21 @@
       }
     }
 
+    const closeBtnHtml = `<button onclick="document.getElementById('ikp-player-units-overlay').remove()"
+      style="background:none;border:1px solid #d4c5a9;border-radius:16px;padding:6px 14px;
+             font-size:12px;color:#6b4f2e;cursor:pointer;margin-top:12px">Chiudi</button>`;
+
     if (!rec || !rec.units || !Object.keys(rec.units).length) {
-      popup.innerHTML = `
-        <div style="padding:14px">
-          <div style="font-weight:700;font-size:14px;margin-bottom:8px">🪖 ${playerName}</div>
-          <p style="font-size:12px;color:var(--text-muted)">
-            Nessun dato truppe. Naviga un report di combattimento che lo include.
-          </p>
-          <button class="ikp-btn small outline" style="margin-top:8px"
-            onclick="document.getElementById('ikp-units-overlay')?.remove()">Chiudi</button>
-        </div>`;
+      innerDiv.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-weight:700;font-size:14px;color:#2c1f0e">🪖 ${playerName}</div>
+          <button onclick="document.getElementById('ikp-player-units-overlay').remove()"
+            style="background:none;border:none;font-size:20px;color:#9e8060;cursor:pointer;padding:0 4px;line-height:1">✕</button>
+        </div>
+        <p style="font-size:12px;color:#9e8060">
+          Nessun dato truppe. Naviga un report di combattimento che lo include.
+        </p>
+        ${closeBtnHtml}`;
       return;
     }
 
@@ -1272,16 +1285,16 @@
     const renderUnit = u => {
       const upgs = Object.values(u.upgrades || {});
       const upgsHtml = upgs.map(upg =>
-        `<div style="font-size:11px;color:var(--text-muted);margin-left:8px">
-          └ ${upg.name}: <b style="color:var(--accent)">lv ${upg.level}</b>
+        `<div style="font-size:11px;color:#9e8060;margin-left:8px">
+          └ ${upg.name}: <b style="color:#8b5e3c">lv ${upg.level}</b>
         </div>`
       ).join('');
       return `
-        <div style="padding:6px 0;border-bottom:1px solid var(--border)">
-          <div style="font-size:12px;font-weight:600">
+        <div style="padding:6px 0;border-bottom:1px solid #d4c5a9">
+          <div style="font-size:12px;font-weight:600;color:#2c1f0e">
             ${u.unitName}
-            ${u.maxCount ? `<span style="font-size:11px;color:var(--text-muted);font-weight:400"> · max ${u.maxCount.toLocaleString('it')}</span>` : ''}
-            ${u.totalLosses ? `<span style="font-size:11px;color:var(--danger,#e44);font-weight:400"> · perdite ${u.totalLosses.toLocaleString('it')}</span>` : ''}
+            ${u.maxCount ? `<span style="font-size:11px;color:#9e8060;font-weight:400"> · max ${u.maxCount.toLocaleString('it')}</span>` : ''}
+            ${u.totalLosses ? `<span style="font-size:11px;color:#c62828;font-weight:400"> · perdite ${u.totalLosses.toLocaleString('it')}</span>` : ''}
           </div>
           ${upgsHtml}
         </div>`;
@@ -1290,42 +1303,46 @@
     const lastSeen = rec.lastSeen ? fmt(rec.lastSeen) : '—';
     const allyStr  = rec.allyName && rec.allyName !== '—' ? ` [${rec.allyName}]` : '';
     const unresolvedWarn = rec.unresolvedName
-      ? `<div style="font-size:11px;color:var(--danger,#e44);margin-bottom:6px">⚠️ ID player non risolto — dati collegati per nome</div>`
+      ? `<div style="font-size:11px;color:#c62828;margin-bottom:6px">⚠️ ID player non risolto — dati collegati per nome</div>`
       : '';
 
-    popup.innerHTML = `
-      <div style="padding:14px;max-height:70vh;overflow-y:auto">
-        <div style="font-weight:700;font-size:14px;margin-bottom:2px">🪖 ${playerName}${allyStr}</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-          ID: ${rec.playerId} · Ultimo visto: ${lastSeen}
+    innerDiv.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <div style="font-weight:700;font-size:14px;color:#2c1f0e">🪖 ${playerName}${allyStr}</div>
+          <div style="font-size:11px;color:#9e8060;margin-top:2px">
+            ID: ${rec.playerId} · Ultimo visto: ${lastSeen}
+          </div>
         </div>
-        ${unresolvedWarn}
+        <button onclick="document.getElementById('ikp-player-units-overlay').remove()"
+          style="background:none;border:none;font-size:20px;color:#9e8060;cursor:pointer;padding:0 4px;line-height:1">✕</button>
+      </div>
+      ${unresolvedWarn}
 
-        ${withUpg.length ? `
-          <div style="font-weight:600;font-size:12px;margin-bottom:4px;color:var(--accent)">
-            ⬆️ Unità con potenziamenti noti (${withUpg.length})
-          </div>
-          ${withUpg.map(renderUnit).join('')}
-        ` : ''}
+      ${withUpg.length ? `
+        <div style="font-weight:600;font-size:12px;margin-bottom:4px;color:#8b5e3c">
+          ⬆️ Unità con potenziamenti noti (${withUpg.length})
+        </div>
+        ${withUpg.map(renderUnit).join('')}
+      ` : ''}
 
-        ${noUpg.length ? `
-          <div style="font-weight:600;font-size:12px;margin:10px 0 4px;color:var(--text-muted)">
-            Altre unità note — senza dati upgrades (${noUpg.length})
-          </div>
-          <div style="font-size:11px;color:var(--text-muted)">
-            ${noUpg.map(u => `${u.unitName}${u.maxCount ? ` (max ${u.maxCount})` : ''}`).join(' · ')}
-          </div>
-        ` : ''}
+      ${noUpg.length ? `
+        <div style="font-weight:600;font-size:12px;margin:10px 0 4px;color:#9e8060">
+          Altre unità note — senza dati upgrades (${noUpg.length})
+        </div>
+        <div style="font-size:11px;color:#9e8060">
+          ${noUpg.map(u => `${u.unitName}${u.maxCount ? ` (max ${u.maxCount})` : ''}`).join(' · ')}
+        </div>
+      ` : ''}
 
-        ${rec.combatHistory?.length ? `
-          <div style="font-size:11px;color:var(--text-muted);margin-top:10px">
-            📋 ${rec.combatHistory.length} combattimento/i nel DB
-          </div>
-        ` : ''}
+      ${rec.combatHistory?.length ? `
+        <div style="font-size:11px;color:#9e8060;margin-top:10px">
+          📋 ${rec.combatHistory.length} combattimento/i nel DB
+        </div>
+      ` : ''}
 
-        <button class="ikp-btn small outline" style="margin-top:12px"
-          onclick="document.getElementById('ikp-units-overlay')?.remove()">Chiudi</button>
-      </div>`;
+      ${closeBtnHtml}`;
+  }
   }
 
   function showPlayerDetail(playerName) {
@@ -1356,9 +1373,9 @@
       const pos = positions[k];
       const label = { score:'Totale', generals:'Generali', admirals:'Ammiragli', scientists:'Scienziati', builders:'Costruttori', diplomats:'Diplomatici' }[k] || k;
       return `<tr>
-        <td style="color:var(--text-muted);padding:3px 8px 3px 0">${label}</td>
-        <td style="font-weight:600;text-align:right">${Number(v).toLocaleString('it')}</td>
-        <td style="color:var(--text-muted);text-align:right;padding-left:8px">${pos != null ? '#'+pos : '—'}</td>
+        <td style="color:#9e8060;padding:3px 8px 3px 0">${label}</td>
+        <td style="font-weight:600;text-align:right;color:#2c1f0e">${Number(v).toLocaleString('it')}</td>
+        <td style="color:#9e8060;text-align:right;padding-left:8px">${pos != null ? '#'+pos : '—'}</td>
       </tr>`;
     }).join('');
 
@@ -1376,52 +1393,48 @@
       display:flex;align-items:flex-end;justify-content:center;
     `;
     overlay.innerHTML = `
-      <div style="
-        background:var(--bg-card);border-radius:14px 14px 0 0;
-        width:100%;max-width:520px;max-height:80vh;overflow-y:auto;
-        padding:16px 16px 24px;box-shadow:0 -4px 24px rgba(0,0,0,0.3);
-      ">
+      <div>
         <!-- Header -->
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
           <div>
-            <div style="font-size:16px;font-weight:700;color:var(--text)">
+            <div style="font-size:16px;font-weight:700;color:#2c1f0e">
               <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
                 background:${stCol};margin-right:6px;vertical-align:middle"></span>
               ${playerName}
             </div>
-            ${allyTag ? `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">🛡 ${allyTag}</div>` : ''}
-            ${honor   ? `<div style="font-size:11px;color:var(--text-muted);font-style:italic">${honor}</div>` : ''}
+            ${allyTag ? `<div style="font-size:12px;color:#6b4f2e;margin-top:2px">🛡 ${allyTag}</div>` : ''}
+            ${honor   ? `<div style="font-size:11px;color:#9e8060;font-style:italic">${honor}</div>` : ''}
             <div style="font-size:11px;color:${stCol};margin-top:2px">${stLbl}</div>
           </div>
           <button onclick="document.getElementById('ikp-player-detail-overlay').remove()"
-            style="background:none;border:none;font-size:20px;color:var(--text-muted);cursor:pointer;padding:0 4px">✕</button>
+            style="background:none;border:none;font-size:20px;color:#9e8060;cursor:pointer;padding:0 4px;line-height:1">✕</button>
         </div>
 
         ${scoreRows ? `
         <!-- Punteggi classifica -->
-        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;
+        <div style="font-size:11px;font-weight:700;color:#9e8060;text-transform:uppercase;
           letter-spacing:.5px;margin-bottom:6px">🏆 Classifica</div>
         <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
           <thead>
-            <tr style="font-size:10px;color:var(--text-muted)">
+            <tr style="font-size:10px;color:#9e8060">
               <th style="text-align:left;padding-bottom:4px">Categoria</th>
               <th style="text-align:right">Punti</th>
               <th style="text-align:right;padding-left:8px">Posizione</th>
             </tr>
           </thead>
           <tbody>${scoreRows}</tbody>
-        </table>` : `<div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+        </table>` : `<div style="font-size:12px;color:#9e8060;margin-bottom:14px">
           ℹ️ Dati classifica non disponibili — naviga la classifica in gioco per caricarli.
         </div>`}
 
         <!-- Lista polis -->
-        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;
+        <div style="font-size:11px;font-weight:700;color:#9e8060;text-transform:uppercase;
           letter-spacing:.5px;margin-bottom:6px">🏛 Polis (${polis.length})</div>
         ${polis.length === 0
-          ? `<div style="font-size:12px;color:var(--text-muted)">Nessuna polis nel DB — visita ikalogs.ru per popolare i dati.</div>`
+          ? `<div style="font-size:12px;color:#9e8060">Nessuna polis nel DB — visita ikalogs.ru per popolare i dati.</div>`
           : `<table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead>
-                <tr style="font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+                <tr style="font-size:10px;color:#9e8060;border-bottom:1px solid #d4c5a9">
                   <th style="text-align:left;padding-bottom:4px">Città</th>
                   <th style="text-align:center">Lv</th>
                   <th style="text-align:right">Coord</th>
@@ -1430,11 +1443,11 @@
               </thead>
               <tbody>
                 ${polis.map((p, i) => `
-                  <tr style="border-bottom:1px solid var(--border);${i % 2 === 0 ? 'background:var(--bg)' : ''}">
-                    <td style="padding:4px 4px 4px 0">${p.city_name || '?'}</td>
-                    <td style="text-align:center;color:var(--text-muted)">${p.city_level || '?'}</td>
-                    <td style="text-align:right;font-family:monospace;font-size:11px;color:var(--accent)">[${p.islandX}:${p.islandY}]</td>
-                    <td style="padding-left:8px;color:var(--text-dim);font-size:11px">${p.islandName}</td>
+                  <tr style="border-bottom:1px solid #d4c5a9;${i % 2 === 0 ? 'background:#f5f0e8' : 'background:#ffffff'}">
+                    <td style="padding:4px 4px 4px 0;color:#2c1f0e">${p.city_name || '?'}</td>
+                    <td style="text-align:center;color:#9e8060">${p.city_level || '?'}</td>
+                    <td style="text-align:right;font-family:monospace;font-size:11px;color:#8b5e3c">[${p.islandX}:${p.islandY}]</td>
+                    <td style="padding-left:8px;color:#6b4f2e;font-size:11px">${p.islandName}</td>
                   </tr>`).join('')}
               </tbody>
             </table>`}
@@ -1453,6 +1466,9 @@
     if (el) {
       el.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">🏝</div><p>Seleziona un'isola sulla mappa per vedere le sue polis.</p></div>`;
     }
+    // Rimuovi overlay truppe player se aperto
+    document.getElementById('ikp-player-units-overlay')?.remove();
+    document.getElementById('ikp-player-detail-overlay')?.remove();
     hideTooltip();
   }
 
