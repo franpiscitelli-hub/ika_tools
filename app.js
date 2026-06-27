@@ -2072,7 +2072,144 @@
           </tr></tfoot>
         </table>
       </div>
-    ` + resetBtnHtml;
+    ` + await renderCulturalTreatiesPanel() + resetBtnHtml;
+  }
+
+  // ── PANNELLO ACCORDI CULTURALI ────────────────
+  async function renderCulturalTreatiesPanel() {
+    if (!window.IkDB) return '';
+
+    // Carica tutti i treaty record
+    let allTreaties = [];
+    try { allTreaties = await window.IkDB.getAll('cultural_treaties'); } catch { return ''; }
+    if (!allTreaties.length) return `
+      <div class="ikp-card" style="margin-top:12px">
+        <div class="ikp-card-title">🤝 Accordi Culturali</div>
+        <p style="font-size:12px;color:var(--text-muted);padding:8px 0">
+          Apri la tab "Partner commerciali" del Museo in ogni città per caricare gli accordi.
+        </p>
+      </div>`;
+
+    // Unisci tutti i partner (deduplicati per playerId, mantieni per città multiple)
+    const partnerMap = new Map(); // playerId → { playerName, allyTag, capital, cities[] }
+    for (const rec of allTreaties) {
+      for (const p of (rec.partners || [])) {
+        if (!partnerMap.has(p.playerId)) {
+          partnerMap.set(p.playerId, { ...p, cities: [] });
+        }
+        partnerMap.get(p.playerId).cities.push(rec.cityName || `#${rec.cityId}`);
+      }
+    }
+    const partners = [...partnerMap.values()];
+
+    // Trova il proprio allyTag
+    let myAllyTag = null;
+    const myAllyLow = getMyAlly(); // lowercase o null
+    if (myAllyLow) {
+      // Cerca il tag originale (case-correct) nei partner o nei players
+      const sample = partners.find(p => p.allyTag?.toLowerCase() === myAllyLow);
+      if (sample) {
+        myAllyTag = sample.allyTag;
+      } else {
+        try {
+          const allPlayers = await window.IkDB.getAll('players');
+          const mine = allPlayers.find(p => p.ally?.toLowerCase() === myAllyLow);
+          if (mine) myAllyTag = mine.ally;
+        } catch {}
+      }
+    }
+
+    // Carica gli alleati dalla classifica
+    let allyMembers = [];
+    if (myAllyTag) {
+      try {
+        const allPlayers = await window.IkDB.getAll('players');
+        allyMembers = allPlayers
+          .filter(p => p.ally === myAllyTag)
+          .map(p => ({
+            playerId: Number((p.avatarId || p.id || '').toString().replace('av_','')),
+            playerName: p.name,
+            allyTag: p.ally,
+          }))
+          .filter(p => p.playerId);
+      } catch {}
+    }
+
+    const partnerIds = new Set(partners.map(p => p.playerId));
+
+    // Dividi: partner della propria alleanza vs altri
+    const allyPartners  = partners.filter(p => myAllyTag && p.allyTag === myAllyTag);
+    const otherPartners = partners.filter(p => !myAllyTag || p.allyTag !== myAllyTag);
+
+    // Alleati senza accordo
+    const missingPartners = allyMembers.filter(a => !partnerIds.has(a.playerId));
+
+    const fmtCities = cities => cities.length <= 2
+      ? cities.join(', ')
+      : cities.slice(0,2).join(', ') + ` +${cities.length-2}`;
+
+    const partnerRow = (p, isAlly) => `
+      <tr style="${isAlly ? 'background:rgba(76,175,80,0.08)' : ''}">
+        <td style="font-weight:${isAlly?'600':'400'};color:${isAlly?'#2e7d32':'var(--text)'}">
+          ${isAlly ? '🟢 ' : ''}${p.playerName}
+        </td>
+        <td style="color:var(--text-dim)">${p.allyTag || '—'}</td>
+        <td style="color:var(--text-muted);font-size:11px">${p.capital || '—'}</td>
+        <td style="color:var(--text-muted);font-size:11px">${fmtCities(p.cities||[])}</td>
+      </tr>`;
+
+    const missingRow = p => `
+      <tr>
+        <td style="color:#c62828">🔴 ${p.playerName}</td>
+        <td style="color:var(--text-dim)">${p.allyTag}</td>
+        <td colspan="2" style="color:var(--text-muted);font-size:11px">Nessun accordo</td>
+      </tr>`;
+
+    const savedAt = allTreaties.reduce((max, r) => Math.max(max, r.savedAt||0), 0);
+    const savedStr = savedAt ? new Date(savedAt).toLocaleString('it') : '—';
+
+    return `
+      <div class="ikp-card" style="margin-top:12px">
+        <div class="ikp-card-title">🤝 Accordi Culturali
+          <span style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:8px">
+            ${partners.length} partner · aggiornato ${savedStr}
+          </span>
+        </div>
+
+        ${(allyPartners.length || otherPartners.length) ? `
+        <div style="overflow-x:auto">
+          <table class="ikp-db-table" style="font-size:12px">
+            <thead><tr>
+              <th>Giocatore</th>
+              <th>Alleanza</th>
+              <th>Capitale</th>
+              <th>Città accordo</th>
+            </tr></thead>
+            <tbody>
+              ${allyPartners.map(p => partnerRow(p, true)).join('')}
+              ${otherPartners.map(p => partnerRow(p, false)).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+
+        ${missingPartners.length ? `
+        <div style="margin-top:10px">
+          <div style="font-size:12px;font-weight:700;color:#c62828;margin-bottom:6px">
+            ⚠️ Alleati ${myAllyTag} senza accordo (${missingPartners.length})
+          </div>
+          <div style="overflow-x:auto">
+            <table class="ikp-db-table" style="font-size:12px">
+              <thead><tr>
+                <th>Giocatore</th><th>Alleanza</th><th colspan="2">Stato</th>
+              </tr></thead>
+              <tbody>${missingPartners.map(missingRow).join('')}</tbody>
+            </table>
+          </div>
+        </div>` : myAllyTag && allyMembers.length ? `
+        <div style="margin-top:8px;font-size:12px;color:#2e7d32">
+          ✅ Tutti gli alleati ${myAllyTag} hanno un accordo culturale con te!
+        </div>` : ''}
+      </div>`;
   }
 
 
@@ -4391,6 +4528,9 @@
     },
     onBlessingUpdated: (cityId, blessing) => { console.log('[IkApp] benedizione aggiornata city='+cityId, blessing?.godName); },
     onMiracleUpdated: (cityId, data) => onMiracleUpdated(cityId, data),
+    onCulturalTreatiesUpdated: (cityId, partners) => {
+      if (panelOpen && activeTab === 'mycities') renderMyCities();
+    },
     showPlayerDetail, showPlayerUnits, toggleCityHUD, toggleMiraclePanel,
   };
   log('Modulo caricato');

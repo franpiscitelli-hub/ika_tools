@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 17;
+  const DB_VERSION = 18;
   let db = null;
 
   function open() {
@@ -242,6 +242,12 @@
         // { cityId, cityName, godName, enddate (unix sec | null), savedAt }
         if (!d.objectStoreNames.contains('miracles')) {
           d.createObjectStore('miracles', { keyPath: 'cityId' });
+        }
+
+        // cultural_treaties — accordi culturali per ogni città (museo)
+        // { cityId, cityName, partners: [{playerId, playerName, allyTag, capital}], savedAt }
+        if (!d.objectStoreNames.contains('cultural_treaties')) {
+          d.createObjectStore('cultural_treaties', { keyPath: 'cityId' });
         }
       };
 
