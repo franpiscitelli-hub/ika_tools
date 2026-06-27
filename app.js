@@ -4439,31 +4439,42 @@
     if (!hud) {
       hud = document.createElement('div');
       hud.id = 'ikp-city-hud';
-      hud.style.cssText = `
-        position:fixed;top:56px;left:4px;z-index:2147483640;
-        width:240px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-        pointer-events:auto;
-      `;
       document.body.appendChild(hud);
     }
 
+    // Stile inline aggressivo per battere qualsiasi CSS del gioco
+    hud.setAttribute('style', [
+      'position:fixed',
+      'bottom:80px',          // sopra la barra browser mobile
+      'left:50%',
+      'transform:translateX(-50%)',
+      'z-index:2147483647',
+      'width:280px',
+      'max-width:90vw',
+      'font-family:-apple-system,BlinkMacSystemFont,sans-serif',
+      'pointer-events:auto',
+      'display:block',
+      'visibility:visible',
+      'opacity:1',
+    ].join(';'));
+
     hud.innerHTML = `
       <button id="ikp-city-hud-toggle"
-        style="display:flex;align-items:center;gap:5px;
-          background:#fff8f0;border:1px solid #c8a96e;border-radius:${hudOpen ? '8px 8px 0 0' : '8px'};
-          padding:5px 10px;font-size:12px;font-weight:600;color:#5a3e1b;
-          cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);width:100%;
-          justify-content:space-between;box-sizing:border-box">
-        <span>🏛 Polis</span>
-        <span id="ikp-hud-arrow" style="font-size:10px">${hudOpen ? '▲' : '▼'}</span>
+        style="all:unset;display:flex;align-items:center;justify-content:space-between;
+          width:100%;box-sizing:border-box;
+          background:#5a3e1b;border-radius:${hudOpen?'10px 10px 0 0':'10px'};
+          padding:8px 14px;font-size:13px;font-weight:700;color:#fff8f0;
+          cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,0.4);">
+        <span>🏛 Polis — info rapide</span>
+        <span id="ikp-hud-arrow">${hudOpen?'▲':'▼'}</span>
       </button>
       <div id="ikp-city-hud-body"
-        style="background:#ffffff;border:1px solid #c8a96e;border-top:none;
-          border-radius:0 0 8px 8px;padding:10px 12px;
-          box-shadow:0 4px 12px rgba(0,0,0,0.2);
-          max-height:65vh;overflow-y:auto;
-          display:${hudOpen ? 'block' : 'none'};
-          box-sizing:border-box;">
+        style="background:#ffffff;border:2px solid #5a3e1b;border-top:none;
+          border-radius:0 0 10px 10px;padding:10px 14px;
+          box-shadow:0 6px 20px rgba(0,0,0,0.35);
+          max-height:55vh;overflow-y:auto;
+          display:${hudOpen?'block':'none'};
+          box-sizing:border-box;color:#2c1f0e;">
         <div style="color:#9e8060;font-size:12px;text-align:center;padding:8px 0">⏳ Caricamento…</div>
       </div>
     `;
@@ -4473,12 +4484,11 @@
       const body   = document.getElementById('ikp-city-hud-body');
       const arrow  = document.getElementById('ikp-hud-arrow');
       const toggle = document.getElementById('ikp-city-hud-toggle');
-      if (body)   body.style.display   = hudOpen ? 'block' : 'none';
-      if (arrow)  arrow.textContent    = hudOpen ? '▲' : '▼';
-      if (toggle) toggle.style.borderRadius = hudOpen ? '8px 8px 0 0' : '8px';
+      if (body)   body.style.display        = hudOpen ? 'block' : 'none';
+      if (arrow)  arrow.textContent         = hudOpen ? '▲' : '▼';
+      if (toggle) toggle.style.borderRadius = hudOpen ? '10px 10px 0 0' : '10px';
     });
 
-    // Carica contenuto
     const body = document.getElementById('ikp-city-hud-body');
     if (body) body.innerHTML = await buildHudContent(cityId);
   }
@@ -4540,6 +4550,9 @@
     // Check iniziale
     hudDetectFromDOM();
   }
+
+  // Esponi globalmente per test da console: window.IkHUD.show(cityId)
+  window.IkHUD = { show: injectCityHUD, hide: removeCityHUD, refresh: refreshCityHUD };
 
   if (!isIkalogsSite) {
     if (document.readyState === 'loading') {
