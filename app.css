@@ -85,6 +85,74 @@
   line-height: 1.2 !important;
 }
 
+/* ── MIRACLE FAB ─────────────────────────────── */
+#ikp-miracle-fab {
+  position: fixed !important;
+  top: 112px !important;
+  left: 8px !important;
+  z-index: 2147483646 !important;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 50% !important;
+  background: #7b4fa6 !important;
+  border: none !important;
+  color: #fff !important;
+  font-size: 20px !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: transform .2s !important;
+  user-select: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+  font-family: sans-serif !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+#ikp-miracle-fab:hover  { transform: scale(1.08) !important; }
+#ikp-miracle-fab:active { transform: scale(0.95) !important; }
+
+/* ── MIRACLE PANEL ───────────────────────────── */
+#ikp-miracle-panel {
+  position: fixed !important;
+  top: 112px !important;
+  left: 60px !important;
+  z-index: 2147483645 !important;
+  width: 270px !important;
+  max-height: 60vh !important;
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3) !important;
+  display: none !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+#ikp-miracle-panel.open {
+  display: flex !important;
+}
+#ikp-miracle-panel-header {
+  background: #7b4fa6 !important;
+  color: #fff !important;
+  padding: 10px 14px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-shrink: 0 !important;
+}
+#ikp-miracle-panel-body {
+  padding: 8px 14px 14px !important;
+  overflow-y: auto !important;
+  flex: 1 !important;
+  color: #2c1f0e !important;
+  font-size: 13px !important;
+}
+
 /* ── CITY HUD FAB ────────────────────────────── */
 #ikp-city-fab {
   position: fixed !important;

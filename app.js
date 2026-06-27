@@ -288,6 +288,36 @@
         </div>
       `;
       document.body.appendChild(cityPanel);
+
+      // FAB miracoli (✨) — sopra il FAB città
+      const miracleFab = document.createElement('div');
+      miracleFab.id = 'ikp-miracle-fab';
+      miracleFab.innerHTML = `✨<span id="ikp-miracle-badge" style="
+        display:none;position:absolute;top:-4px;right:-4px;
+        background:#e53935;color:#fff;border-radius:50%;
+        width:16px;height:16px;font-size:10px;font-weight:700;
+        align-items:center;justify-content:center;
+        font-family:sans-serif;line-height:1"></span>`;
+      miracleFab.onclick = toggleMiraclePanel;
+      document.body.appendChild(miracleFab);
+
+      // Pannello miracoli
+      const miraclePanel = document.createElement('div');
+      miraclePanel.id = 'ikp-miracle-panel';
+      miraclePanel.innerHTML = `
+        <div id="ikp-miracle-panel-header">
+          <span>✨ Miracoli attivi</span>
+          <button onclick="window.IkApp.toggleMiraclePanel()" style="
+            background:none;border:none;color:#fff;font-size:16px;
+            cursor:pointer;padding:0;line-height:1">✕</button>
+        </div>
+        <div id="ikp-miracle-panel-body">
+          <p style="color:#9e8060;font-size:12px;text-align:center;padding:12px 0">
+            Apri un Tempio per caricare i dati
+          </p>
+        </div>
+      `;
+      document.body.appendChild(miraclePanel);
     }
 
     // Overlay
@@ -4360,9 +4390,126 @@
       refreshCityHUD(cityId);
     },
     onBlessingUpdated: (cityId, blessing) => { console.log('[IkApp] benedizione aggiornata city='+cityId, blessing?.godName); },
-    showPlayerDetail, showPlayerUnits, toggleCityHUD,
+    onMiracleUpdated: (cityId, data) => onMiracleUpdated(cityId, data),
+    showPlayerDetail, showPlayerUnits, toggleCityHUD, toggleMiraclePanel,
   };
   log('Modulo caricato');
+
+  // ── PANNELLO MIRACOLI ─────────────────────────
+  let miraclePanelOpen = false;
+  let miracleTimerInterval = null;
+
+  function toggleMiraclePanel() {
+    miraclePanelOpen = !miraclePanelOpen;
+    const panel = document.getElementById('ikp-miracle-panel');
+    if (!panel) return;
+    panel.classList.toggle('open', miraclePanelOpen);
+    if (miraclePanelOpen) {
+      renderMiraclePanel();
+    } else {
+      clearInterval(miracleTimerInterval);
+    }
+  }
+
+  async function renderMiraclePanel() {
+    const body = document.getElementById('ikp-miracle-panel-body');
+    if (!body) return;
+
+    let miracles = [];
+    if (window.IkDB) {
+      try { miracles = await window.IkDB.getAll('miracles'); } catch {}
+    }
+
+    if (!miracles.length) {
+      body.innerHTML = `<p style="color:#9e8060;font-size:12px;text-align:center;padding:12px 0">
+        Apri il Tempio di ogni polis per caricare i dati.</p>`;
+      return;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // Ordina: prima attivi (per tempo rimasto), poi inattivi per nome
+    miracles.sort((a, b) => {
+      const aActive = a.enddate && a.enddate > now;
+      const bActive = b.enddate && b.enddate > now;
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      if (aActive && bActive) return a.enddate - b.enddate;
+      return (a.cityName || '').localeCompare(b.cityName || '');
+    });
+
+    function fmtCountdown(enddate) {
+      const secs = enddate - Math.floor(Date.now() / 1000);
+      if (secs <= 0) return '⌛ Scaduto';
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      return h > 0
+        ? `${h}h ${String(m).padStart(2,'0')}m`
+        : `${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;
+    }
+
+    function buildRows() {
+      return miracles.map(rec => {
+        const active = rec.enddate && rec.enddate > Math.floor(Date.now() / 1000);
+        const countdown = active ? fmtCountdown(rec.enddate) : '—';
+        const dotColor = active ? '#4caf50' : '#ccc';
+        const savedAgo = rec.savedAt
+          ? Math.round((Date.now() - rec.savedAt) / 60000) + ' min fa'
+          : '';
+        return `
+          <div style="display:flex;align-items:center;gap:8px;
+            padding:7px 0;border-bottom:1px solid #ede8df">
+            <span style="width:8px;height:8px;border-radius:50%;
+              background:${dotColor};flex-shrink:0;display:inline-block"></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:600;color:#2c1f0e;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${rec.cityName || 'Città #'+rec.cityId}
+              </div>
+              <div style="font-size:11px;color:#9e8060">
+                ${rec.godName || '—'}${savedAgo ? ' · ' + savedAgo : ''}
+              </div>
+            </div>
+            <div style="font-size:12px;font-weight:700;
+              color:${active ? '#2e7d32' : '#9e8060'};
+              white-space:nowrap;flex-shrink:0">
+              ${countdown}
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    body.innerHTML = buildRows();
+
+    // Aggiorna countdown ogni secondo
+    clearInterval(miracleTimerInterval);
+    miracleTimerInterval = setInterval(() => {
+      const b = document.getElementById('ikp-miracle-panel-body');
+      if (!b || !miraclePanelOpen) { clearInterval(miracleTimerInterval); return; }
+      b.innerHTML = buildRows();
+    }, 1000);
+  }
+
+  // Chiamato da parser_temple quando arrivano nuovi dati
+  function onMiracleUpdated(cityId, data) {
+    // Aggiorna il badge sul FAB miracoli
+    updateMiracleBadge();
+    // Aggiorna il pannello se aperto
+    if (miraclePanelOpen) renderMiraclePanel();
+  }
+
+  async function updateMiracleBadge() {
+    const badge = document.getElementById('ikp-miracle-badge');
+    if (!badge || !window.IkDB) return;
+    try {
+      const all = await window.IkDB.getAll('miracles');
+      const now = Math.floor(Date.now() / 1000);
+      const active = all.filter(r => r.enddate && r.enddate > now).length;
+      badge.textContent = active > 0 ? active : '';
+      badge.style.display = active > 0 ? 'flex' : 'none';
+    } catch {}
+  }
 
   // ── FAB CITTÀ ────────────────────────────────
   let cityHudOpen = false;
@@ -4721,6 +4868,9 @@
 
   // Esponi globalmente per test da console: window.IkHUD.show(cityId)
   window.IkHUD = { show: injectCityHUD, hide: removeCityHUD, refresh: refreshCityHUD };
+
+  // Badge miracoli all'avvio
+  setTimeout(updateMiracleBadge, 2000);
 
   if (!isIkalogsSite) {
     if (document.readyState === 'loading') {

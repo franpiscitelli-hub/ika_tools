@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 16;
+  const DB_VERSION = 17;
   let db = null;
 
   function open() {
@@ -236,6 +236,12 @@
         if (!d.objectStoreNames.contains('player_units')) {
           const s = d.createObjectStore('player_units', { keyPath: 'playerId' });
           s.createIndex('playerName', 'playerName', { unique: false });
+        }
+
+        // miracles — stato miracolo per ogni città (tempio)
+        // { cityId, cityName, godName, enddate (unix sec | null), savedAt }
+        if (!d.objectStoreNames.contains('miracles')) {
+          d.createObjectStore('miracles', { keyPath: 'cityId' });
         }
       };
 

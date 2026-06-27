@@ -51,6 +51,7 @@
       'parser_barracks.js',
       'parser_townhall.js',
       'parser_combatreport.js',
+      'parser_temple.js',
     ];
 
     for (const file of subParsers) {
