@@ -1222,13 +1222,20 @@
   // ── DETTAGLIO PLAYER (aperto dal pulsante 📊 nel popup) ──
   // ── TRUPPE E POTENZIAMENTI PLAYER (pulsante 🪖 nella classifica) ──
   async function showPlayerUnits(playerId, playerName) {
-    const overlay = document.getElementById('ikp-overlay');
-    const popup   = document.getElementById('ikp-island-popup');
-    if (!overlay || !popup) return;
+    // Usa un overlay proprio per funzionare da qualsiasi tab
+    const existingOverlay = document.getElementById('ikp-units-overlay');
+    if (existingOverlay) existingOverlay.remove();
 
-    overlay.classList.add('show');
-    popup.style.display = 'block';
-    popup.innerHTML = `<div style="padding:12px;font-size:13px">⏳ Caricamento truppe di <b>${playerName}</b>…</div>`;
+    const overlay = document.createElement('div');
+    overlay.id = 'ikp-units-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;justify-content:center;';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+
+    const popup = document.createElement('div');
+    popup.style.cssText = 'background:var(--bg-card,#1e1e2e);border-radius:14px 14px 0 0;width:100%;max-width:520px;max-height:80vh;overflow-y:auto;padding:16px 16px 24px;box-shadow:0 -4px 24px rgba(0,0,0,0.3);';
+    popup.innerHTML = `<div style="padding:4px;font-size:13px">⏳ Caricamento truppe di <b>${playerName}</b>…</div>`;
+    overlay.appendChild(popup);
 
     let rec = null;
     if (window.IkDB) {
@@ -1253,7 +1260,7 @@
             Nessun dato truppe. Naviga un report di combattimento che lo include.
           </p>
           <button class="ikp-btn small outline" style="margin-top:8px"
-            onclick="window.IkApp.closePopup()">Chiudi</button>
+            onclick="document.getElementById('ikp-units-overlay')?.remove()">Chiudi</button>
         </div>`;
       return;
     }
@@ -1317,7 +1324,7 @@
         ` : ''}
 
         <button class="ikp-btn small outline" style="margin-top:12px"
-          onclick="window.IkApp.closePopup()">Chiudi</button>
+          onclick="document.getElementById('ikp-units-overlay')?.remove()">Chiudi</button>
       </div>`;
   }
 
