@@ -85,6 +85,19 @@
   line-height: 1.2 !important;
 }
 
+/* ── CITY HUD — stesso z-index e stile del FAB ── */
+#ikp-city-hud {
+  position: fixed !important;
+  bottom: 80px !important;
+  left: 14px !important;
+  z-index: 2147483646 !important;
+  pointer-events: auto !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
 /* ── OVERLAY ────────────────────────────────── */
 #ikp-overlay {
   position: fixed !important;
