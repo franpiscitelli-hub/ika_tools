@@ -136,6 +136,28 @@
       const result = await window.IkParsers.parse(url, parsed, meta);
       log(`#${sessionCount} [${result.type}]`);
 
+      // ── Rileva cambio città dal JSON custom→reload ──
+      // Il gioco invia { custom: ['reload', { link: '?view=city&cityId=XXX' }] }
+      // ogni volta che l'utente cambia polis o apre un edificio.
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (!Array.isArray(item) || item[0] !== 'custom') continue;
+          const payload = item[1];
+          if (!Array.isArray(payload) || payload[0] !== 'reload') continue;
+          const link = payload[1]?.link || '';
+          const m = /[?&](?:currentCityId|cityId)=(\d+)/.exec(link);
+          if (m) {
+            const detectedCityId = Number(m[1]);
+            if (detectedCityId !== hudCurrentCityId) {
+              hudCurrentCityId = detectedCityId;
+              // Aggiorna il selettore e il contenuto se il pannello è aperto
+              autoSelectCityInHUD(detectedCityId);
+              log(`🏛 Città rilevata: #${detectedCityId}`);
+            }
+          }
+        }
+      }
+
       // Se "salva tutti i JSON grezzi" è attivo, salva anche quelli già parsati
       if (saveAllRaw && window.IkDB && result.type !== 'raw') {
         try {
@@ -4345,6 +4367,40 @@
   // ── FAB CITTÀ ────────────────────────────────
   let cityHudOpen = false;
 
+  // Seleziona automaticamente una città nell'HUD (chiamato su cambio polis)
+  async function autoSelectCityInHUD(cityId) {
+    hudCurrentCityId = cityId;
+    const select = document.getElementById('ikp-city-hud-select');
+    if (select && select.querySelector(`option[value="${cityId}"]`)) {
+      select.value = cityId;
+      const body = document.getElementById('ikp-city-panel-body');
+      if (body && cityHudOpen) {
+        body.innerHTML = '<p style="color:#9e8060;font-size:12px;text-align:center;padding:8px">⏳ Caricamento…</p>';
+        body.innerHTML = await buildHudContent(cityId);
+      }
+    } else {
+      // Opzione non ancora nel selettore — ricarica lista e riprova
+      await loadCityHUDSelect();
+    }
+  }
+
+  // Trova la capitale (ha 'palace' negli edifici, o è la prima città per coord)
+  async function getCapitalCityId() {
+    if (!window.IkDB) return null;
+    try {
+      const cities = await window.IkDB.getAll('my_cities');
+      if (!cities.length) return null;
+      // Cerca quella con 'palace' (palazzo) negli edifici
+      const capital = cities.find(c =>
+        (c.buildings || []).some(b => b.building === 'palace')
+      );
+      if (capital) return capital.cityId;
+      // Fallback: prima per coordinate
+      cities.sort((a, b) => (a.islandX - b.islandX) || (a.islandY - b.islandY));
+      return cities[0].cityId;
+    } catch { return null; }
+  }
+
   async function toggleCityHUD() {
     cityHudOpen = !cityHudOpen;
     const panel = document.getElementById('ikp-city-panel');
@@ -4381,14 +4437,18 @@
       }
     };
 
-    // Preseleziona la prima città o quella corrente
-    if (hudCurrentCityId) {
-      const opt = select.querySelector(`option[value="${hudCurrentCityId}"]`);
-      if (opt) { opt.selected = true; select.dispatchEvent(new Event('change')); return; }
-    }
-    if (cities.length === 1) {
-      select.value = cities[0].cityId;
-      select.dispatchEvent(new Event('change'));
+    // Preseleziona città corrente → capitale → prima città
+    let targetId = hudCurrentCityId;
+    if (!targetId) targetId = await getCapitalCityId();
+    if (!targetId && cities.length) targetId = cities[0].cityId;
+
+    if (targetId) {
+      const opt = select.querySelector(`option[value="${targetId}"]`);
+      if (opt) {
+        select.value = targetId;
+        hudCurrentCityId = targetId;
+        select.dispatchEvent(new Event('change'));
+      }
     }
   }
 
