@@ -4296,11 +4296,233 @@
     renderSummary, renderChanges,
     onResearchUpdated, onFleetsUpdated, onTimerAdded,
     onTimerExpired, onStateChanges,
-    onTownHallUpdated: (cityId) => { /* aggiorna vista mie città se aperta */ if (panelOpen && activeTab === 'mycities') renderMyCities(); },
+    onTownHallUpdated: (cityId) => {
+      if (panelOpen && activeTab === 'mycities') renderMyCities();
+      refreshCityHUD(cityId);
+    },
     onBlessingUpdated: (cityId, blessing) => { console.log('[IkApp] benedizione aggiornata city='+cityId, blessing?.godName); },
     showPlayerDetail, showPlayerUnits,
   };
   log('Modulo caricato');
+
+  // ── HUD CITTÀ IN-PAGE ─────────────────────────────────────────────────────
+  // Pannello a scomparsa iniettato nell'angolo in alto a sinistra del gioco,
+  // visibile quando si naviga una propria città. Mostra gli stessi dati
+  // della Tab Città del Companion, senza dover aprire il pannello.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  let hudCurrentCityId = null;
+  let hudOpen = false;
+
+  // Ricava il cityId dall'URL del gioco
+  function hudGetCityIdFromUrl() {
+    const m = /[?&]cityId=(\d+)/.exec(window.location.search)
+           || /[?&]cityId=(\d+)/.exec(window.location.hash);
+    return m ? Number(m[1]) : null;
+  }
+
+  // Costruisce l'HTML del pannello per una città
+  async function buildHudContent(cityId) {
+    if (!window.IkDB) return '<p style="color:#9e8060;font-size:12px">DB non disponibile.</p>';
+
+    let city = null;
+    try { city = await window.IkDB.get('my_cities', cityId); } catch {}
+    let th   = null;
+    try { th   = await window.IkDB.get('town_hall_data', cityId); } catch {}
+
+    if (!city && !th) return '<p style="color:#9e8060;font-size:12px">Nessun dato per questa polis.<br>Apri il Municipio per popolare il DB.</p>';
+
+    const fmtN = n => (n == null || isNaN(n)) ? '—'
+      : n >= 1e6 ? (n/1e6).toFixed(2)+'M'
+      : n >= 1e3 ? Math.round(n).toLocaleString('it')
+      : String(Math.round(n));
+
+    const row = (icon, label, val) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;
+        padding:3px 0;border-bottom:1px solid #ede8df">
+        <span style="color:#9e8060;font-size:12px">${icon} ${label}</span>
+        <span style="font-weight:600;font-size:12px;color:#2c1f0e">${val}</span>
+      </div>`;
+
+    const section = (title) => `
+      <div style="font-size:10px;font-weight:700;color:#9e8060;text-transform:uppercase;
+        letter-spacing:.5px;margin:10px 0 4px">${title}</div>`;
+
+    let html = '';
+
+    // ── Header polis ──
+    const coords = city ? `[${city.islandX}:${city.islandY}]` : '';
+    const tgName = city?.tgName || '—';
+    html += `<div style="font-size:14px;font-weight:700;color:#2c1f0e;margin-bottom:2px">
+      🏛 ${city?.name || 'Polis #'+cityId}
+    </div>
+    <div style="font-size:11px;color:#9e8060;margin-bottom:8px">
+      ${coords}${coords && tgName !== '—' ? ' · ' : ''}${tgName !== '—' ? '🪨 '+tgName : ''}
+    </div>`;
+
+    // ── Produzione ──
+    if (city) {
+      html += section('📦 Produzione');
+      html += row('🪵','Legno/h', fmtN(city.woodPerHour));
+      html += row('🪨','Bene/h',  fmtN(city.tgPerHour));
+      html += row('🍷','Vino/h (consumo)', fmtN(city.wineSpendings));
+    }
+
+    // ── Dati Municipio ──
+    if (th) {
+      html += section('👥 Popolazione');
+      html += row('👥','Abitanti', `${fmtN(th.population)} / ${fmtN(th.maxPopulation)}`);
+      const citFree = (th.citizens != null && th.population != null)
+        ? fmtN(th.citizens) : '—';
+      const citBusy = (th.citizens != null && th.population != null)
+        ? fmtN(th.population - th.citizens) : '—';
+      html += row('😊','Felicità', th.happinessText || fmtN(th.happiness));
+      html += row('🏗','Liberi / Occupati', `${citFree} / ${citBusy}`);
+      html += row('🎓','Scienziati', fmtN(th.scientists));
+
+      html += section('💰 Economia');
+      html += row('💰','Entrate/h', fmtN(th.income));
+      html += row('⚠️','Corruzione', fmtN(th.corruption));
+      if (th.actionPoints != null)
+        html += row('⚡','Azioni', `${th.actionPoints} / ${th.actionPointsMax}`);
+
+      // Benedizione attiva
+      if (th.blessing?.godName) {
+        const pct  = th.blessing.percent ? ` +${th.blessing.percent}%` : '';
+        const left = th.blessing.graceText || '';
+        html += section('✨ Benedizione');
+        html += row('🙏', th.blessing.godName + pct, left || 'Attiva');
+      }
+    }
+
+    // ── Edifici chiave ──
+    if (city?.buildings?.length) {
+      const byType = new Map(city.buildings.map(b => [b.building, b]));
+      const kv = [
+        ['🏛','Municipio',  byType.get('townHall')?.level],
+        ['🏯','Mura',       byType.get('wall')?.level],
+        ['⚔️','Caserma',   byType.get('barracks')?.level],
+        ['⚓','Cantiere',   byType.get('shipyard')?.level],
+        ['🕵️','Nascondiglio', byType.get('safehouse')?.level],
+        ['🎓','Accademia',  byType.get('academy')?.level],
+        ['🍺','Taverna',    byType.get('tavern')?.level],
+      ].filter(([,,v]) => v != null);
+      if (kv.length) {
+        html += section('🏗 Edifici chiave');
+        kv.forEach(([icon, label, val]) => { html += row(icon, label, 'Lv ' + val); });
+      }
+    }
+
+    return html;
+  }
+
+  // Crea / aggiorna l'HUD nella pagina del gioco
+  async function injectCityHUD(cityId) {
+    hudCurrentCityId = cityId;
+
+    // Contenitore HUD
+    let hud = document.getElementById('ikp-city-hud');
+    if (!hud) {
+      hud = document.createElement('div');
+      hud.id = 'ikp-city-hud';
+      hud.style.cssText = `
+        position:fixed;top:56px;left:4px;z-index:2147483640;
+        width:240px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        pointer-events:auto;
+      `;
+      document.body.appendChild(hud);
+    }
+
+    // Toggle button sempre visibile
+    const togId = 'ikp-city-hud-toggle';
+    let togBtn = document.getElementById(togId);
+
+    hud.innerHTML = `
+      <button id="${togId}"
+        style="display:flex;align-items:center;gap:5px;
+          background:#fff8f0;border:1px solid #c8a96e;border-radius:8px;
+          padding:5px 10px;font-size:12px;font-weight:600;color:#5a3e1b;
+          cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.15);width:100%;
+          justify-content:space-between">
+        <span>🏛 Polis</span>
+        <span id="ikp-hud-arrow" style="font-size:10px">${hudOpen ? '▲' : '▼'}</span>
+      </button>
+      <div id="ikp-city-hud-body"
+        style="background:#ffffff;border:1px solid #c8a96e;border-top:none;
+          border-radius:0 0 8px 8px;padding:10px 12px;
+          box-shadow:0 4px 12px rgba(0,0,0,0.15);
+          max-height:70vh;overflow-y:auto;
+          display:${hudOpen ? 'block' : 'none'}">
+        <div style="color:#9e8060;font-size:12px;text-align:center">⏳ Caricamento…</div>
+      </div>
+    `;
+
+    document.getElementById(togId).addEventListener('click', () => {
+      hudOpen = !hudOpen;
+      const body  = document.getElementById('ikp-city-hud-body');
+      const arrow = document.getElementById('ikp-hud-arrow');
+      if (body)  body.style.display  = hudOpen ? 'block' : 'none';
+      if (arrow) arrow.textContent   = hudOpen ? '▲' : '▼';
+    });
+
+    // Popola contenuto in background
+    const body = document.getElementById('ikp-city-hud-body');
+    if (body) {
+      const content = await buildHudContent(cityId);
+      body.innerHTML = content;
+    }
+  }
+
+  // Rimuove l'HUD dalla pagina
+  function removeCityHUD() {
+    document.getElementById('ikp-city-hud')?.remove();
+    hudCurrentCityId = null;
+  }
+
+  // Aggiorna HUD quando arrivano nuovi dati dalla città aperta
+  async function refreshCityHUD(cityId) {
+    if (cityId !== hudCurrentCityId) return;
+    const body = document.getElementById('ikp-city-hud-body');
+    if (!body || !hudOpen) return; // aggiorna solo se aperto
+    body.innerHTML = await buildHudContent(cityId);
+  }
+
+  // Osserva i cambi di URL del gioco (SPA con hash/search)
+  function hudWatchUrl() {
+    let lastUrl = window.location.href;
+
+    function checkUrl() {
+      const url = window.location.href;
+      if (url === lastUrl) return;
+      lastUrl = url;
+
+      const cityId = hudGetCityIdFromUrl();
+      if (cityId && /view=/.test(url)) {
+        // Siamo in una vista città: mostra/aggiorna HUD
+        injectCityHUD(cityId);
+      } else {
+        // Non siamo in una città: rimuovi HUD
+        removeCityHUD();
+      }
+    }
+
+    // Polling leggero (100ms) per SPA Ikariam che non triggera popstate
+    setInterval(checkUrl, 300);
+
+    // Primo check immediato
+    checkUrl();
+  }
+
+  // Avvia l'HUD solo su Ikariam (non ikalogs)
+  if (!isIkalogsSite) {
+    // Aspetta che il DOM sia pronto
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', hudWatchUrl);
+    } else {
+      hudWatchUrl();
+    }
+  }
+
 })();
 
 // ═══════════════════════════════════════════════
