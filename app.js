@@ -1343,7 +1343,6 @@
 
       ${closeBtnHtml}`;
   }
-  }
 
   function showPlayerDetail(playerName) {
     // Cerca il player nel DB (mapPlayers è indicizzato per nome lowercase)
