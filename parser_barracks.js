@@ -36,8 +36,9 @@
   function getBuildingType(url, data) {
     if (/view=barracks/.test(url))  return 'barracks';
     if (/view=shipyard/.test(url))  return 'shipyard';
+    if (!Array.isArray(data)) return null;
     // Fallback da updateTemplateData: se il primo slot è una nave → shipyard
-    for (const item of (data || [])) {
+    for (const item of data) {
       if (!Array.isArray(item) || item[0] !== 'updateTemplateData') continue;
       const td = item[1] || {};
       const help = (td.js_barracksUnitHelp1 || {}).href || '';
@@ -49,14 +50,14 @@
 
   function getBuildingLevel(data) {
     // Metodo 1: dal testo "Livello N" nell'HTML del changeView
-    for (const item of (data || [])) {
+    for (const item of (Array.isArray(data) ? data : [])) {
       if (!Array.isArray(item) || item[0] !== 'changeView') continue;
       const html = (item[1] || [])[1] || '';
       const m = /Livello\s*<\/div>\s*(\d+)/.exec(html);
       if (m) return +m[1];
     }
     // Metodo 2: dall'URL del pulsante di upgrade
-    for (const item of (data || [])) {
+    for (const item of (Array.isArray(data) ? data : [])) {
       if (!Array.isArray(item) || item[0] !== 'changeView') continue;
       const html = (item[1] || [])[1] || '';
       const m = /level=(\d+)&/.exec(html);
@@ -69,7 +70,7 @@
     const mUrl = /[?&]cityId=(\d+)/.exec(url || '');
     if (mUrl) return +mUrl[1];
     // Da backgroundData
-    for (const item of (data || [])) {
+    for (const item of (Array.isArray(data) ? data : [])) {
       if (Array.isArray(item) && item[0] === 'updateGlobalData'
           && item[1]?.backgroundData?.id) {
         return +item[1].backgroundData.id;
@@ -79,7 +80,7 @@
   }
 
   function extractUnits(data) {
-    for (const item of (data || [])) {
+    for (const item of (Array.isArray(data) ? data : [])) {
       if (!Array.isArray(item) || item[0] !== 'updateTemplateData') continue;
       const td = item[1] || {};
       const units = [];
