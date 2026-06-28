@@ -95,6 +95,20 @@
     airfighter:'caccia',
   };
 
+  // Mappa row-id numerico → nome posizione
+  // (il secondo numero nello slotId, es. "21" in "slot11_21_5")
+  const SLOT_ROW_TO_POSITION = {
+    21:  'main',
+    22:  'flankLeft',   // flankLeft e flankRight condividono row 22; si distinguono dal lato del campo
+    23:  'longRange',
+    24:  'artillery',
+    25:  'air',
+    128: 'airfighter',
+  };
+
+  // Altezza max della barra loss in px → usata per calcolare % danno
+  const LOSS_BAR_MAX_PX = 32;
+
   // ── Utility ────────────────────────────────────────────────────
 
   function findChangeView(actions) {
@@ -237,7 +251,7 @@
   }
 
   // ── Parser HTML round dettagliato (militaryAdvisorDetailedReportView) ──
-  function parseDetailedRound(html, combatId, unitNames) {
+  function parseDetailedRound(html, combatId, unitNames, slotMap) {
     let doc;
     try {
       doc = new DOMParser().parseFromString(html, 'text/html');
@@ -287,7 +301,7 @@
     });
 
     // ── Slot battlefield ────────────────────────────────────────
-    const parseField = (fieldId) => {
+    const parseField = (fieldId, slotMap) => {
       const field = doc.getElementById(fieldId);
       if (!field) return { slots: [], reserve: null };
       const slots = [];
@@ -302,15 +316,35 @@
           if (!unitId) return;
           const numText = slot.querySelector('.number')?.textContent || '';
           const numM    = numText.trim().match(/(\d+)\s*\(-(\d+)\)/);
-          const lossPx  = slot.querySelector('.loss')?.style?.height?.replace('px','');
+
+          // Barra rossa (loss bar): height in px → % danno
+          const lossPx   = parseInt(slot.querySelector('.loss')?.style?.height?.replace('px','') || '0');
+          const damageBarPct = lossPx > 0 ? Math.round(lossPx / LOSS_BAR_MAX_PX * 100) : 0;
+
+          // Barra ammo (ammoLoss): height in px → % munizioni consumate
+          const ammoLossPx    = parseInt(slot.querySelector('.ammoLoss')?.style?.height?.replace('px','') || '0');
+
+          // Dati dal tooltip (per-slot): slotRaw è la parte dopo "slot" nell'id
+          const slotRaw    = slotId?.replace(/^slot/, '');
+          const tipData    = slotMap ? slotMap.get(slotRaw) : null;
+
           slots.push({
             slotId,
-            position,
+            slotRaw,                       // es: "11_21_5"
+            position,                      // nome posizione CSS (main, flankLeft, …)
+            positionLabel: SLOT_POSITIONS[position] || position,
             unitId,
-            unitName: (unitNames[unitId] || UNIT_NAMES_FALLBACK[unitId] || `unit_${unitId}`),
-            count:    numM ? parseInt(numM[1]) : null,
-            losses:   numM ? parseInt(numM[2]) : null,
-            lossBarPx:lossPx ? parseInt(lossPx) : 0,
+            unitName:    (unitNames[unitId] || UNIT_NAMES_FALLBACK[unitId] || `unit_${unitId}`),
+            count:       numM ? parseInt(numM[1]) : null,
+            losses:      numM ? parseInt(numM[2]) : null,
+            lossBarPx:   lossPx,
+            damageBarPct,                  // % danno stimato dalla barra rossa (0-100)
+            ammoLossBarPx: ammoLossPx,
+            // Dati arricchiti dal tooltip (se disponibili)
+            hp:          tipData?.hp       ?? null,   // % punti vita
+            ammo:        tipData?.ammo     ?? null,   // % munizioni rimaste
+            lossesTooltip: tipData?.losses ?? null,   // perdite dal tooltip (possono differire dal (-N) del DOM)
+            upgrades:    tipData?.upgrades ?? {},
           });
         });
       });
@@ -329,8 +363,8 @@
       return { slots, reserve: reserveUnits };
     };
 
-    roundData.attacker = parseField('fieldAttacker');
-    roundData.defender = parseField('fieldDefender');
+    roundData.attacker = parseField('fieldAttacker', slotMap);
+    roundData.defender = parseField('fieldDefender', slotMap);
 
     // Events recenti
     const events = [];
@@ -559,11 +593,11 @@
     return blessings;
   }
 
-  // ── Estrai potenziamenti dai tooltip registerMouseOver ────────
+  // ── Estrai dati dai tooltip registerMouseOver ─────────────────
   // Formato slotId: "side_row_col"  es. "11_22_5"
   //   side: 11=attacker, 12=defender
-  //   row:  21=main, 22=flankLeft/Right, 23=longRange, 24=artillery, 25=air, ...
-  //   col:  posizione nello slot
+  //   row:  21=main, 22=flank, 23=longRange, 24=artillery, 25=air, 128=airfighter
+  //   col:  posizione nello slot (0-6)
   //
   // Tooltip: <h2>Nome Unità (Player[Ally])</h2>
   //          <p>Potenziamento attacco superiore (LV)</p>
@@ -572,9 +606,14 @@
   //          <p>Punti vita: XX%</p>
   //          <p>Perdite: N</p>       (se sconfitti)
   //
-  // Ritorna: Map<playerKey, { playerName, allyName, units: Map<unitName, { upgrades, ammo, slots }> }>
+  // Ritorna:
+  //   slotMap  : Map<slotId, { unitName, playerName, allyName, side, rowId, col, position,
+  //                             upgrades, hp, ammo, losses }>
+  //   playerData: Map<playerKey, { playerName, allyName, side,
+  //                                units: Map<unitName, { upgrades, ammo, slotsCount, minHp, totalLosses }> }>
   function extractUpgradesFromTooltips(html) {
     const playerData = new Map();
+    const slotMap    = new Map();   // ← NUOVO: dati per singolo slot
 
     // Estrai tutte le chiamate registerMouseOver
     const RE = /registerMouseOver\("([^"]+)",\s*"((?:[^"\\]|\\.)*)"\)/g;
@@ -589,7 +628,6 @@
 
       const unitName   = h2M[1].trim();
       const playerFull = h2M[2].trim();
-      // playerFull può essere "Diesel[TIGRE]" o "Diesel"
       const allyM      = playerFull.match(/\[([^\]]+)\]$/);
       const playerName = playerFull.replace(/\s*\[[^\]]+\]$/, '').trim();
       const allyName   = allyM ? allyM[1] : null;
@@ -602,21 +640,43 @@
       while ((um = upgRE.exec(tipRaw)) !== null) {
         const upgName = um[1].trim();
         const upgLv   = parseInt(um[2]);
-        // Categorizza: "superiore" indica una ricerca avanzata
-        // La prima <p> è tipicamente attacco, la seconda difesa
         upgrades.push({ name: upgName, level: upgLv });
       }
 
-      // Parse munizioni e HP
+      // Parse munizioni, HP, perdite
       const ammoM   = tipRaw.match(/Munizione:\s*(\d+)%/);
       const hpM     = tipRaw.match(/Punti vita:\s*(\d+)%/);
       const lossesM = tipRaw.match(/Perdite:\s*(\d+)/);
 
-      // Side dal primo numero dello slotId
-      const sidePart = slotRaw.split('_')[0];
-      const side     = sidePart === '12' ? 'defender' : 'attacker';
+      const hp     = hpM     ? parseInt(hpM[1])     : null;
+      const ammo   = ammoM   ? parseInt(ammoM[1])   : null;
+      const losses = lossesM ? parseInt(lossesM[1]) : 0;
 
-      // Aggrega per player → per unitName
+      // Decodifica slotId → side / rowId / col / position
+      const slotParts = slotRaw.split('_');
+      const sideNum   = parseInt(slotParts[0]);
+      const rowId     = parseInt(slotParts[1]);
+      const col       = parseInt(slotParts[2]);
+      const side      = sideNum === 12 ? 'defender' : 'attacker';
+      const position  = SLOT_ROW_TO_POSITION[rowId] || `row${rowId}`;
+
+      // ── Salva dati per singolo slot ──────────────────────────
+      slotMap.set(slotRaw, {
+        slotRaw,
+        side,
+        rowId,
+        col,
+        position,
+        unitName,
+        playerName,
+        allyName,
+        upgrades: Object.fromEntries(upgrades.map(u => [u.name, u])),
+        hp,
+        ammo,
+        losses,
+      });
+
+      // ── Aggrega per player → per unitName (come prima) ───────
       if (!playerData.has(playerKey)) {
         playerData.set(playerKey, { playerName, allyName, side, units: new Map() });
       }
@@ -628,7 +688,6 @@
       const ud = pd.units.get(unitName);
       ud.slotsCount++;
 
-      // Potenziamenti: tieni il massimo (tutti gli slot dello stesso tipo hanno gli stessi lv)
       for (const upg of upgrades) {
         const existing = ud.upgrades[upg.name];
         if (!existing || existing.level < upg.level) {
@@ -636,12 +695,12 @@
         }
       }
 
-      if (hpM)     ud.minHp      = Math.min(ud.minHp, parseInt(hpM[1]));
-      if (lossesM) ud.totalLosses += parseInt(lossesM[1]);
-      if (ammoM && ud.ammo === null) ud.ammo = parseInt(ammoM[1]);
+      if (hp !== null) ud.minHp       = Math.min(ud.minHp, hp);
+      if (losses)      ud.totalLosses += losses;
+      if (ammo !== null && ud.ammo === null) ud.ammo = ammo;
     }
 
-    return playerData;
+    return { playerData, slotMap };
   }
 
   // ── Funzione principale parse ─────────────────────────────────
@@ -683,13 +742,15 @@
 
     // ── militaryAdvisorDetailedReportView ───────────────────────
     if (cv?.viewType === 'militaryAdvisorDetailedReportView' && combatId) {
-      const round = parseDetailedRound(cv.html, combatId, unitNames);
+      // Estrai tooltip PRIMA del parse DOM, così slotMap è disponibile per arricchire gli slot
+      const tooltipResult  = extractUpgradesFromTooltips(cv.html);
+      const allTooltipData = tooltipResult.playerData;
+      const slotMap        = tooltipResult.slotMap;
+
+      const round = parseDetailedRound(cv.html, combatId, unitNames, slotMap);
       if (round?.round != null) {
         const blessings = extractBlessings(round.events);
 
-        // Estrai potenziamenti dai tooltip registerMouseOver
-        const allTooltipData = extractUpgradesFromTooltips(cv.html);
-        // Separa per side (basato sul campo "side" nel playerData)
         const getPlayerUpgrades = (pName) => {
           const key = pName?.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim();
           return allTooltipData.get(key)?.units || null;
@@ -698,19 +759,25 @@
         const attName = round.morale?.attacker?.playerName || round.attackerName;
         const defName = round.morale?.defender?.playerName || round.defenderName;
 
-        // Aggiungi upgrades ai slot del round (per salvarli nel combat_report)
+        // Gli slot sono già arricchiti con hp/ammo/upgrades per-slot da parseField (via slotMap).
+        // enrichSlots aggiunge in più i dati aggregati per-tipo unità (minHp, ammo aggregata)
+        // solo come fallback per i campi non presenti nel singolo slot.
         const enrichSlots = (slots, pName) => {
           const upgData = allTooltipData.get(pName?.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim());
           if (!upgData) return slots;
           return (slots || []).map(slot => {
+            if (slot.hp !== null && Object.keys(slot.upgrades || {}).length > 0) return slot; // già completo
             const ud = upgData.units.get(slot.unitName);
             if (!ud) return slot;
-            return { ...slot, upgrades: ud.upgrades, ammo: ud.ammo };
+            return {
+              ...slot,
+              upgrades: Object.keys(slot.upgrades || {}).length > 0 ? slot.upgrades : ud.upgrades,
+              ammo:     slot.ammo ?? ud.ammo,
+            };
           });
         };
 
-        // Aggiungi anche le unità viste solo nei tooltip (non nei slot DOM, es. riserva non visibile)
-        // Le aggiunge come slotExtra per completezza
+        // Unità viste solo nei tooltip (non nel DOM, es. riserva non visibile)
         const tooltipOnlyUnits = (pName, existingSlots) => {
           const key = pName?.toLowerCase().replace(/\s*\[[^\]]+\]$/, '').trim();
           const pd  = allTooltipData.get(key);
