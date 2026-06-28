@@ -53,6 +53,7 @@
       'parser_combatreport.js',
       'parser_temple.js',
       'parser_museum.js',
+      'parser_pirate.js',
     ];
 
     for (const file of subParsers) {

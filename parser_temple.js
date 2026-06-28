@@ -46,17 +46,22 @@
         enddate = dur.countdown.enddate; // timestamp Unix (secondi)
       }
 
-      // Nome città dal cityDropdownMenu in globalData (se disponibile)
+      // Nome città — prima dal dropdown globalData, poi da my_cities nel DB
       let cityName = null;
       if (Array.isArray(data)) {
         for (const item of data) {
           if (Array.isArray(item) && item[0] === 'updateGlobalData') {
             const dropdown = item[1]?.headerData?.cityDropdownMenu || {};
             const entry = dropdown[`city_${cityId}`];
-            if (entry) cityName = entry.name;
-            break;
+            if (entry) { cityName = entry.name; break; }
           }
         }
+      }
+      if (!cityName && window.IkDB) {
+        try {
+          const cityRec = await window.IkDB.get('my_cities', cityId);
+          if (cityRec?.name) cityName = cityRec.name;
+        } catch {}
       }
 
       // Salva nel DB
@@ -76,8 +81,10 @@
         }
       }
 
-      // Notifica app
-      window.IkApp?.onMiracleUpdated?.(cityId, { godName, enddate });
+      // Notifica app (con retry se IkApp non ancora pronto)
+      const notify = () => window.IkApp?.onMiracleUpdated?.(cityId, { godName, enddate });
+      notify();
+      if (!window.IkApp) setTimeout(notify, 2000);
 
       const status = enddate
         ? `attivo fino a ${new Date(enddate * 1000).toLocaleTimeString('it')}`
