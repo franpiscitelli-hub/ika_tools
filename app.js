@@ -2390,6 +2390,25 @@
     for (const c of myCities)       cityInfo.set(c.cityId, { name: c.name, x: c.islandX, y: c.islandY });
     for (const c of enemyBuildings) if (!cityInfo.has(c.cityId)) cityInfo.set(c.cityId, { name: c.cityName, x: c.islandX, y: c.islandY });
 
+    // Mappa edifici per cityId → { townHall, wall, portMax, shipyard }
+    // Per il calcolo limiti guarigione:
+    //   LG terra = 250 + (livMunicipio + livMura) * 50
+    //   LG mare  = 125 + max(livPorto, livCantiere) * 25
+    const myBuildingsMap = new Map();
+    for (const c of myCities) {
+      if (!c.buildings?.length) continue;
+      const byType = {};
+      for (const b of c.buildings) {
+        if (!b.building || !b.level) continue;
+        if (b.building === 'port') {
+          byType.port = Math.max(byType.port || 0, b.level); // prende il porto di livello più alto
+        } else {
+          byType[b.building] = b.level;
+        }
+      }
+      myBuildingsMap.set(c.cityId, byType);
+    }
+
     // Lookup per nome, generali (punti generale) e mantenimento (oro/ora)
     const unitMeta = new Map(unitData.map(u => [u.unitId, {
       name:     u.name     || `#${u.unitId}`,
@@ -2683,6 +2702,25 @@
       const gl = rec.garrisonLimits || {};
       const detailId = `ikp-mil-detail-${idx}`;
 
+      // ── Limiti Guarigione ────────────────────────────────────
+      const bld = myBuildingsMap.get(rec.cityId) || {};
+      const lvTH   = bld.townHall || 0;
+      const lvWall = bld.wall     || 0;
+      const lvPort = bld.port     || 0;   // già il massimo tra i porti
+      const lvShip = bld.shipyard || 0;
+      const lgTerra = lvTH || lvWall
+        ? 250 + (lvTH + lvWall) * 50
+        : null;  // null se non abbiamo i dati
+      const lgMare = lvPort || lvShip
+        ? 125 + Math.max(lvPort, lvShip) * 25
+        : null;
+      const lgTerraStr = lgTerra != null
+        ? lgTerra.toLocaleString('it')
+        : '<span style="color:var(--text-muted)">—</span>';
+      const lgMareStr = lgMare != null
+        ? lgMare.toLocaleString('it')
+        : '<span style="color:var(--text-muted)">—</span>';
+
       const sections = [
         { label: '🪖 Presidio',         groups: rec.land?.garrison,  icon: '🪖' },
         { label: '🤝 Alleati (terra)',  groups: rec.land?.allied,    icon: '🪖', onlyIfAny: true },
@@ -2729,9 +2767,11 @@
         <td style="text-align:right">${seaTotal  > 0 ? `<b>${seaTotal.toLocaleString('it')}</b>`  : '<span style="color:var(--text-muted)">—</span>'}</td>
         <td style="text-align:center">${occTotal > 0 ? `<span style="color:var(--red)">🚩 ${occTotal.toLocaleString('it')}</span>` : '—'}</td>
         <td style="text-align:center">${blkTotal > 0 ? `<span style="color:var(--red)">🚧 ${blkTotal.toLocaleString('it')}</span>` : '—'}</td>
+        <td style="text-align:right;white-space:nowrap" title="250 + (Mun.${lvTH} + Mura${lvWall}) × 50">${lgTerraStr}</td>
+        <td style="text-align:right;white-space:nowrap" title="125 + max(Porto${lvPort}, Cant.${lvShip}) × 25">${lgMareStr}</td>
       </tr>
       <tr id="${detailId}" style="display:none;background:var(--bg)">
-        <td colspan="7" style="padding:0">${detailHtml}</td>
+        <td colspan="9" style="padding:0">${detailHtml}</td>
       </tr>`;
     }).join('');
 
@@ -3141,6 +3181,8 @@
             <th style="text-align:right" title="Navi proprie + alleate">⛴ Navi</th>
             <th style="text-align:center" title="Truppe nemiche occupanti">🚩 Occ.</th>
             <th style="text-align:center" title="Flotte nemiche bloccate">🚧 Blocco</th>
+            <th style="text-align:right" title="Limite Guarigione Terra = 250 + (Municipio + Mura) × 50">🏥 LG Terra</th>
+            <th style="text-align:right" title="Limite Guarigione Mare = 125 + max(Porto, Cantiere) × 25">⚓ LG Mare</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
