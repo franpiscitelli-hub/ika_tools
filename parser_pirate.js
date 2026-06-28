@@ -1,6 +1,7 @@
 // parser_pirate.js — Intercetta apertura Fortezza dei Pirati
-// Estrae il countdown della quest (piracyHighscoreTime) e lo aggiunge ai Timer
-// URL: ?view=pirateFortress&...&currentTab=tabBootyQuest
+// Estrae il countdown della MISSIONE IN CORSO (barra arancione)
+// Campo: load_js.params.ongoingMissionTimeRemaining (secondi rimanenti)
+// URL: ?view=pirateFortress
 
 (function () {
   if (!window.IkParsers) return;
@@ -15,26 +16,36 @@
       const mCity = /cityId=(\d+)/.exec(url);
       const cityId = mCity ? Number(mCity[1]) : null;
 
-      // Cerca updateTemplateData
-      let tplData = null;
+      // Cerca updateTemplateData → load_js → params
+      let params = null;
       if (Array.isArray(data)) {
         for (const item of data) {
           if (Array.isArray(item) && item[0] === 'updateTemplateData') {
-            tplData = item[1]; break;
+            const tpl = item[1];
+            try {
+              const lj = tpl?.load_js;
+              if (lj?.params) params = JSON.parse(lj.params);
+            } catch {}
+            break;
           }
         }
       }
-      if (!tplData) return { parsed: 0, parserName: 'pirate' };
+      if (!params) return { parsed: 0, parserName: 'pirate' };
 
-      // Countdown highscore quest pirati
-      const highscoreTime = tplData.piracyHighscoreTime;
-      if (!highscoreTime?.countdown?.enddate) {
-        return { parsed: 0, parserName: 'pirate' };
-      }
+      // Missione in corso?
+      if (!params.hasOngoingMission) return { parsed: 0, parserName: 'pirate' };
 
-      const enddate = highscoreTime.countdown.enddate; // Unix secondi
-      const endMs   = enddate * 1000;
-      if (endMs <= Date.now()) return { parsed: 0, parserName: 'pirate' };
+      const secsRemaining = Number(params.ongoingMissionTimeRemaining);
+      if (!secsRemaining || secsRemaining <= 0) return { parsed: 0, parserName: 'pirate' };
+
+      const serverTime = Number(params.serverTime) || Math.floor(Date.now() / 1000);
+      const endMs      = (serverTime + secsRemaining) * 1000;
+
+      // Nome del tipo di missione
+      const levelIdx   = params.ongoingMissionLevel || 1;
+      const levels     = params.pirateCaptureLevels || [];
+      const missionDef = levels.find(l => l.buildingLevel === levelIdx);
+      const missionName = missionDef?.name || `Livello ${levelIdx}`;
 
       // Nome città dal DB
       let cityName = null;
@@ -44,12 +55,10 @@
           if (rec?.name) cityName = rec.name;
         } catch {}
         if (!cityName) {
-          // Fallback: dropdown globalData
           if (Array.isArray(data)) {
             for (const item of data) {
               if (Array.isArray(item) && item[0] === 'updateGlobalData') {
-                const dropdown = item[1]?.headerData?.cityDropdownMenu || {};
-                const entry = dropdown[`city_${cityId}`];
+                const entry = item[1]?.headerData?.cityDropdownMenu?.[`city_${cityId}`];
                 if (entry) { cityName = entry.name; break; }
               }
             }
@@ -58,10 +67,9 @@
       }
 
       const cityLabel = cityName || (cityId ? `Città #${cityId}` : 'Fortezza');
-      const label     = `🏴‍☠️ ${cityLabel} — Missione pirati`;
-      const timerId   = `pirate_${cityId || 'unknown'}_${enddate}`;
+      const label     = `🏴‍☠️ ${cityLabel} — ${missionName}`;
+      const timerId   = `pirate_${cityId || 'x'}_${Math.floor(endMs / 1000)}`;
 
-      // Aggiungi al timer system
       window.IkNotifier?.scheduleTimer({
         id:      timerId,
         label,
@@ -69,12 +77,12 @@
         type:    'piracy',
       });
 
-      // Notifica app per aggiornare la UI (stesso pattern di parser_globaldata)
+      // Aggiorna UI
       window.IkApp?.onFleetsUpdated?.();
       window.IkApp?.onTimerAdded?.();
 
-      console.log(`[parser_pirate] city=${cityId} ${cityLabel} — fine missione: ${new Date(endMs).toLocaleString('it')}`);
-      return { parsed: 1, parserName: 'pirate', cityId, enddate };
+      console.log(`[parser_pirate] ${cityLabel} — "${missionName}" fine tra ${secsRemaining}s (${new Date(endMs).toLocaleTimeString('it')})`);
+      return { parsed: 1, parserName: 'pirate', cityId, secsRemaining, missionName };
     }
   });
 
