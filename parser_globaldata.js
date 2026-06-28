@@ -145,6 +145,23 @@
     const events  = extras?.viewScriptParams?.militaryAndFleetMovements;
     if (!Array.isArray(events)) return 0;
 
+    // Mappa completa tipi missione → { icona, label IT, timerType }
+    const MISSION_META = {
+      transport:   { icon: '🚛', label: 'Trasporto merci',      type: 'transport'    },
+      deployarmy:  { icon: '🪖', label: 'Schieramento truppe',  type: 'deploy'       },
+      deployfleet: { icon: '⛴', label: 'Trasferimento flotta',  type: 'deployfleet'  },
+      blockade:    { icon: '🚧', label: 'Blocco porto',          type: 'blockade'     },
+      plunder:     { icon: '💰', label: 'Saccheggio',            type: 'plunder'      },
+      attack:      { icon: '⚔️', label: 'Attacco',              type: 'attack'       },
+      colonize:    { icon: '🚩', label: 'Colonizzazione',        type: 'colonize'     },
+      spy:         { icon: '🕵️', label: 'Spionaggio',           type: 'spy'          },
+      relocate:    { icon: '🏠', label: 'Ricollocazione',        type: 'relocate'     },
+      trade:       { icon: '💼', label: 'Commercio',             type: 'trade'        },
+      siege:       { icon: '🏰', label: 'Assedio',               type: 'siege'        },
+      piracy:      { icon: '🏴‍☠️', label: 'Pirateria',          type: 'piracy'       },
+      support:     { icon: '🛡', label: 'Supporto',              type: 'support'      },
+    };
+
     let count = 0;
     for (const ev of events) {
       const event = ev?.event;
@@ -152,58 +169,56 @@
       if (!ev.isOwnArmyOrFleet) continue; // solo i propri movimenti
 
       const missionClass = event.missionIconClass;
-      if (missionClass !== 'transport' && missionClass !== 'deployarmy' && missionClass !== 'deployfleet') continue;
+      const meta = MISSION_META[missionClass];
+      if (!meta) continue; // tipo sconosciuto, salta
 
-      const state    = Number(event.missionState);
-      const endMs     = Number(ev.eventTime) * 1000;
+      const state  = Number(event.missionState);
+      const endMs  = Number(ev.eventTime) * 1000;
       if (!endMs || endMs <= Date.now()) continue;
 
       const origin    = ev.origin?.name || '?';
-      const target     = ev.target?.name || '?';
-      const shipCount  = ev.fleet?.amount || 0;
-
-      let label, timerPrefix;
+      const target    = ev.target?.name || '?';
+      const shipCount = ev.fleet?.amount || 0;
+      const arrow     = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
+      let detail = '';
 
       if (missionClass === 'transport') {
-        // Lista merci trasportate: "15.000 🔷 Cristallo"
         const cargo = Array.isArray(ev.resources)
           ? ev.resources.map(r => `${Math.round(parseGameAmount(r.amount)).toLocaleString('it')} ${resourceIconToName(r.cssClass)}`).join(', ')
           : '';
-        const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
-        label = `🚛 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${cargo ? ` — ${cargo}` : ''}`;
-        timerPrefix = 'transport';
+        detail = cargo ? ` — ${cargo}` : '';
       } else if (missionClass === 'deployarmy') {
-        // deployarmy: schieramento truppe — mostra le unità trasportate
         const units = Array.isArray(ev.army?.units)
           ? ev.army.units.map(u => `${Math.round(parseGameAmount(u.amount)).toLocaleString('it')} ${unitIconToName(u.cssClass)}`).join(', ')
           : '';
-        const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
-        label = `🪖 ${arrow}${shipCount ? ` (${shipCount} navi)` : ''}${units ? ` — ${units}` : ''}`;
-        timerPrefix = 'deploy';
-      } else {
-        // deployfleet: trasferimento navi militari — mostra le navi trasferite
+        detail = units ? ` — ${units}` : '';
+      } else if (missionClass === 'deployfleet') {
         const ships = Array.isArray(ev.fleet?.ships)
           ? ev.fleet.ships.map(s => `${Math.round(parseGameAmount(s.amount)).toLocaleString('it')} ${shipIconToName(s.cssClass)}`).join(', ')
           : '';
-        const arrow = state === 1 ? `${origin} ⏳` : `${origin} → ${target}`;
-        label = `⛴ ${arrow}${ships ? ` — ${ships}` : ''}`;
-        timerPrefix = 'deployfleet';
+        detail = ships ? ` — ${ships}` : '';
+      } else if (missionClass === 'blockade' || missionClass === 'plunder' || missionClass === 'attack' || missionClass === 'siege') {
+        const ships = Array.isArray(ev.fleet?.ships)
+          ? ev.fleet.ships.map(s => `${Math.round(parseGameAmount(s.amount)).toLocaleString('it')} ${shipIconToName(s.cssClass)}`).join(', ')
+          : '';
+        detail = ships ? ` (${ships})` : shipCount ? ` (${shipCount} navi)` : '';
       }
 
-      const timerId = `${timerPrefix}_${event.id}_${state}`;
+      const label    = `${meta.icon} ${arrow}${shipCount && !detail ? ` (${shipCount} navi)` : ''}${detail}`;
+      const timerId  = `${meta.type}_${event.id}_${state}`;
 
       try {
         await window.IkDB?.put?.('fleets', {
-          id:          timerId,
-          eventId:     event.id,
+          id:           timerId,
+          eventId:      event.id,
           missionClass,
           missionState: state,
           origin, target,
           shipCount,
           label,
-          endTime:     endMs,
-          isEnemy:     false,
-          updated:     new Date().toISOString(),
+          endTime:      endMs,
+          isEnemy:      false,
+          updated:      new Date().toISOString(),
         });
       } catch (e) {
         console.error('[parser_globaldata] fleets persist error:', e.message);
@@ -213,8 +228,7 @@
         id:      timerId,
         label,
         endTime: endMs,
-        type:    missionClass === 'transport' ? 'transport'
-                : missionClass === 'deployarmy' ? 'deploy' : 'deployfleet',
+        type:    meta.type,
       });
 
       count++;

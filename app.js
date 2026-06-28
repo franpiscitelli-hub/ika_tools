@@ -547,10 +547,13 @@
                 <!-- UNITÀ PER ROUND -->
                 <div style="font-size:12px;font-weight:600;margin-bottom:4px">🪖 Unità per round</div>
                 <div id="ikwc-rounds-container" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
-                <div style="display:flex;gap:6px;margin-bottom:12px">
+                <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
                   <button class="ikp-btn small outline" onclick="window.IkWallCalc.addRound()">＋ Aggiungi round</button>
                   <button class="ikp-btn small outline" onclick="window.IkWallCalc.removeRound()">－ Rimuovi round</button>
+                  <button class="ikp-btn small" style="background:var(--accent);color:#fff;margin-left:auto"
+                          onclick="window.IkWallCalc.optimize()">🤖 Ottimizza</button>
                 </div>
+                <div id="ikwc-opt-result" style="margin-bottom:8px"></div>
 
                 <!-- RISULTATI -->
                 <div id="ikwc-results"></div>
@@ -716,7 +719,27 @@
             <div id="ikp-my-pid-info" style="font-size:12px;color:var(--text-muted);margin-top:6px"></div>
           </div>
           <div class="ikp-card">
-            <div class="ikp-card-title">🔔 Notifiche</div>
+            <div class="ikp-card-title">📲 Notifiche Telegram</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+              Ricevi notifiche Telegram anche con il browser chiuso.<br>
+              1. Crea un bot con <b>@BotFather</b> su Telegram → copia il token<br>
+              2. Scrivi un messaggio al bot, poi incolla qui il tuo Chat ID<br>
+              <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent)">@userinfobot</a> ti mostra il tuo Chat ID.
+            </p>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+              <input class="ikp-input" id="ikp-tg-token" type="text"
+                placeholder="Bot token  (es. 123456:ABC-DEF…)" style="font-size:12px;font-family:monospace">
+              <input class="ikp-input" id="ikp-tg-chatid" type="text"
+                placeholder="Chat ID  (es. 987654321)" style="font-size:12px;font-family:monospace">
+              <div style="display:flex;gap:8px">
+                <button class="ikp-btn" onclick="window.IkApp.saveTelegramConfig()">💾 Salva</button>
+                <button class="ikp-btn outline" onclick="window.IkApp.testTelegram()">📨 Test</button>
+              </div>
+            </div>
+            <div id="ikp-tg-status" style="font-size:12px;color:var(--text-muted)"></div>
+          </div>
+          <div class="ikp-card">
+            <div class="ikp-card-title">🔔 Notifiche browser</div>
             <button class="ikp-btn success" onclick="window.IkApp.askNotifPerm()">🔔 Abilita notifiche</button>
             <span id="ikp-notif-status" style="font-size:12px;color:var(--text-muted);margin-left:10px"></span>
           </div>
@@ -856,7 +879,7 @@
       case 'ranking':   renderChanges();   break;
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
-      case 'settings':  loadSettingsUI(); loadRetentionUI(); break;
+      case 'settings':  loadSettingsUI(); loadRetentionUI(); loadTelegramConfig(); break;
     }
   }
 
@@ -1566,7 +1589,19 @@
       if (!active.length) {
         list.innerHTML = `<div class="ikp-empty"><div class="ikp-empty-icon">⏳</div><p>Nessun timer attivo.<br>Apri città e avvia costruzioni.</p></div>`;
       } else {
-        const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴', shrine:'⛩' };
+        const icons = {
+          building:'🏗', research:'🔬', fleet_enemy:'⚔️', shrine:'⛩',
+          transport:'🚛', deploy:'🪖', deployfleet:'⛴',
+          blockade:'🚧', plunder:'💰', attack:'⚔️', colonize:'🚩',
+          spy:'🕵️', relocate:'🏠', trade:'💼', siege:'🏰', piracy:'🏴‍☠️', support:'🛡',
+        };
+        const typeLabels = {
+          building:'Costruzione', research:'Ricerca', fleet_enemy:'Flotta nemica', shrine:'Favore divino',
+          transport:'Trasporto merci', deploy:'Schieramento truppe', deployfleet:'Trasferimento flotta',
+          blockade:'Blocco porto', plunder:'Saccheggio', attack:'Attacco', colonize:'Colonizzazione',
+          spy:'Spionaggio', relocate:'Ricollocazione', trade:'Commercio', siege:'Assedio',
+          piracy:'Pirateria', support:'Supporto',
+        };
         list.innerHTML = active.map(t => {
           // Label building ha formato: "🏗 NomeCittà — NomeEdificio LvX → LvY"
           // Label transport/deploy ha formato: "🚛/🪖 Origine → Target (N navi) — dettaglio carico"
@@ -1582,14 +1617,27 @@
             subLabel = 'Ricerca';
           } else if (t.type === 'fleet_enemy') {
             subLabel = '⚠️ Flotta nemica';
-          } else if (t.type === 'transport' || t.type === 'deploy' || t.type === 'deployfleet') {
+          } else if (t.type === 'transport' || t.type === 'deploy' || t.type === 'deployfleet'
+                  || t.type === 'blockade' || t.type === 'plunder' || t.type === 'attack'
+                  || t.type === 'colonize' || t.type === 'spy' || t.type === 'relocate'
+                  || t.type === 'trade' || t.type === 'siege' || t.type === 'piracy'
+                  || t.type === 'support') {
             const dashIdx = t.label.indexOf(' — ');
             if (dashIdx !== -1) {
               mainLabel = t.label.slice(0, dashIdx);
               subLabel  = t.label.slice(dashIdx + 3); // carico/truppe/navi, o vuoto se non note
             } else {
-              subLabel = t.type === 'deploy' ? 'Schieramento truppe'
-                       : t.type === 'deployfleet' ? 'Trasferimento flotta' : 'Trasporto merci';
+              subLabel = t.type === 'deploy'       ? 'Schieramento truppe'
+                       : t.type === 'deployfleet'  ? 'Trasferimento flotta'
+                       : t.type === 'blockade'     ? 'Blocco porto'
+                       : t.type === 'plunder'      ? 'Saccheggio'
+                       : t.type === 'attack'       ? 'Attacco'
+                       : t.type === 'colonize'     ? 'Colonizzazione'
+                       : t.type === 'spy'          ? 'Spionaggio'
+                       : t.type === 'siege'        ? 'Assedio'
+                       : t.type === 'piracy'       ? 'Pirateria'
+                       : t.type === 'support'      ? 'Supporto'
+                       : 'Trasporto merci';
             }
           } else if (t.type === 'shrine') {
             // Label formato: "⛩ NomeDio — XX%" (o senza percentuale se non disponibile)
@@ -1602,12 +1650,29 @@
             }
           }
           const endStr = window.IkNotifier.formatEndDateTime(t.endTime);
+          const tgSched = getTgSchedule(t.id);
+          const tgActive = tgSched !== null;
           return `<div class="ikp-timer">
             <div class="ikp-timer-icon">${icons[t.type]||'⏰'}</div>
             <div class="ikp-timer-info">
               <div class="ikp-timer-label">${mainLabel}</div>
               <div class="ikp-timer-sub">${subLabel}</div>
               <div class="ikp-timer-sub" style="opacity:0.7">🕐 termina ${endStr}</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
+                <button onclick="window.IkApp.toggleTgTimer('${t.id}')"
+                  style="all:unset;cursor:pointer;font-size:18px;line-height:1"
+                  title="${tgActive ? 'Notifica Telegram attiva — clicca per rimuovere' : 'Aggiungi notifica Telegram'}">
+                  ${tgActive ? '🔔' : '🔕'}
+                </button>
+                ${tgActive ? `
+                  <span style="font-size:11px;color:var(--accent)">
+                    Avviso ${tgSched}m prima
+                  </span>
+                  <button onclick="window.IkApp.editTgTimer('${t.id}')"
+                    style="all:unset;cursor:pointer;font-size:11px;color:var(--text-muted);
+                    text-decoration:underline">modifica</button>
+                ` : ''}
+              </div>
             </div>
             <div class="ikp-timer-time ${t.msLeft < 300000 ? 'urgent' : ''}" data-id="${t.id}">
               ${window.IkNotifier.formatTime(t.msLeft)}
@@ -1631,7 +1696,12 @@
       return;
     }
 
-    const icons = { building:'🏗', research:'🔬', fleet_enemy:'⚔️', transport:'🚛', deploy:'🪖', deployfleet:'⛴', shrine:'⛩' };
+    const icons = {
+      building:'🏗', research:'🔬', fleet_enemy:'⚔️', shrine:'⛩',
+      transport:'🚛', deploy:'🪖', deployfleet:'⛴',
+      blockade:'🚧', plunder:'💰', attack:'⚔️', colonize:'🚩',
+      spy:'🕵️', relocate:'🏠', trade:'💼', siege:'🏰', piracy:'🏴‍☠️', support:'🛡',
+    };
     list.innerHTML = completed.map(t => {
       let mainLabel = t.label, subLabel = '';
       if (t.type === 'building' || t.type === 'transport' || t.type === 'deploy' || t.type === 'deployfleet' || t.type === 'shrine') {
@@ -4253,6 +4323,7 @@
     if (window.IkNotifier) {
       await window.IkNotifier.restoreTimers();
       log('✅ Timer ripristinati');
+      startTgPoll(); // avvia polling notifiche Telegram
     }
 
     // 4. Build UI
@@ -4573,9 +4644,249 @@
     onCulturalTreatiesUpdated: (cityId, partners) => {
       if (panelOpen && activeTab === 'mycities') renderMyCities();
     },
+    saveTelegramConfig, testTelegram, toggleTgTimer, editTgTimer, saveTgTimer,
     showPlayerDetail, showPlayerUnits, toggleCityHUD, toggleMiraclePanel,
   };
   log('Modulo caricato');
+
+  // ══ SISTEMA NOTIFICHE TELEGRAM ══════════════════════════════════════════
+  // Struttura localStorage:
+  //   ikp_tg_token   → string
+  //   ikp_tg_chatid  → string
+  //   ikp_tg_schedules → JSON: { [timerId]: minutesBefore }
+  //   ikp_tg_sent    → JSON: { [timerId]: true }  (notifiche già inviate)
+
+  const TG_TOKEN_KEY   = 'ikp_tg_token';
+  const TG_CHATID_KEY  = 'ikp_tg_chatid';
+  const TG_SCHED_KEY   = 'ikp_tg_schedules';
+  const TG_SENT_KEY    = 'ikp_tg_sent';
+
+  function getTgConfig() {
+    return {
+      token:  localStorage.getItem(TG_TOKEN_KEY)  || '',
+      chatId: localStorage.getItem(TG_CHATID_KEY) || '',
+    };
+  }
+
+  function getTgSchedules() {
+    try { return JSON.parse(localStorage.getItem(TG_SCHED_KEY) || '{}'); } catch { return {}; }
+  }
+
+  function saveTgSchedules(s) {
+    localStorage.setItem(TG_SCHED_KEY, JSON.stringify(s));
+  }
+
+  function getTgSent() {
+    try { return JSON.parse(localStorage.getItem(TG_SENT_KEY) || '{}'); } catch { return {}; }
+  }
+
+  function saveTgSent(s) {
+    localStorage.setItem(TG_SENT_KEY, JSON.stringify(s));
+  }
+
+  // Ritorna i minuti configurati per un timer, o null se non schedulato
+  function getTgSchedule(timerId) {
+    const s = getTgSchedules();
+    return s[timerId] != null ? s[timerId] : null;
+  }
+
+  // Invia messaggio Telegram
+  async function sendTelegram(text) {
+    const { token, chatId } = getTgConfig();
+    if (!token || !chatId) return { ok: false, error: 'Token o Chat ID mancanti' };
+    try {
+      const url = `https://api.telegram.org/bot${token}/sendMessage`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+        }),
+      });
+      const data = await res.json();
+      return data.ok ? { ok: true } : { ok: false, error: data.description };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  // Salva config Telegram
+  async function saveTelegramConfig() {
+    const token  = document.getElementById('ikp-tg-token')?.value.trim()  || '';
+    const chatId = document.getElementById('ikp-tg-chatid')?.value.trim() || '';
+    localStorage.setItem(TG_TOKEN_KEY,  token);
+    localStorage.setItem(TG_CHATID_KEY, chatId);
+    const st = document.getElementById('ikp-tg-status');
+    if (st) { st.textContent = '✅ Salvato!'; st.style.color = '#4caf50'; }
+  }
+
+  // Invia messaggio di test
+  async function testTelegram() {
+    await saveTelegramConfig();
+    const st = document.getElementById('ikp-tg-status');
+    if (st) { st.textContent = '📨 Invio test…'; st.style.color = 'var(--text-muted)'; }
+    const res = await sendTelegram('🏛 <b>Ikariam Companion</b>\n\n✅ Connessione Telegram funzionante!\nRiceverai qui le notifiche dei tuoi timer.');
+    if (st) {
+      st.textContent = res.ok ? '✅ Messaggio inviato! Controlla Telegram.' : `❌ Errore: ${res.error}`;
+      st.style.color = res.ok ? '#4caf50' : '#e53935';
+    }
+  }
+
+  // Apre dialog per impostare/modificare i minuti prima
+  function toggleTgTimer(timerId) {
+    const sched = getTgSchedules();
+    if (sched[timerId] != null) {
+      // Rimuovi
+      delete sched[timerId];
+      const sent = getTgSent();
+      delete sent[timerId];
+      saveTgSchedules(sched);
+      saveTgSent(sent);
+      renderTimers();
+      return;
+    }
+    editTgTimer(timerId);
+  }
+
+  function editTgTimer(timerId) {
+    // Trova il timer per mostrare il label
+    const timer = window.IkNotifier?.getActive().find(t => t.id === timerId);
+    const label = timer?.label || timerId;
+    const sched = getTgSchedules();
+    const current = sched[timerId] ?? 30;
+
+    // Mostra dialog inline nel timer
+    const existing = document.getElementById('ikp-tg-dialog');
+    if (existing) existing.remove();
+
+    const dialog = document.createElement('div');
+    dialog.id = 'ikp-tg-dialog';
+    dialog.style.cssText = `
+      position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.5);
+      display:flex;align-items:center;justify-content:center;
+      font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    `;
+    dialog.innerHTML = `
+      <div style="background:#fff;border-radius:14px;padding:20px;width:280px;
+        box-shadow:0 8px 32px rgba(0,0,0,0.3);box-sizing:border-box">
+        <div style="font-weight:700;font-size:15px;color:#2c1f0e;margin-bottom:6px">
+          🔔 Notifica Telegram
+        </div>
+        <div style="font-size:12px;color:#9e8060;margin-bottom:14px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+        <div style="font-size:13px;color:#2c1f0e;margin-bottom:8px">
+          Avvisami <b id="ikp-tg-min-preview">${current}</b> minuti prima
+        </div>
+        <input type="range" id="ikp-tg-min-slider"
+          min="1" max="120" value="${current}" step="1"
+          style="width:100%;margin-bottom:6px"
+          oninput="document.getElementById('ikp-tg-min-preview').textContent=this.value">
+        <div style="display:flex;justify-content:space-between;font-size:11px;
+          color:#9e8060;margin-bottom:16px">
+          <span>1 min</span>
+          <span>30</span>
+          <span>60</span>
+          <span>2 ore</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('ikp-tg-dialog').remove()"
+            style="flex:1;padding:10px;border:1px solid #d4c5a9;border-radius:8px;
+            background:#fff;color:#9e8060;cursor:pointer;font-size:13px">Annulla</button>
+          <button onclick="window.IkApp.saveTgTimer('${timerId}')"
+            style="flex:2;padding:10px;border:none;border-radius:8px;
+            background:#8b5e3c;color:#fff;cursor:pointer;font-size:13px;font-weight:700">
+            ✅ Salva notifica
+          </button>
+        </div>
+      </div>`;
+    dialog.addEventListener('click', e => { if (e.target === dialog) dialog.remove(); });
+    document.body.appendChild(dialog);
+  }
+
+  function saveTgTimer(timerId) {
+    const minutes = parseInt(document.getElementById('ikp-tg-min-slider')?.value) || 30;
+    const sched = getTgSchedules();
+    sched[timerId] = minutes;
+    saveTgSchedules(sched);
+    // Resetta "già inviato" per questo timer
+    const sent = getTgSent();
+    delete sent[timerId];
+    saveTgSent(sent);
+    document.getElementById('ikp-tg-dialog')?.remove();
+    renderTimers();
+  }
+
+  // ── Polling ogni 30 secondi: controlla se inviare notifiche ──
+  let tgPollInterval = null;
+
+  function startTgPoll() {
+    if (tgPollInterval) return;
+    tgPollInterval = setInterval(checkTgNotifications, 30000);
+    checkTgNotifications(); // check immediato
+  }
+
+  async function checkTgNotifications() {
+    const { token, chatId } = getTgConfig();
+    if (!token || !chatId) return;
+
+    const sched = getTgSchedules();
+    const sent  = getTgSent();
+    const active = window.IkNotifier?.getActive() || [];
+
+    for (const timer of active) {
+      const minutesBefore = sched[timer.id];
+      if (minutesBefore == null) continue;
+      if (sent[timer.id]) continue; // già inviata
+
+      const msLeft     = timer.msLeft;
+      const msBefore   = minutesBefore * 60 * 1000;
+      const tolerance  = 45 * 1000; // 45 secondi di tolleranza
+
+      if (msLeft <= msBefore + tolerance && msLeft > 0) {
+        const icons = {
+          building:'🏗', research:'🔬', fleet_enemy:'⚔️', shrine:'⛩',
+          transport:'🚛', deploy:'🪖', deployfleet:'⛴',
+          blockade:'🚧', plunder:'💰', attack:'⚔️', colonize:'🚩',
+          spy:'🕵️', relocate:'🏠', trade:'💼', siege:'🏰', piracy:'🏴‍☠️', support:'🛡',
+        };
+        const icon = icons[timer.type] || '⏰';
+        const mLeft = Math.ceil(msLeft / 60000);
+        const endDate = new Date(timer.endTime).toLocaleString('it');
+
+        const text = `🏛 <b>Ikariam Companion</b>\n\n${icon} <b>${timer.label}</b>\n\n⏳ Termina tra <b>${mLeft} minuti</b>\n🕐 ${endDate}`;
+
+        const res = await sendTelegram(text);
+        if (res.ok) {
+          sent[timer.id] = true;
+          saveTgSent(sent);
+          log(`📲 Telegram inviato: ${timer.label}`);
+        } else {
+          log(`❌ Telegram fallito: ${res.error}`);
+        }
+      }
+    }
+
+    // Pulizia sent per timer non più attivi
+    const activeIds = new Set(active.map(t => t.id));
+    let changed = false;
+    for (const id of Object.keys(sent)) {
+      if (!activeIds.has(id)) { delete sent[id]; changed = true; }
+    }
+    if (changed) saveTgSent(sent);
+  }
+
+  // Carica config Telegram negli input delle Settings
+  function loadTelegramConfig() {
+    const { token, chatId } = getTgConfig();
+    const ti = document.getElementById('ikp-tg-token');
+    const ci = document.getElementById('ikp-tg-chatid');
+    if (ti) ti.value = token;
+    if (ci) ci.value = chatId;
+  }
+
+  // ══ FINE SISTEMA TELEGRAM ══════════════════════════════════════════════
 
   // ── PANNELLO MIRACOLI ─────────────────────────
   let miraclePanelOpen = false;
@@ -5382,6 +5693,324 @@
     resultsDiv.innerHTML = html;
   }
 
+  // ── OTTIMIZZATORE AUTOMATICO ────────────────────────────────────────────
+  // Vincoli:
+  //   - max 5 slot artiglieria, ognuno da max 6 unità dello stesso tipo
+  //   - max 30 unità totali (5×6), ma ogni tipo può occupare più slot
+  //     → max 30 unità per tipo (ma realisticamente divise in slot da 6)
+  //   - ordine di fuoco fisso: Mortaio → Catapulta → Ariete
+  //   - danno residuo di un'unità che abbatte uno slot è PERSO
+  //
+  // Strategia:
+  //   1. Prova a abbattere TUTTE le mura in 1 round (minimizzando le unità)
+  //   2. Se non fattibile, prova strategia 2 round:
+  //      Round 1: abbatte (slots-1) slot e danneggia il penultimo del minimo
+  //              necessario per ridurre l'HP del round 2 tramite redistribuzione
+  //      Round 2: completa
+  //   3. Trova la combinazione con meno unità totali
+
+  async function optimize() {
+    const optDiv = document.getElementById('ikwc-opt-result');
+    if (optDiv) optDiv.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">⏳ Ottimizzazione in corso…</div>';
+
+    // Leggi parametri correnti
+    const efestoLv   = parseInt(document.getElementById('ikwc-efesto')?.value)   || 0;
+    const townhallLv = parseInt(document.getElementById('ikwc-townhall')?.value) || 20;
+    const wallLv     = parseInt(document.getElementById('ikwc-wall')?.value)     || 10;
+
+    const slots  = wallSlots(townhallLv);
+    const slotHp = wallSlotHp(wallLv);
+    const armor  = wallArmor(wallLv);
+
+    const dbUpgrades = await readUpgradesFromDB();
+    const upgradeLevels = {};
+    for (const u of ARTILLERY) {
+      const manualInput = document.getElementById(u.inputId);
+      const manualVal   = manualInput?.value !== '' ? parseInt(manualInput.value) : null;
+      upgradeLevels[u.id] = manualVal ?? dbUpgrades[u.id] ?? 0;
+    }
+
+    // Danni effettivi per unità: [mortaio(305), catapulta(306), ariete(307)]
+    const ORDER = [305, 306, 307]; // ordine di fuoco
+    const dmg = {};
+    for (const u of ARTILLERY) {
+      dmg[u.id] = unitEffectiveDmg(u.baseAtk, upgradeLevels[u.id], efestoLv, armor);
+    }
+
+    // Quantità massima per tipo: 5 slot × 6 = 30, ma contiamo per slot da 6
+    const MAX_PER_TYPE = 30; // 5 slot × 6 unità
+    const SLOT_SIZE    = 6;
+
+    // Arrotonda al multiplo di SLOT_SIZE più vicino verso l'alto (slot interi)
+    function toSlots(n) { return Math.ceil(n / SLOT_SIZE) * SLOT_SIZE; }
+
+    // Simula 1 round e ritorna se le mura sono abbattute
+    function tryRound(counts) {
+      const unitDmgArr = [{
+        rounds: [ORDER.map(id => ({ label: id, dmgPerUnit: dmg[id], count: counts[id] || 0, unitId: id }))]
+      }];
+      const roundUnits = ORDER.map(id => ({ label: String(id), dmgPerUnit: dmg[id], count: counts[id] || 0, unitId: id }));
+      const res = simulate(slots, slotHp, [roundUnits]);
+      const finalHp = res[0]?.hpAfter || [];
+      return {
+        destroyed: finalHp.filter(hp => hp <= 0).length,
+        remaining: finalHp.filter(hp => hp > 0).length,
+        hpAfter: finalHp,
+        res,
+      };
+    }
+
+    // ── Strategia 1 round ─────────────────────────────────────────────
+    // Quante unità servono per abbattere tutti gli slot?
+    // Ogni slot richiede esattamente ceil(slotHp / dmgUnit) colpi.
+    // I colpi in eccesso che abbattono uno slot vengono PERSI,
+    // quindi dobbiamo assegnare esattamente tanti colpi per abbattere ogni slot.
+    //
+    // Approccio greedy: riempi prima con mortai (danno massimo), poi catapulte, poi arieti.
+    // Per ogni slot: calcola quante unità di ciascun tipo servono, tenendo conto
+    // che i residui sono persi → ogni slot deve essere assegnato interamente a un tipo.
+
+    function greedyOneRound() {
+      // Per ogni slot assegniamo il tipo che "spara per primo" e ha abbastanza danno
+      // Strategia: assegna ogni slot al tipo con il minor numero di unità necessarie
+      // che non supera MAX_PER_TYPE
+
+      let hpRemaining = Array(slots).fill(slotHp);
+      const counts = { 305: 0, 306: 0, 307: 0 };
+
+      // Simula unità per unità nell'ordine di fuoco
+      // Troviamo la quantità minima di ogni tipo che abbatte tutti gli slot
+      // Approccio: incrementale per tipo
+
+      // Per ogni slot, quante unità di un tipo servono per abbatterlo
+      function unitsToKill(hp, unitDmg) {
+        if (unitDmg <= 0) return Infinity;
+        return Math.ceil(hp / unitDmg); // ogni colpo in eccesso è perso
+      }
+
+      // Greedy: assegna slot ai tipi nell'ordine di fuoco
+      // Il tipo che spara prima "prende" i primi slot
+      let slotPtr = 0;
+      for (const typeId of ORDER) {
+        if (slotPtr >= slots) break;
+        const unitDmg = dmg[typeId];
+        if (unitDmg <= 0) continue;
+
+        // Quanti slot può abbattere questo tipo prima di esaurire MAX_PER_TYPE?
+        let used = 0;
+        while (slotPtr < slots && used + unitsToKill(hpRemaining[slotPtr], unitDmg) <= MAX_PER_TYPE) {
+          const needed = unitsToKill(hpRemaining[slotPtr], unitDmg);
+          counts[typeId] += needed;
+          used += needed;
+          slotPtr++;
+        }
+      }
+
+      // Verifica che tutti gli slot siano stati assegnati
+      const success = slotPtr >= slots;
+      return { counts, success, totalUnits: Object.values(counts).reduce((a, b) => a + b, 0) };
+    }
+
+    // ── Strategia 2 round ─────────────────────────────────────────────
+    // Round 1: abbatte (slots-1) slot, lascia l'ultimo con il minimo danno necessario
+    //          per far sì che la ridistribuzione HP al round 2 sia favorevole.
+    //          Opzione A: abbatti i primi (slots-1) slot completamente.
+    //          Opzione B: abbatti i primi (slots-2) slot + danneggia il penultimo
+    //                     (così il danno si redistribuisce solo sui 2 slot vivi → hp più basso).
+    // Round 2: abbatte i restanti slot con HP ridotti.
+
+    function greedyTwoRounds() {
+      const results = [];
+
+      // Prova: nel round 1, abbatte i primi K slot (K = slots-1 o slots-2)
+      for (let killInR1 = slots - 1; killInR1 >= Math.max(1, slots - 2); killInR1--) {
+        // Round 1: abbatti i primi killInR1 slot
+        const countsR1 = { 305: 0, 306: 0, 307: 0 };
+        let ptr = 0;
+
+        for (const typeId of ORDER) {
+          if (ptr >= killInR1) break;
+          const unitDmg = dmg[typeId];
+          if (unitDmg <= 0) continue;
+          while (ptr < killInR1 && countsR1[typeId] + Math.ceil(slotHp / unitDmg) <= MAX_PER_TYPE) {
+            countsR1[typeId] += Math.ceil(slotHp / unitDmg);
+            ptr++;
+          }
+        }
+
+        const r1Ok = ptr >= killInR1;
+        if (!r1Ok) continue;
+
+        // Opzionale: con le unità rimanenti del round 1, aggiungi danno extra
+        // allo slot successivo per diminuire l'HP della redistribuzione
+        const survivingSlots = slots - killInR1;
+
+        // Calcola HP ridistribuiti al round 2
+        // Slot abbattuti: danno = slotHp ciascuno
+        // Slot non toccati: danno = 0
+        // Redistribuzione: totDannoSuVivi / nVivi
+        // Tutti i killInR1 slot abbattuti → danno sui vivi = 0 (quelli abbattuti non contano)
+        // HP round 2 = slotHp - 0 = slotHp (nessun danno distribuito sui vivi)
+        // Per ridurre HP round 2, aggiungiamo danno allo slot survivente nel round 1
+
+        // Unità disponibili per tipo nel round 1 (dopo aver usato per i kill)
+        const availR1 = {};
+        for (const id of ORDER) availR1[id] = MAX_PER_TYPE - (countsR1[id] || 0);
+
+        // Aggiungi danno extra sullo slot (killInR1) per ridurre HP redistribuito
+        let extraDmg = 0;
+        for (const typeId of ORDER) {
+          if (availR1[typeId] > 0 && dmg[typeId] > 0) {
+            // Quante unità extra possiamo sparare? Solo se non abbattono lo slot
+            // (se abbattono, residuo è perso e non ha senso)
+            const maxExtra = Math.min(
+              availR1[typeId],
+              Math.floor((slotHp - 1) / dmg[typeId]) // non abbattere
+            );
+            if (maxExtra > 0) {
+              countsR1[typeId] += maxExtra;
+              extraDmg += maxExtra * dmg[typeId];
+              availR1[typeId] -= maxExtra;
+              break; // un solo tipo di extra basta
+            }
+          }
+        }
+
+        // HP base round 2 (redistribuzione)
+        // Danno totale sui vivi nel round 1 = extraDmg (quelli abbattuti → 0 sul vivo)
+        const hpR2 = slotHp - (extraDmg / survivingSlots);
+
+        // Round 2: abbatti tutti i survivingSlots con HP = hpR2
+        const countsR2 = { 305: 0, 306: 0, 307: 0 };
+        let ptr2 = 0;
+        for (const typeId of ORDER) {
+          if (ptr2 >= survivingSlots) break;
+          const unitDmg = dmg[typeId];
+          if (unitDmg <= 0) continue;
+          const unitsNeeded = Math.ceil(hpR2 / unitDmg);
+          while (ptr2 < survivingSlots && countsR2[typeId] + unitsNeeded <= MAX_PER_TYPE) {
+            countsR2[typeId] += unitsNeeded;
+            ptr2++;
+          }
+        }
+
+        if (ptr2 < survivingSlots) continue; // round 2 non fattibile
+
+        const totalR1 = Object.values(countsR1).reduce((a, b) => a + b, 0);
+        const totalR2 = Object.values(countsR2).reduce((a, b) => a + b, 0);
+
+        results.push({
+          killInR1, countsR1, countsR2, extraDmg, hpR2: Math.round(hpR2),
+          total: totalR1 + totalR2,
+          totalR1, totalR2, survivingSlots,
+        });
+      }
+
+      if (!results.length) return null;
+      results.sort((a, b) => a.total - b.total);
+      return results[0];
+    }
+
+    // ── Esegui ottimizzazione ─────────────────────────────────────────
+    const oneRound  = greedyOneRound();
+    const twoRounds = greedyTwoRounds();
+
+    let bestStrategy = null;
+    let html = '';
+
+    const unitLabel = id => ARTILLERY.find(u => u.id === id)?.label || id;
+    const fmtCounts = counts => ORDER
+      .filter(id => counts[id] > 0)
+      .map(id => {
+        const n     = counts[id];
+        const slots = Math.ceil(n / SLOT_SIZE);
+        return `<b>${n}</b> ${unitLabel(id)} (${slots} slot)`;
+      }).join(' + ') || '—';
+
+    if (oneRound.success) {
+      bestStrategy = 'one';
+      html += `
+        <div style="background:rgba(34,139,34,0.1);border:1px solid #4caf50;border-radius:6px;
+                    padding:10px 12px;font-size:12px;margin-bottom:8px">
+          <div style="font-weight:700;color:#2e7d32;margin-bottom:6px">
+            ✅ Possibile in 1 solo round
+          </div>
+          <div style="margin-bottom:4px">
+            <span style="color:var(--text-muted)">Round 1:</span>
+            ${fmtCounts(oneRound.counts)}
+          </div>
+          <div style="color:var(--text-muted)">Totale: <b>${oneRound.totalUnits}</b> unità</div>
+        </div>`;
+
+      // Applica
+      numRounds = 1;
+      renderRoundInputs([oneRound.counts]);
+      applyCountsToInputs([oneRound.counts]);
+
+    } else if (twoRounds) {
+      bestStrategy = 'two';
+      const slotsStr = twoRounds.killInR1 === slots - 1
+        ? `Abbatte ${twoRounds.killInR1} slot, danneggia il ${twoRounds.killInR1 + 1}°`
+        : `Abbatte ${twoRounds.killInR1} slot + danno extra su slot ${twoRounds.killInR1 + 1}`;
+
+      html += `
+        <div style="background:rgba(255,152,0,0.1);border:1px solid #ff9800;border-radius:6px;
+                    padding:10px 12px;font-size:12px;margin-bottom:8px">
+          <div style="font-weight:700;color:#e65100;margin-bottom:6px">
+            ⚠️ Necessari 2 round
+          </div>
+          <div style="margin-bottom:4px">
+            <span style="color:var(--text-muted)">Round 1</span>
+            <span style="font-size:11px;color:var(--text-muted)"> (${slotsStr})</span>:
+            ${fmtCounts(twoRounds.countsR1)}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">
+            → HP slot superstite round 2: <b>${twoRounds.hpR2.toLocaleString('it')}</b>
+            (${twoRounds.survivingSlots} slot rimanenti)
+          </div>
+          <div style="margin-bottom:4px">
+            <span style="color:var(--text-muted)">Round 2</span>
+            <span style="font-size:11px;color:var(--text-muted)"> (Completa le mura)</span>:
+            ${fmtCounts(twoRounds.countsR2)}
+          </div>
+          <div style="color:var(--text-muted)">
+            Totale: <b>${twoRounds.total}</b> unità
+            (R1: ${twoRounds.totalR1} + R2: ${twoRounds.totalR2})
+          </div>
+        </div>`;
+
+      numRounds = 2;
+      renderRoundInputs([twoRounds.countsR1, twoRounds.countsR2]);
+      applyCountsToInputs([twoRounds.countsR1, twoRounds.countsR2]);
+
+    } else {
+      html += `
+        <div style="background:rgba(229,57,53,0.1);border:1px solid #e53935;border-radius:6px;
+                    padding:10px 12px;font-size:12px;margin-bottom:8px">
+          <div style="font-weight:700;color:#b71c1c">
+            ❌ Impossibile abbattere le mura con l'artiglieria disponibile (max 5 slot × 6 unità).
+          </div>
+          <div style="color:var(--text-muted);margin-top:4px">
+            Considera più round manuali o verifica i livelli di upgrade.
+          </div>
+        </div>`;
+    }
+
+    if (optDiv) optDiv.innerHTML = html;
+    await compute();
+  }
+
+  // Applica conteggi agli input dei round
+  function applyCountsToInputs(roundCounts) {
+    for (let r = 0; r < roundCounts.length; r++) {
+      const counts = roundCounts[r];
+      for (const typeId of ORDER) {
+        const el = document.getElementById(`ikwc-r${r}-${typeId}`);
+        if (el) el.value = counts[typeId] || 0;
+      }
+    }
+  }
+
   function addRound() {
     if (numRounds >= 20) return;
     const saved = saveRoundValues();
@@ -5418,7 +6047,7 @@
   }
 
   // Esposto globalmente
-  window.IkWallCalc = { compute, addRound, removeRound, reset, init };
+  window.IkWallCalc = { compute, addRound, removeRound, reset, init, optimize };
 
   // Auto-init quando l'elemento risultati è presente nel DOM
   const observer = new MutationObserver(() => {
