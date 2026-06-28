@@ -69,6 +69,10 @@
         type:    'piracy',
       });
 
+      // Notifica app per aggiornare la UI (stesso pattern di parser_globaldata)
+      window.IkApp?.onFleetsUpdated?.();
+      window.IkApp?.onTimerAdded?.();
+
       console.log(`[parser_pirate] city=${cityId} ${cityLabel} — fine missione: ${new Date(endMs).toLocaleString('it')}`);
       return { parsed: 1, parserName: 'pirate', cityId, enddate };
     }
