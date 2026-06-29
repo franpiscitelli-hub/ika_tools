@@ -148,11 +148,31 @@
           const m = /[?&](?:currentCityId|cityId)=(\d+)/.exec(link);
           if (m) {
             const detectedCityId = Number(m[1]);
+
+            // Aggiorna sempre l'HUD in-page
             if (detectedCityId !== hudCurrentCityId) {
               hudCurrentCityId = detectedCityId;
-              // Aggiorna il selettore e il contenuto se il pannello è aperto
               autoSelectCityInHUD(detectedCityId);
               log(`🏛 Città rilevata: #${detectedCityId}`);
+            }
+
+            // Aggiorna il pannello principale "Info polis" (tab account)
+            // indipendentemente da hudCurrentCityId (potrebbero divergere)
+            if (detectedCityId !== selectedCityId) {
+              selectedCityId = detectedCityId;
+              // Aggiorna il selettore nel pannello se è già nel DOM
+              const sel = document.getElementById('ikp-city-select');
+              if (sel) {
+                const opt = sel.querySelector(`option[value="${detectedCityId}"]`);
+                if (opt) {
+                  sel.value = String(detectedCityId);
+                } else {
+                  // L'opzione non c'è ancora → il prossimo renderAccount() la creerà
+                  // grazie al selectedCityId già aggiornato
+                }
+              }
+              // Se il pannello è aperto sulla tab account, aggiorna il contenuto
+              if (panelOpen && activeTab === 'account') renderAccount();
             }
           }
         }
