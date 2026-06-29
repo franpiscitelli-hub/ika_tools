@@ -8,6 +8,7 @@
   // ── STATO ───────────────────────────────────
   let panelOpen    = false;
   let saveAllRaw   = false; // toggle: salva tutti i JSON intercettati in entries
+  let currentCityId = null; // polis attualmente visualizzata nel gioco (persiste tra aperture pannello)
   let activeTab    = 'map';
   let sessionCount = 0;
   let mapIslands   = [];
@@ -148,31 +149,13 @@
           const m = /[?&](?:currentCityId|cityId)=(\d+)/.exec(link);
           if (m) {
             const detectedCityId = Number(m[1]);
-
-            // Aggiorna sempre l'HUD in-page
+            // Aggiorna sempre currentCityId (globale persistente)
+            currentCityId = detectedCityId;
+            // Aggiorna anche l'HUD in-page se cambiata
             if (detectedCityId !== hudCurrentCityId) {
               hudCurrentCityId = detectedCityId;
               autoSelectCityInHUD(detectedCityId);
               log(`🏛 Città rilevata: #${detectedCityId}`);
-            }
-
-            // Aggiorna il pannello principale "Info polis" (tab account)
-            // indipendentemente da hudCurrentCityId (potrebbero divergere)
-            if (detectedCityId !== selectedCityId) {
-              selectedCityId = detectedCityId;
-              // Aggiorna il selettore nel pannello se è già nel DOM
-              const sel = document.getElementById('ikp-city-select');
-              if (sel) {
-                const opt = sel.querySelector(`option[value="${detectedCityId}"]`);
-                if (opt) {
-                  sel.value = String(detectedCityId);
-                } else {
-                  // L'opzione non c'è ancora → il prossimo renderAccount() la creerà
-                  // grazie al selectedCityId già aggiornato
-                }
-              }
-              // Se il pannello è aperto sulla tab account, aggiorna il contenuto
-              if (panelOpen && activeTab === 'account') renderAccount();
             }
           }
         }
@@ -3299,7 +3282,6 @@
   function stopTimerTick() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 
   // ── ACCOUNT ────────────────────────────────────
-  let selectedCityId = null;
 
   async function renderAccount() {
     if (!window.IkDB) return;
@@ -3309,19 +3291,17 @@
     const ownCities = cities.filter(c => c.isOwn || c.source === 'ikariam');
     const select    = document.getElementById('ikp-city-select');
     if (select && ownCities.length) {
-      // selectedCityId ha priorità (aggiornato dal rilevamento cambio polis)
-      // select.value è fallback solo se selectedCityId non è ancora impostato
-      const current = selectedCityId || Number(select.value) || null;
+      const current = currentCityId || Number(select.value) || null;
       select.innerHTML = ownCities.map(c =>
         `<option value="${c.id}" ${c.id == current ? 'selected' : ''}>
           ${c.isCapital ? '⭐ ' : ''}${c.name}
           ${c.islandX ? `[${c.islandX}:${c.islandY}]` : ''}
         </option>`
       ).join('');
-      if (!selectedCityId) selectedCityId = ownCities[0].id;
+      if (!currentCityId) currentCityId = ownCities[0].id;
     }
 
-    const cityId = selectedCityId || (ownCities[0]?.id);
+    const cityId = currentCityId || ownCities[0]?.id;
     if (!cityId) {
       document.getElementById('ikp-account-content').innerHTML =
         `<div class="ikp-empty"><div class="ikp-empty-icon">🏛</div>
@@ -3482,7 +3462,7 @@
   }
 
   function selectCity(id) {
-    selectedCityId = id;
+    currentCityId = id;
     renderAccount();
   }
 
