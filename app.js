@@ -8,7 +8,7 @@
   // ── STATO ───────────────────────────────────
   let panelOpen    = false;
   let saveAllRaw   = false; // toggle: salva tutti i JSON intercettati in entries
-  let currentCityId = null; // polis attualmente visualizzata nel gioco (persiste tra aperture pannello)
+  let currentCityId = null; // polis attualmente visualizzata (persiste tra aperture pannello)
   let activeTab    = 'map';
   let sessionCount = 0;
   let mapIslands   = [];
@@ -137,28 +137,32 @@
       const result = await window.IkParsers.parse(url, parsed, meta);
       log(`#${sessionCount} [${result.type}]`);
 
-      // ── Rileva cambio città dal JSON custom→reload ──
-      // Il gioco invia { custom: ['reload', { link: '?view=city&cityId=XXX' }] }
-      // ogni volta che l'utente cambia polis o apre un edificio.
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (!Array.isArray(item) || item[0] !== 'custom') continue;
-          const payload = item[1];
-          if (!Array.isArray(payload) || payload[0] !== 'reload') continue;
-          const link = payload[1]?.link || '';
-          const m = /[?&](?:currentCityId|cityId)=(\d+)/.exec(link);
-          if (m) {
-            const detectedCityId = Number(m[1]);
-            // Aggiorna sempre currentCityId (globale persistente)
-            currentCityId = detectedCityId;
-            // Aggiorna anche l'HUD in-page se cambiata
-            if (detectedCityId !== hudCurrentCityId) {
-              hudCurrentCityId = detectedCityId;
-              autoSelectCityInHUD(detectedCityId);
-              log(`🏛 Città rilevata: #${detectedCityId}`);
-            }
+      // ── Rileva città corrente da ogni request ──────────────────
+      // Fonti (in ordine di priorità):
+      //  1. URL della request:  ?cityId=X  o  ?currentCityId=X
+      //  2. custom→reload→link: ?view=city&cityId=X
+      // Tutte e tre i tipi di JSON che arrivano dal gioco le contengono.
+      const _extractCityId = () => {
+        // Fonte 1: URL della request stessa
+        const urlM = /[?&](?:currentCityId|cityId)=(\d+)/.exec(url);
+        if (urlM) return Number(urlM[1]);
+        // Fonte 2: custom → reload → link
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (!Array.isArray(item) || item[0] !== 'custom') continue;
+            const payload = item[1];
+            if (!Array.isArray(payload) || payload[0] !== 'reload') continue;
+            const linkM = /[?&](?:currentCityId|cityId)=(\d+)/.exec(payload[1]?.link || '');
+            if (linkM) return Number(linkM[1]);
           }
         }
+        return null;
+      };
+      const _detectedCity = _extractCityId();
+      if (_detectedCity && _detectedCity !== currentCityId) {
+        currentCityId = _detectedCity;
+        log(`🏛 Città: #${currentCityId}`);
+        autoSelectCityInHUD(currentCityId);
       }
 
       // Se "salva tutti i JSON grezzi" è attivo, salva anche quelli già parsati
