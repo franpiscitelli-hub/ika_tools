@@ -8,7 +8,6 @@
   // ── STATO ───────────────────────────────────
   let panelOpen    = false;
   let saveAllRaw   = false; // toggle: salva tutti i JSON intercettati in entries
-  let currentCityId = null; // polis attualmente visualizzata (persiste tra aperture pannello)
   let activeTab    = 'map';
   let sessionCount = 0;
   let mapIslands   = [];
@@ -137,32 +136,26 @@
       const result = await window.IkParsers.parse(url, parsed, meta);
       log(`#${sessionCount} [${result.type}]`);
 
-      // ── Rileva città corrente da ogni request ──────────────────
-      // Fonti (in ordine di priorità):
-      //  1. URL della request:  ?cityId=X  o  ?currentCityId=X
-      //  2. custom→reload→link: ?view=city&cityId=X
-      // Tutte e tre i tipi di JSON che arrivano dal gioco le contengono.
-      const _extractCityId = () => {
-        // Fonte 1: URL della request stessa
-        const urlM = /[?&](?:currentCityId|cityId)=(\d+)/.exec(url);
-        if (urlM) return Number(urlM[1]);
-        // Fonte 2: custom → reload → link
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            if (!Array.isArray(item) || item[0] !== 'custom') continue;
-            const payload = item[1];
-            if (!Array.isArray(payload) || payload[0] !== 'reload') continue;
-            const linkM = /[?&](?:currentCityId|cityId)=(\d+)/.exec(payload[1]?.link || '');
-            if (linkM) return Number(linkM[1]);
+      // ── Rileva cambio città dal JSON custom→reload ──
+      // Il gioco invia { custom: ['reload', { link: '?view=city&cityId=XXX' }] }
+      // ogni volta che l'utente cambia polis o apre un edificio.
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (!Array.isArray(item) || item[0] !== 'custom') continue;
+          const payload = item[1];
+          if (!Array.isArray(payload) || payload[0] !== 'reload') continue;
+          const link = payload[1]?.link || '';
+          const m = /[?&](?:currentCityId|cityId)=(\d+)/.exec(link);
+          if (m) {
+            const detectedCityId = Number(m[1]);
+            if (detectedCityId !== hudCurrentCityId) {
+              hudCurrentCityId = detectedCityId;
+              // Aggiorna il selettore e il contenuto se il pannello è aperto
+              autoSelectCityInHUD(detectedCityId);
+              log(`🏛 Città rilevata: #${detectedCityId}`);
+            }
           }
         }
-        return null;
-      };
-      const _detectedCity = _extractCityId();
-      if (_detectedCity && _detectedCity !== currentCityId) {
-        currentCityId = _detectedCity;
-        log(`🏛 Città: #${currentCityId}`);
-        autoSelectCityInHUD(currentCityId);
       }
 
       // Se "salva tutti i JSON grezzi" è attivo, salva anche quelli già parsati
@@ -887,7 +880,6 @@
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
       case 'settings':  loadSettingsUI(); loadRetentionUI(); loadTelegramConfig(); break;
-      case 'account':   renderAccount();   break;
     }
   }
 
@@ -3286,6 +3278,7 @@
   function stopTimerTick() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 
   // ── ACCOUNT ────────────────────────────────────
+  let selectedCityId = null;
 
   async function renderAccount() {
     if (!window.IkDB) return;
@@ -3295,17 +3288,17 @@
     const ownCities = cities.filter(c => c.isOwn || c.source === 'ikariam');
     const select    = document.getElementById('ikp-city-select');
     if (select && ownCities.length) {
-      const current = currentCityId || Number(select.value) || null;
+      const current = select.value || selectedCityId;
       select.innerHTML = ownCities.map(c =>
         `<option value="${c.id}" ${c.id == current ? 'selected' : ''}>
           ${c.isCapital ? '⭐ ' : ''}${c.name}
           ${c.islandX ? `[${c.islandX}:${c.islandY}]` : ''}
         </option>`
       ).join('');
-      if (!currentCityId) currentCityId = ownCities[0].id;
+      if (!selectedCityId) selectedCityId = ownCities[0].id;
     }
 
-    const cityId = currentCityId || ownCities[0]?.id;
+    const cityId = selectedCityId || (ownCities[0]?.id);
     if (!cityId) {
       document.getElementById('ikp-account-content').innerHTML =
         `<div class="ikp-empty"><div class="ikp-empty-icon">🏛</div>
@@ -3466,7 +3459,7 @@
   }
 
   function selectCity(id) {
-    currentCityId = id;
+    selectedCityId = id;
     renderAccount();
   }
 
@@ -4926,18 +4919,6 @@
       return;
     }
 
-    const now = Math.floor(Date.now() / 1000);
-
-    // Ordina: prima attivi (per tempo rimasto), poi inattivi per nome
-    miracles.sort((a, b) => {
-      const aActive = a.enddate && a.enddate > now;
-      const bActive = b.enddate && b.enddate > now;
-      if (aActive && !bActive) return -1;
-      if (!aActive && bActive) return 1;
-      if (aActive && bActive) return a.enddate - b.enddate;
-      return (a.cityName || '').localeCompare(b.cityName || '');
-    });
-
     function fmtCountdown(enddate) {
       const secs = enddate - Math.floor(Date.now() / 1000);
       if (secs <= 0) return '⌛ Scaduto';
@@ -4950,29 +4931,45 @@
     }
 
     function buildRows() {
-      return miracles.map(rec => {
-        const active = rec.enddate && rec.enddate > Math.floor(Date.now() / 1000);
-        const countdown = active ? fmtCountdown(rec.enddate) : '—';
-        const dotColor = active ? '#4caf50' : '#ccc';
-        const savedAgo = rec.savedAt
-          ? Math.round((Date.now() - rec.savedAt) / 60000) + ' min fa'
-          : '';
+      const now = Math.floor(Date.now() / 1000);
+
+      // Raggruppa per godName — interessa solo il miracolo, non la polis
+      const byGod = new Map();
+      for (const rec of miracles) {
+        const god = rec.godName || '—';
+        const active = rec.enddate && rec.enddate > now;
+        if (!active) continue; // mostra solo miracoli attivi
+        if (!byGod.has(god)) byGod.set(god, { enddate: 0, count: 0 });
+        const g = byGod.get(god);
+        g.count++;
+        // Tieni il countdown più lungo (scade per ultimo)
+        if (rec.enddate > g.enddate) g.enddate = rec.enddate;
+      }
+
+      if (!byGod.size) {
+        return `<p style="color:#9e8060;font-size:12px;text-align:center;padding:12px 0">
+          Nessun miracolo attivo al momento.</p>`;
+      }
+
+      // Ordina per tempo rimanente (scade prima → prima)
+      const sorted = [...byGod.entries()].sort((a, b) => a[1].enddate - b[1].enddate);
+
+      return sorted.map(([god, info]) => {
+        const countdown = fmtCountdown(info.enddate);
+        const cityLabel = info.count > 1 ? `${info.count} polis` : '';
         return `
           <div style="display:flex;align-items:center;gap:8px;
             padding:7px 0;border-bottom:1px solid #ede8df">
             <span style="width:8px;height:8px;border-radius:50%;
-              background:${dotColor};flex-shrink:0;display:inline-block"></span>
+              background:#4caf50;flex-shrink:0;display:inline-block"></span>
             <div style="flex:1;min-width:0">
               <div style="font-size:12px;font-weight:600;color:#2c1f0e;
                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                ${rec.cityName || 'Città #'+rec.cityId}
+                ${god}
               </div>
-              <div style="font-size:11px;color:#9e8060">
-                ${rec.godName || '—'}${savedAgo ? ' · ' + savedAgo : ''}
-              </div>
+              ${cityLabel ? `<div style="font-size:11px;color:#9e8060">${cityLabel}</div>` : ''}
             </div>
-            <div style="font-size:12px;font-weight:700;
-              color:${active ? '#2e7d32' : '#9e8060'};
+            <div style="font-size:13px;font-weight:700;color:#2e7d32;
               white-space:nowrap;flex-shrink:0">
               ${countdown}
             </div>
