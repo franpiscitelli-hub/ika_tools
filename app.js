@@ -900,6 +900,7 @@
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
       case 'settings':  loadSettingsUI(); loadRetentionUI(); loadTelegramConfig(); break;
+      case 'account':   renderAccount();   break;
     }
   }
 
@@ -3308,7 +3309,9 @@
     const ownCities = cities.filter(c => c.isOwn || c.source === 'ikariam');
     const select    = document.getElementById('ikp-city-select');
     if (select && ownCities.length) {
-      const current = select.value || selectedCityId;
+      // selectedCityId ha priorità (aggiornato dal rilevamento cambio polis)
+      // select.value è fallback solo se selectedCityId non è ancora impostato
+      const current = selectedCityId || Number(select.value) || null;
       select.innerHTML = ownCities.map(c =>
         `<option value="${c.id}" ${c.id == current ? 'selected' : ''}>
           ${c.isCapital ? '⭐ ' : ''}${c.name}
