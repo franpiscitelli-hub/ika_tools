@@ -8,6 +8,7 @@
   // ── STATO ───────────────────────────────────
   let panelOpen    = false;
   let saveAllRaw   = false; // toggle: salva tutti i JSON intercettati in entries
+  let currentCityId = null; // polis attualmente visualizzata (persiste tra aperture pannello)
   let activeTab    = 'map';
   let sessionCount = 0;
   let mapIslands   = [];
@@ -136,26 +137,29 @@
       const result = await window.IkParsers.parse(url, parsed, meta);
       log(`#${sessionCount} [${result.type}]`);
 
-      // ── Rileva cambio città dal JSON custom→reload ──
-      // Il gioco invia { custom: ['reload', { link: '?view=city&cityId=XXX' }] }
-      // ogni volta che l'utente cambia polis o apre un edificio.
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (!Array.isArray(item) || item[0] !== 'custom') continue;
-          const payload = item[1];
-          if (!Array.isArray(payload) || payload[0] !== 'reload') continue;
-          const link = payload[1]?.link || '';
-          const m = /[?&](?:currentCityId|cityId)=(\d+)/.exec(link);
-          if (m) {
-            const detectedCityId = Number(m[1]);
-            if (detectedCityId !== hudCurrentCityId) {
-              hudCurrentCityId = detectedCityId;
-              // Aggiorna il selettore e il contenuto se il pannello è aperto
-              autoSelectCityInHUD(detectedCityId);
-              log(`🏛 Città rilevata: #${detectedCityId}`);
-            }
+      // ── Rileva città corrente da ogni request ──────────────────
+      // Fonti (in ordine di priorità):
+      //  1. URL della request:  ?cityId=X  o  ?currentCityId=X
+      //  2. custom→reload→link: ?view=city&cityId=X
+      const _extractCityId = () => {
+        const urlM = /[?&](?:currentCityId|cityId)=(\d+)/.exec(url);
+        if (urlM) return Number(urlM[1]);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (!Array.isArray(item) || item[0] !== 'custom') continue;
+            const payload = item[1];
+            if (!Array.isArray(payload) || payload[0] !== 'reload') continue;
+            const linkM = /[?&](?:currentCityId|cityId)=(\d+)/.exec(payload[1]?.link || '');
+            if (linkM) return Number(linkM[1]);
           }
         }
+        return null;
+      };
+      const _detectedCity = _extractCityId();
+      if (_detectedCity && _detectedCity !== currentCityId) {
+        currentCityId = _detectedCity;
+        log(`🏛 Città: #${currentCityId}`);
+        autoSelectCityInHUD(currentCityId);
       }
 
       // Se "salva tutti i JSON grezzi" è attivo, salva anche quelli già parsati
@@ -580,9 +584,24 @@
                   <select id="ikcr-type" style="padding:4px 6px;border:1px solid var(--border);
                           border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
                           onchange="window.IkApp.renderCombatReports()">
-                    <option value="">Tutti</option>
+                    <option value="">Tutti i tipi</option>
                     <option value="naval">⛴ Navale</option>
                     <option value="land">🪖 Terra</option>
+                  </select>
+                  <select id="ikcr-winner" style="padding:4px 6px;border:1px solid var(--border);
+                          border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                          onchange="window.IkApp.renderCombatReports()">
+                    <option value="">Tutti gli esiti</option>
+                    <option value="atk">🏆 ATK vince</option>
+                    <option value="def">🏆 DEF vince</option>
+                    <option value="none">— Senza vincitore</option>
+                  </select>
+                  <select id="ikcr-sort" style="padding:4px 6px;border:1px solid var(--border);
+                          border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                          onchange="window.IkApp.renderCombatReports()">
+                    <option value="date">↕ Per data</option>
+                    <option value="id">↕ Per ID</option>
+                    <option value="rounds">↕ Per round</option>
                   </select>
                 </div>
                 <div id="ikcr-list"></div>
@@ -880,6 +899,7 @@
       case 'log':       renderLogTab();    break;
       case 'db':        renderDB();        break;
       case 'settings':  loadSettingsUI(); loadRetentionUI(); loadTelegramConfig(); break;
+      case 'account':   renderAccount();   break;
     }
   }
 
@@ -2285,157 +2305,305 @@
 
   // ── TRUPPE / NAVI PER POLIS ───────────────────
   // ── VISUALIZZATORE REPORT COMBATTIMENTO ─────────────────────
+  // ── TRUPPE / NAVI PER POLIS ───────────────────
+  // ── VISUALIZZATORE REPORT COMBATTIMENTO (v2) ────────────────
+  const POS_LABEL_CR = {
+    main:'Linea principale', flankLeft:'Fianco sinistro', flankRight:'Fianco destro',
+    longRange:'Distanza', artillery:'Artiglieria', air:'Aria', airfighter:'Caccia'
+  };
+  const POS_ORDER_CR = ['airfighter','air','longRange','artillery','flankLeft','main','flankRight'];
+
+  function crMoraleColor(pct) {
+    if (pct == null) return 'var(--text-muted)';
+    if (pct >= 80) return '#2e7d32';
+    if (pct >= 50) return '#c4944a';
+    return '#c62828';
+  }
+
+  function crEsc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    }[c]));
+  }
+
+  // Slot singolo con barra danno e tooltip nativo (title) + tooltip ricco on hover
+  function crRenderSlot(s) {
+    const dmg = s.damageBarPct ?? (s.hp != null ? 100 - s.hp : 0);
+    const lossColor = dmg > 60 ? '#c62828' : dmg > 25 ? '#e65100' : '#2e7d32';
+    const upgCount = s.upgrades ? Object.keys(s.upgrades).length : 0;
+
+    const tipLines = [];
+    tipLines.push(`<div style="font-weight:700;margin-bottom:3px">${crEsc(s.unitName)}</div>`);
+    if (s.hp    != null) tipLines.push(`<div>HP: <b>${s.hp}%</b></div>`);
+    if (s.ammo  != null) tipLines.push(`<div>Munizioni: <b>${s.ammo}%</b></div>`);
+    if (s.losses > 0)    tipLines.push(`<div style="color:#ff8a80">Perdite: <b>${s.losses}</b></div>`);
+    if (s.position)      tipLines.push(`<div style="color:#aaa;margin-top:3px">${POS_LABEL_CR[s.position]||s.position}</div>`);
+    if (upgCount) {
+      tipLines.push(`<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,.2);padding-top:4px">`
+        + Object.values(s.upgrades).map(u => `<div style="color:#ffe082">${crEsc(u.name)} <b>lv${u.level}</b></div>`).join('')
+        + `</div>`);
+    }
+    const tipHtml = tipLines.join('');
+
+    return `
+      <div class="ikcr-slot" style="position:relative;width:52px;height:52px;
+        border:1px solid var(--border);border-radius:5px;background:var(--bg-alt);
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        font-size:10px;overflow:visible;cursor:default"
+        onmouseenter="this.style.borderColor='var(--accent)';var t=this.querySelector('.ikcr-tip');if(t)t.style.display='block'"
+        onmouseleave="this.style.borderColor='var(--border)';var t=this.querySelector('.ikcr-tip');if(t)t.style.display='none'">
+        <div style="position:absolute;left:0;bottom:0;width:4px;height:${Math.min(dmg,100)}%;
+          background:${lossColor};border-radius:0 0 0 4px"></div>
+        <div style="font-size:9px;color:var(--text-dim);text-align:center;line-height:1.2;
+          padding:0 5px;max-width:100%;overflow:hidden;display:-webkit-box;
+          -webkit-line-clamp:2;-webkit-box-orient:vertical">${crEsc(s.unitName || s.unitId)}</div>
+        <div style="font-weight:700;color:var(--text);font-size:11px">
+          ${s.count ?? '?'}${s.losses > 0 ? ` <span style="color:#c62828;font-weight:400">-${s.losses}</span>` : ''}
+        </div>
+        ${upgCount ? `<div style="position:absolute;top:2px;right:2px;font-size:8px;color:var(--accent);font-weight:700">⬆${upgCount}</div>` : ''}
+        <div class="ikcr-tip" style="display:none;position:absolute;bottom:calc(100% + 6px);left:50%;
+          transform:translateX(-50%);z-index:999;background:var(--text);color:#fff;font-size:10px;
+          border-radius:5px;padding:6px 8px;white-space:nowrap;min-width:140px;
+          box-shadow:0 4px 12px rgba(0,0,0,.3)">${tipHtml}</div>
+      </div>`;
+  }
+
+  // Campo battaglia per un lato, raggruppato per posizione
+  function crRenderField(label, icon, slots, reserve, morale) {
+    const byPos = {};
+    for (const s of (slots || [])) {
+      const p = s.position || 'main';
+      (byPos[p] ||= []).push(s);
+    }
+    const activePos = POS_ORDER_CR.filter(p => byPos[p]?.length);
+
+    const posHtml = activePos.map(pos => `
+      <div style="margin-bottom:6px">
+        <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;
+          letter-spacing:.5px;margin-bottom:3px">${POS_LABEL_CR[pos] || pos}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${byPos[pos].map(crRenderSlot).join('')}
+        </div>
+      </div>`).join('');
+
+    const reserveHtml = reserve?.length ? `
+      <div style="margin-top:4px">
+        <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;
+          letter-spacing:.5px;margin-bottom:3px">Riserva</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${reserve.map(u => `
+            <span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;
+              font-weight:700;background:var(--bg-alt);color:var(--text-dim);
+              border:1px solid var(--border);white-space:nowrap">
+              ${crEsc(u.unitName)}: ${(u.count ?? '?').toLocaleString ? u.count.toLocaleString('it') : u.count}
+            </span>`).join('')}
+        </div>
+      </div>` : '';
+
+    return `
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="font-size:13px">${icon}</span>
+          <span style="font-weight:700;font-size:12px;color:var(--text)">${crEsc(label)}</span>
+          ${morale?.moralePct != null ? `
+            <span style="margin-left:auto;font-size:11px;font-weight:700;color:${crMoraleColor(morale.moralePct)}">
+              Morale ${morale.moralePct}%
+            </span>` : ''}
+          ${morale?.totalUnits != null ? `
+            <span style="font-size:11px;color:var(--text-muted)">
+              ${morale.totalUnits.toLocaleString('it')}${morale.losses > 0 ? ` <span style="color:#c62828">-${morale.losses}</span>` : ''}
+            </span>` : ''}
+        </div>
+        ${posHtml || '<div style="font-size:11px;color:var(--text-muted);padding:8px 0">Nessuno slot catturato</div>'}
+        ${reserveHtml}
+      </div>`;
+  }
+
+  // Riga round espandibile
+  function crRenderRound(rd, totalRounds, attackerName, defenderName, expandId) {
+    const attLosses = (rd.attacker?.slots||[]).reduce((s,x)=>s+(x.losses||0),0);
+    const defLosses = (rd.defender?.slots||[]).reduce((s,x)=>s+(x.losses||0),0);
+    const blessings = rd.blessings || [];
+
+    const eventsHtml = rd.events?.length ? `
+      <div style="margin-top:8px">
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:3px;
+          text-transform:uppercase;letter-spacing:.5px">Eventi</div>
+        ${rd.events.map((ev,i) => `
+          <div style="font-size:11px;color:var(--text-dim);padding:3px 0;
+            ${i < rd.events.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+            ${crEsc(ev.text || JSON.stringify(ev))}
+          </div>`).join('')}
+      </div>` : '';
+
+    const blessHtml = blessings.length ? `
+      <div style="margin-top:8px;padding:6px 8px;background:var(--bg-alt);border-radius:4px;
+        font-size:11px;color:var(--text-dim)">
+        ${blessings.map(b => `<span style="margin-right:10px">✨ <b>${crEsc(b.playerName)}</b>: ${crEsc(b.name)}</span>`).join('')}
+      </div>` : '';
+
+    return `
+      <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:5px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg-alt);
+          cursor:pointer;user-select:none"
+          onclick="(function(){var b=document.getElementById('${expandId}'),a=this.querySelector('.ikcr-rarrow'),open=b.style.display!=='none';b.style.display=open?'none':'block';a.textContent=open?'▼':'▲';}).call(this)">
+          <span style="font-weight:700;font-size:12px;color:var(--text);min-width:60px">Round ${rd.round}/${totalRounds}</span>
+          <span style="font-size:11px;color:var(--text-muted)">${rd.date ? fmt(rd.date) : ''}</span>
+          ${rd.attacker?.morale?.moralePct != null ? `
+            <span style="margin-left:auto;font-size:11px">
+              <span style="color:${crMoraleColor(rd.attacker.morale.moralePct)}">⚔️ ${rd.attacker.morale.moralePct}%</span>
+              ·
+              <span style="color:${crMoraleColor(rd.defender?.morale?.moralePct)}">🛡 ${rd.defender?.morale?.moralePct ?? '?'}%</span>
+            </span>` : '<span style="margin-left:auto"></span>'}
+          ${(attLosses>0||defLosses>0) ? `<span style="font-size:11px;color:#c62828">-${attLosses} / -${defLosses}</span>` : ''}
+          ${blessings.length ? `<span title="${crEsc(blessings.map(b=>b.name).join(', '))}">✨</span>` : ''}
+          <span class="ikcr-rarrow" style="font-size:10px;color:var(--text-muted)">▼</span>
+        </div>
+        <div id="${expandId}" style="display:none;padding:10px;background:var(--bg-card)">
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            ${crRenderField(attackerName || 'Attaccante', '⚔️', rd.attacker?.slots, rd.attacker?.reserve, rd.attacker?.morale)}
+            <div style="width:1px;background:var(--border);flex-shrink:0"></div>
+            ${crRenderField(defenderName || 'Difensore', '🛡', rd.defender?.slots, rd.defender?.reserve, rd.defender?.morale)}
+          </div>
+          ${blessHtml}
+          ${eventsHtml}
+        </div>
+      </div>`;
+  }
+
+  // Card di un singolo report, espandibile
+  function crRenderCard(r) {
+    const ico       = { naval:'⛴', land:'🪖' }[r.type] || '⚔️';
+    const roundsOk  = r.rounds?.length || r.capturedRounds?.length || 0;
+    const roundsTot = r.totalRounds || '?';
+    const complete  = roundsOk > 0 && roundsOk >= (r.totalRounds || 0);
+    const outcomeColor = r.winner ? (r.winner === r.attackerName ? '#e65100' : '#2e7d32') : 'var(--text-muted)';
+    const rounds    = r.rounds || [];
+    const expandId  = `ikcr-exp-${r.combatId}`;
+
+    const summaryHtml = r.unitSummary ? `
+      <div style="margin-bottom:10px;padding:8px 10px;background:var(--bg-alt);border-radius:6px;
+        border:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:5px;
+          text-transform:uppercase;letter-spacing:.5px;font-weight:700">Riepilogo finale</div>
+        ${['attacker','defender'].map(side => {
+          const units = r.unitSummary[side] || [];
+          if (!units.length) return '';
+          return `<div style="margin-bottom:4px;font-size:11px">
+            <span style="color:var(--text-muted);margin-right:6px">${side==='attacker'?'⚔️':'🛡'}</span>
+            ${units.map(u => `<span style="margin-right:8px;white-space:nowrap">
+              ${crEsc(u.name)}: <b style="color:var(--text)">${u.count?.toLocaleString('it')}</b>
+              ${u.losses > 0 ? `<span style="color:#c62828"> -${u.losses}</span>` : ''}
+            </span>`).join('')}
+          </div>`;
+        }).join('')}
+      </div>` : '';
+
+    const roundsHtml = rounds.length ? `
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;
+          text-transform:uppercase;letter-spacing:.5px;font-weight:700">
+          Round dettagliati (${rounds.length})
+        </div>
+        ${rounds.map((rd,i) => crRenderRound(rd, roundsTot, r.attackerName, r.defenderName, `${expandId}-r${i}`)).join('')}
+      </div>` : `
+      <div style="font-size:11px;color:var(--text-muted);text-align:center;padding:12px 0">
+        Nessun round dettagliato — naviga i round nel gioco per catturarli.
+      </div>`;
+
+    const bootyHtml = r.booty && Object.keys(r.booty).length ? `
+      <div style="margin-top:8px;padding:6px 10px;background:var(--accent-light);border-radius:6px;
+        font-size:11px;display:flex;gap:12px;flex-wrap:wrap">
+        <span style="font-weight:700;color:var(--accent)">Bottino</span>
+        ${Object.entries(r.booty).map(([k,v]) => v > 0 ? `
+          <span style="color:var(--text-dim)">${crEsc(k)}: <b>${v.toLocaleString('it')}</b></span>` : '').join('')}
+      </div>` : '';
+
+    return `
+      <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden">
+        <div style="padding:9px 12px;background:var(--bg-alt);cursor:pointer;user-select:none"
+          onclick="(function(){var d=document.getElementById('${expandId}'),h=this;var open=d.style.display!=='none';d.style.display=open?'none':'block';h.querySelector('.ikcr-carrow').textContent=open?'▼ apri':'▲ chiudi';h.style.background=open?'var(--bg-alt)':'var(--accent-light)';}).call(this)">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-weight:800;font-size:13px;color:var(--text)">${ico} #${r.combatId}</span>
+            <span style="font-size:12px;color:var(--text)">
+              ${crEsc(r.attackerName) || '?'} <span style="color:var(--text-muted)">vs</span> ${crEsc(r.defenderName) || '?'}
+            </span>
+            ${r.winner ? `
+              <span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;
+                font-weight:700;background:${outcomeColor};color:#fff;white-space:nowrap">
+                🏆 ${r.winner === r.attackerName ? 'ATK vince' : 'DEF vince'}
+              </span>` : ''}
+            <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${r.date ? fmt(r.date) : '—'}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:11px">
+            <span style="color:${complete ? '#2e7d32' : 'var(--text-muted)'}">
+              ${complete ? '✓' : '◔'} ${roundsOk}/${roundsTot} round
+            </span>
+            ${r.stats?.attacker?.attackPts  != null ? `<span style="color:var(--text-muted)">⚔️ <b style="color:var(--text)">${r.stats.attacker.attackPts.toLocaleString('it')}</b> pt</span>` : ''}
+            ${r.stats?.defender?.defensePts != null ? `<span style="color:var(--text-muted)">🛡 <b style="color:var(--text)">${r.stats.defender.defensePts.toLocaleString('it')}</b> pt</span>` : ''}
+            ${r.stats?.attacker?.dmgPct != null ? `<span style="color:#c62828">💥 ATK ${r.stats.attacker.dmgPct}%</span>` : ''}
+            ${r.stats?.defender?.dmgPct != null ? `<span style="color:#c62828">💥 DEF ${r.stats.defender.dmgPct}%</span>` : ''}
+            ${r.type === 'land' && r.stats?.attacker?.generals != null ? `<span style="color:var(--accent2)">⭐ ${r.stats.attacker.generals} gen</span>` : ''}
+            <span class="ikcr-carrow" style="margin-left:auto;font-size:10px;color:var(--text-muted)">▼ apri</span>
+          </div>
+        </div>
+        <div id="${expandId}" style="display:none;padding:10px 12px;background:var(--bg-card)">
+          ${summaryHtml}
+          ${roundsHtml}
+          ${bootyHtml}
+        </div>
+      </div>`;
+  }
+
   async function renderCombatReports() {
     const el = document.getElementById('ikcr-list');
     if (!el || !window.IkDB) return;
 
-    const q    = (document.getElementById('ikcr-q')?.value || '').trim().toLowerCase();
-    const type = document.getElementById('ikcr-type')?.value || '';
+    const q       = (document.getElementById('ikcr-q')?.value || '').trim().toLowerCase();
+    const type    = document.getElementById('ikcr-type')?.value || '';
+    const winner  = document.getElementById('ikcr-winner')?.value || '';
+    const sortBy  = document.getElementById('ikcr-sort')?.value || 'date';
 
     el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px">⏳ Caricamento…</div>';
 
     let reports = [];
     try { reports = await window.IkDB.getAll('combat_reports'); } catch {}
 
-    // Filtra
-    if (q)    reports = reports.filter(r =>
-      `${r.attackerName} ${r.defenderName} ${r.combatId}`.toLowerCase().includes(q)
-    );
-    if (type) reports = reports.filter(r => r.type === type);
+    const total = reports.length;
 
-    // Ordina per data decrescente
-    reports.sort((a, b) => (b.date || '') > (a.date || '') ? 1 : -1);
+    if (q)      reports = reports.filter(r => `${r.combatId} ${r.attackerName||''} ${r.defenderName||''} ${r.title||''}`.toLowerCase().includes(q));
+    if (type)   reports = reports.filter(r => r.type === type);
+    if (winner === 'atk')  reports = reports.filter(r => r.winner === r.attackerName);
+    if (winner === 'def')  reports = reports.filter(r => r.winner === r.defenderName);
+    if (winner === 'none') reports = reports.filter(r => !r.winner);
 
-    if (!reports.length) {
+    reports.sort((a, b) => {
+      if (sortBy === 'date')   return (b.date||'') > (a.date||'') ? 1 : -1;
+      if (sortBy === 'id')     return b.combatId - a.combatId;
+      if (sortBy === 'rounds') return (b.totalRounds||0) - (a.totalRounds||0);
+      return 0;
+    });
+
+    if (!total) {
       el.innerHTML = `<div class="ikp-empty" style="padding:12px">
         <div class="ikp-empty-icon">⚔️</div>
         <p>Nessun report. Naviga i rapporti di combattimento nel gioco.</p>
       </div>`;
       return;
     }
+    if (!reports.length) {
+      el.innerHTML = `<div class="ikp-empty" style="padding:12px">
+        <div class="ikp-empty-icon">🔍</div>
+        <p>Nessun risultato per i filtri attivi.</p>
+      </div>`;
+      return;
+    }
 
-    const UNIT_ICON = { naval: '⛴', land: '🪖' };
+    const countHtml = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+      ${reports.length} report${reports.length < total ? ` (filtrati da ${total})` : ''}
+    </div>`;
 
-    el.innerHTML = reports.map(r => {
-      const ico      = UNIT_ICON[r.type] || '⚔️';
-      const dateStr  = r.date ? fmt(r.date) : '—';
-      const roundsOk = r.capturedRounds?.length || 0;
-      const roundsTot= r.totalRounds || '?';
-
-      // Riepilogo unità dalla unitSummary (riepilogo finale del report)
-      const summarySide = side => {
-        const units = r.unitSummary?.[side] || [];
-        if (!units.length) return '<span style="color:var(--text-muted)">—</span>';
-        return units.map(u =>
-          `<span style="white-space:nowrap">${u.name}: <b>${u.count.toLocaleString('it')}</b>`
-          + (u.losses ? ` <span style="color:var(--danger,#e44)">(-${u.losses})</span>` : '')
-          + `</span>`
-        ).join(' · ');
-      };
-
-      // Round dettaglio espandibile
-      const roundsHtml = (r.rounds || []).map(rd => {
-        const attSlots = rd.attacker?.slots || [];
-        const defSlots = rd.defender?.slots || [];
-
-        const renderSlots = slots => {
-          if (!slots.length) return '<span style="color:var(--text-muted)">—</span>';
-          // Raggruppa per unitName
-          const byUnit = {};
-          for (const s of slots) {
-            const k = s.unitName || s.unitId;
-            if (!byUnit[k]) byUnit[k] = { count: 0, losses: 0, upgrades: s.upgrades };
-            byUnit[k].count  += s.count  || 0;
-            byUnit[k].losses += s.losses || 0;
-          }
-          return Object.entries(byUnit).map(([name, d]) => {
-            const upgHtml = d.upgrades && Object.keys(d.upgrades).length
-              ? ` <span style="font-size:10px;color:var(--accent)" title="${
-                  Object.values(d.upgrades).map(u => `${u.name} lv${u.level}`).join(', ')
-                }">⬆️${Object.keys(d.upgrades).length}</span>`
-              : '';
-            return `<span style="white-space:nowrap">${name}: <b>${d.count}</b>`
-              + (d.losses ? ` <span style="color:var(--danger,#e44)">(-${d.losses})</span>` : '')
-              + upgHtml + `</span>`;
-          }).join(' · ');
-        };
-
-        const blessStr = (rd.blessings || []).map(b => `✨ ${b.playerName}: ${b.name}`).join(' · ');
-
-        return `
-          <div style="margin-top:6px;background:var(--bg-alt);border-radius:4px;padding:6px 8px;font-size:11px">
-            <div style="font-weight:600;margin-bottom:4px">
-              Round ${rd.round}/${roundsTot}
-              <span style="font-weight:400;color:var(--text-muted);margin-left:6px">${rd.date ? fmt(rd.date) : ''}</span>
-              ${rd.attacker?.morale?.moralePct != null
-                ? `<span style="color:var(--text-muted);margin-left:6px">
-                    ATK morale ${rd.attacker.morale.moralePct}%
-                    · DEF morale ${rd.defender?.morale?.moralePct ?? '?'}%
-                  </span>` : ''}
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-              <div>
-                <div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">
-                  ⚔️ ${rd.attackerName || r.attackerName || 'ATK'}
-                  ${rd.attacker?.morale?.totalUnits != null
-                    ? `(${rd.attacker.morale.totalUnits}${rd.attacker.morale.losses ? ` -${rd.attacker.morale.losses}` : ''})` : ''}
-                </div>
-                <div style="line-height:1.6">${renderSlots(attSlots)}</div>
-              </div>
-              <div>
-                <div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">
-                  🛡 ${rd.defenderName || r.defenderName || 'DEF'}
-                  ${rd.defender?.morale?.totalUnits != null
-                    ? `(${rd.defender.morale.totalUnits}${rd.defender.morale.losses ? ` -${rd.defender.morale.losses}` : ''})` : ''}
-                </div>
-                <div style="line-height:1.6">${renderSlots(defSlots)}</div>
-              </div>
-            </div>
-            ${blessStr ? `<div style="margin-top:4px;color:var(--text-muted)">${blessStr}</div>` : ''}
-          </div>`;
-      }).join('');
-
-      // Stats dal BBCode
-      const statsHtml = r.stats ? `
-        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin-top:4px">
-          ${r.stats.attacker?.generals   != null ? `<span>⭐ Gen ATK: <b>${r.stats.attacker.generals}</b></span>` : ''}
-          ${r.stats.attacker?.attackPts  != null ? `<span>⚔️ Pt ATK: <b>${r.stats.attacker.attackPts?.toLocaleString('it')}</b></span>` : ''}
-          ${r.stats.defender?.defensePts != null ? `<span>🛡 Pt DEF: <b>${r.stats.defender.defensePts?.toLocaleString('it')}</b></span>` : ''}
-          ${r.stats.attacker?.dmgPct     != null ? `<span>💥 Danno ATK: <b>${r.stats.attacker.dmgPct}%</b></span>` : ''}
-          ${r.stats.defender?.dmgPct     != null ? `<span>💥 Danno DEF: <b>${r.stats.defender.dmgPct}%</b></span>` : ''}
-        </div>` : '';
-
-      const expandId = `ikcr-exp-${r.combatId}`;
-      return `
-        <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
-          <!-- Header cliccabile -->
-          <div style="padding:8px 10px;background:var(--bg-alt);cursor:pointer"
-               onclick="(function(){var d=document.getElementById('${expandId}');d.style.display=d.style.display==='none'?'block':'none';})()">
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-              <span style="font-weight:700;font-size:12px">${ico} #${r.combatId}</span>
-              <span style="font-size:12px">${r.attackerName || '?'} vs ${r.defenderName || '?'}</span>
-              <span style="font-size:11px;color:var(--text-muted)">${dateStr}</span>
-              <span style="font-size:11px;margin-left:auto;color:var(--text-muted)">
-                ${roundsOk}/${roundsTot} round catturati
-              </span>
-              ${r.winner ? `<span style="font-size:11px;color:var(--ok,#2a8)">🏆 ${r.winner}</span>` : ''}
-            </div>
-            ${statsHtml}
-          </div>
-          <!-- Dettaglio espandibile -->
-          <div id="${expandId}" style="display:none;padding:8px 10px">
-            <!-- Riepilogo finale unità -->
-            ${r.unitSummary ? `
-              <div style="font-size:11px;margin-bottom:6px">
-                <div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">Riepilogo finale</div>
-                <div>⚔️ ${summarySide('attacker')}</div>
-                <div>🛡 ${summarySide('defender')}</div>
-              </div>` : ''}
-            <!-- Round dettagliati -->
-            ${roundsHtml || '<div style="font-size:11px;color:var(--text-muted)">Nessun round dettagliato catturato. Naviga i round nel gioco.</div>'}
-          </div>
-        </div>`;
-    }).join('');
+    el.innerHTML = countHtml + reports.map(crRenderCard).join('');
   }
 
   async function renderMilitary() {
@@ -3278,7 +3446,6 @@
   function stopTimerTick() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 
   // ── ACCOUNT ────────────────────────────────────
-  let selectedCityId = null;
 
   async function renderAccount() {
     if (!window.IkDB) return;
@@ -3288,17 +3455,17 @@
     const ownCities = cities.filter(c => c.isOwn || c.source === 'ikariam');
     const select    = document.getElementById('ikp-city-select');
     if (select && ownCities.length) {
-      const current = select.value || selectedCityId;
+      const current = currentCityId || Number(select.value) || null;
       select.innerHTML = ownCities.map(c =>
         `<option value="${c.id}" ${c.id == current ? 'selected' : ''}>
           ${c.isCapital ? '⭐ ' : ''}${c.name}
           ${c.islandX ? `[${c.islandX}:${c.islandY}]` : ''}
         </option>`
       ).join('');
-      if (!selectedCityId) selectedCityId = ownCities[0].id;
+      if (!currentCityId) currentCityId = ownCities[0].id;
     }
 
-    const cityId = selectedCityId || (ownCities[0]?.id);
+    const cityId = currentCityId || ownCities[0]?.id;
     if (!cityId) {
       document.getElementById('ikp-account-content').innerHTML =
         `<div class="ikp-empty"><div class="ikp-empty-icon">🏛</div>
@@ -3459,7 +3626,7 @@
   }
 
   function selectCity(id) {
-    selectedCityId = id;
+    currentCityId = id;
     renderAccount();
   }
 
@@ -4919,6 +5086,18 @@
       return;
     }
 
+    const now = Math.floor(Date.now() / 1000);
+
+    // Ordina: prima attivi (per tempo rimasto), poi inattivi per nome
+    miracles.sort((a, b) => {
+      const aActive = a.enddate && a.enddate > now;
+      const bActive = b.enddate && b.enddate > now;
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      if (aActive && bActive) return a.enddate - b.enddate;
+      return (a.cityName || '').localeCompare(b.cityName || '');
+    });
+
     function fmtCountdown(enddate) {
       const secs = enddate - Math.floor(Date.now() / 1000);
       if (secs <= 0) return '⌛ Scaduto';
@@ -4931,45 +5110,29 @@
     }
 
     function buildRows() {
-      const now = Math.floor(Date.now() / 1000);
-
-      // Raggruppa per godName — interessa solo il miracolo, non la polis
-      const byGod = new Map();
-      for (const rec of miracles) {
-        const god = rec.godName || '—';
-        const active = rec.enddate && rec.enddate > now;
-        if (!active) continue; // mostra solo miracoli attivi
-        if (!byGod.has(god)) byGod.set(god, { enddate: 0, count: 0 });
-        const g = byGod.get(god);
-        g.count++;
-        // Tieni il countdown più lungo (scade per ultimo)
-        if (rec.enddate > g.enddate) g.enddate = rec.enddate;
-      }
-
-      if (!byGod.size) {
-        return `<p style="color:#9e8060;font-size:12px;text-align:center;padding:12px 0">
-          Nessun miracolo attivo al momento.</p>`;
-      }
-
-      // Ordina per tempo rimanente (scade prima → prima)
-      const sorted = [...byGod.entries()].sort((a, b) => a[1].enddate - b[1].enddate);
-
-      return sorted.map(([god, info]) => {
-        const countdown = fmtCountdown(info.enddate);
-        const cityLabel = info.count > 1 ? `${info.count} polis` : '';
+      return miracles.map(rec => {
+        const active = rec.enddate && rec.enddate > Math.floor(Date.now() / 1000);
+        const countdown = active ? fmtCountdown(rec.enddate) : '—';
+        const dotColor = active ? '#4caf50' : '#ccc';
+        const savedAgo = rec.savedAt
+          ? Math.round((Date.now() - rec.savedAt) / 60000) + ' min fa'
+          : '';
         return `
           <div style="display:flex;align-items:center;gap:8px;
             padding:7px 0;border-bottom:1px solid #ede8df">
             <span style="width:8px;height:8px;border-radius:50%;
-              background:#4caf50;flex-shrink:0;display:inline-block"></span>
+              background:${dotColor};flex-shrink:0;display:inline-block"></span>
             <div style="flex:1;min-width:0">
               <div style="font-size:12px;font-weight:600;color:#2c1f0e;
                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                ${god}
+                ${rec.cityName || 'Città #'+rec.cityId}
               </div>
-              ${cityLabel ? `<div style="font-size:11px;color:#9e8060">${cityLabel}</div>` : ''}
+              <div style="font-size:11px;color:#9e8060">
+                ${rec.godName || '—'}${savedAgo ? ' · ' + savedAgo : ''}
+              </div>
             </div>
-            <div style="font-size:13px;font-weight:700;color:#2e7d32;
+            <div style="font-size:12px;font-weight:700;
+              color:${active ? '#2e7d32' : '#9e8060'};
               white-space:nowrap;flex-shrink:0">
               ${countdown}
             </div>
