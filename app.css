@@ -319,6 +319,61 @@
   white-space: nowrap;
 }
 
+/* ── RIEPILOGO ALLEANZA (sotto i filtri mappa) ── */
+#ikp-panel #ikp-ally-summary {
+  display: none;
+  background: #ffffff !important;
+  border: 1px solid #d4c5a9 !important;
+  border-radius: 8px !important;
+  margin-bottom: 10px !important;
+  max-height: 260px !important;
+  overflow-y: auto !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+  box-sizing: border-box !important;
+  color: #2c1f0e !important;
+}
+#ikp-ally-summary * { box-sizing: border-box; }
+.ikp-ally-summary-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid #d4c5a9;
+  font-size: 13px; position: sticky; top: 0;
+  background: #ffffff;
+}
+.ikp-ally-summary-tot {
+  font-size: 11px; color: #9e8060; white-space: nowrap;
+}
+.ikp-ally-summary-list { padding: 4px 0; }
+.ikp-ally-summary-row {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; cursor: pointer;
+  border-bottom: 1px solid #f0ebe0;
+  font-size: 12px; overflow: hidden;
+}
+.ikp-ally-summary-row:last-child { border-bottom: none; }
+.ikp-ally-summary-row:active { background: #f0ebe0; }
+.ikp-ally-summary-bar {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: rgba(233,30,140,0.12);
+  z-index: 0;
+}
+.ikp-ally-summary-name {
+  position: relative; z-index: 1; font-weight: 600;
+  flex: 1; min-width: 0; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.ikp-ally-summary-coords {
+  position: relative; z-index: 1; color: #9e8060;
+  font-size: 11px; white-space: nowrap;
+}
+.ikp-ally-summary-ratio {
+  position: relative; z-index: 1; color: #e91e8c;
+  font-weight: 700; white-space: nowrap;
+}
+.ikp-ally-summary-ratio small { color: #9e8060; font-weight: 500; }
+
 /* ── OVERLAY DETTAGLIO PLAYER (appended to body, fuori da #ikp-panel) ── */
 #ikp-player-detail-overlay {
   position: fixed !important;

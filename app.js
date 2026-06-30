@@ -402,6 +402,9 @@
             </label>
             <button class="ikp-btn small outline" onclick="window.IkApp.clearFilters()">✕ Reset</button>
           </div>
+          <!-- ── RIEPILOGO ALLEANZA (isole ordinate per dominanza) ── -->
+          <div id="ikp-ally-summary"></div>
+
           <div id="ikp-map-wrap">
             <canvas id="ikp-map-canvas" height="575"></canvas>
           </div>
@@ -891,7 +894,7 @@
   function refreshActiveTab() {
     switch (activeTab) {
       case 'captured':  renderCaptured();    break;
-      case 'map':       resizeCanvas(); drawMap(); break;
+      case 'map':       resizeCanvas(); drawMap(); renderAllySummary(); break;
       case 'timers':    renderTimers();    break;
       case 'mycities':  renderMyCities();  break;
       case 'military':  renderMilitary();  break;
@@ -935,6 +938,7 @@
     }
     console.log(`[loadMapData] ${mapIslands.length} isole, ${players.length} players`);
     drawMap();
+    renderAllySummary();
   }
 
   function resizeCanvas() {
@@ -961,6 +965,7 @@
     noAllyFilter = document.getElementById('ikp-f-noally')?.checked || false;
     refFilter    = (document.getElementById('ikp-f-ref')?.value    || '').toLowerCase().trim();
     drawMap();
+    renderAllySummary();
   }
 
   function clearFilters() {
@@ -975,6 +980,94 @@
     searchFilter = allyFilter = refFilter = stateFilter = '';
     noAllyFilter = false;
     drawMap();
+    renderAllySummary();
+  }
+
+  // Centra la mappa su un'isola e apre il popup polis
+  function goToIsland(x, y) {
+    mapView.x = x;
+    mapView.y = y;
+    drawMap();
+    const isl = mapIslands.find(i => i.x === x && i.y === y);
+    if (isl) showIslandPopup(isl);
+  }
+
+  // ── RIEPILOGO ALLEANZA ────────────────────────
+  // Quando il campo "Alleanza" è valorizzato, mostra sotto i filtri
+  // l'elenco delle isole con polis dell'alleanza cercata, con coordinate,
+  // numero polis-alleanza / numero polis-totali dell'isola, ordinate per
+  // rapporto decrescente (dominanza dell'alleanza sull'isola).
+  function renderAllySummary() {
+    const box = document.getElementById('ikp-ally-summary');
+    if (!box) return;
+
+    if (!allyFilter) {
+      box.innerHTML = '';
+      box.style.display = 'none';
+      return;
+    }
+
+    const nameToAlly = new Map();
+    for (const [, p] of mapPlayers) {
+      if (p?.name) nameToAlly.set(p.name.toLowerCase(), (p.ally || '').toLowerCase());
+    }
+
+    const rows = [];
+    let totalAllyPolis = 0, totalAllPolis = 0;
+
+    for (const isl of mapIslands) {
+      const cities = isl.cities || [];
+      if (!cities.length) continue;
+
+      let allyCount = 0;
+      for (const c of cities) {
+        const pname   = (c.player_name || '').toLowerCase();
+        const allyDb  = nameToAlly.get(pname) || '';
+        const allyRaw = (c.ally_name || '').toLowerCase();
+        const allyEff = allyDb || allyRaw;
+        if (allyEff === allyFilter) allyCount++;
+      }
+      if (allyCount === 0) continue;
+
+      totalAllyPolis += allyCount;
+      totalAllPolis  += cities.length;
+      rows.push({
+        x: isl.x, y: isl.y,
+        name: isl.name || `[${isl.x}:${isl.y}]`,
+        allyCount,
+        totalCount: cities.length,
+        ratio: allyCount / cities.length,
+      });
+    }
+
+    if (!rows.length) {
+      box.style.display = 'block';
+      box.innerHTML = `
+        <div class="ikp-ally-summary-head">
+          <span>🏰 Nessuna isola trovata per "<b>${allyFilter}</b>"</span>
+        </div>`;
+      return;
+    }
+
+    rows.sort((a, b) => b.ratio - a.ratio || b.allyCount - a.allyCount);
+
+    box.style.display = 'block';
+    box.innerHTML = `
+      <div class="ikp-ally-summary-head">
+        <span>🏰 <b>${allyFilter}</b></span>
+        <span class="ikp-ally-summary-tot">${totalAllyPolis} / ${totalAllPolis} polis su ${rows.length} isole</span>
+      </div>
+      <div class="ikp-ally-summary-list">
+        ${rows.map(r => {
+          const pct = Math.round(r.ratio * 100);
+          return `<div class="ikp-ally-summary-row" onclick="window.IkApp.goToIsland(${r.x},${r.y})">
+            <div class="ikp-ally-summary-bar" style="width:${pct}%"></div>
+            <span class="ikp-ally-summary-name">${r.name}</span>
+            <span class="ikp-ally-summary-coords">[${r.x}:${r.y}]</span>
+            <span class="ikp-ally-summary-ratio">${r.allyCount}/${r.totalCount} <small>(${pct}%)</small></span>
+          </div>`;
+        }).join('')}
+      </div>`;
   }
 
   // Cerca isola del proprio player per centrare la mappa
@@ -4787,7 +4880,7 @@
 
   window.IkApp = {
     init, toggle, toast, drawMap, mapReset, mapZoom,
-    applyFilters, clearFilters, goToMe,
+    applyFilters, clearFilters, goToMe, goToIsland, renderAllySummary,
     closePopup, saveMyId, askNotifPerm, pruneOld, saveRetention,
     toggleSaveAllRaw,
     clearDB, clearDbSection, clearChanges, importFiles, importLog,
