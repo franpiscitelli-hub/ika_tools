@@ -373,6 +373,13 @@
   font-weight: 700; white-space: nowrap;
 }
 .ikp-ally-summary-ratio small { color: #9e8060; font-weight: 500; }
+.ikp-ally-summary-open {
+  position: relative; z-index: 1;
+  background: #fff; border: 1px solid #d4c5a9; border-radius: 6px;
+  padding: 2px 7px; font-size: 13px; line-height: 1.4;
+  cursor: pointer; flex-shrink: 0;
+}
+.ikp-ally-summary-open:active { background: #f0ebe0; }
 
 /* ── OVERLAY DETTAGLIO PLAYER (appended to body, fuori da #ikp-panel) ── */
 #ikp-player-detail-overlay {

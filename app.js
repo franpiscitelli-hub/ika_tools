@@ -983,13 +983,22 @@
     renderAllySummary();
   }
 
+  // Apre il popup polis di un'isola esattamente come se l'utente avesse
+  // toccato/cliccato quell'isola sulla mappa (stesso comportamento di
+  // onMapClick/onTouchEnd → findNearestIsland → showIslandPopup),
+  // senza ricentrare la vista.
+  function openIslandPopup(x, y) {
+    const isl = mapIslands.find(i => i.x === x && i.y === y);
+    if (!isl) { toast('⚠️ Isola non trovata nel DB'); return; }
+    showIslandPopup(isl);
+  }
+
   // Centra la mappa su un'isola e apre il popup polis
   function goToIsland(x, y) {
     mapView.x = x;
     mapView.y = y;
     drawMap();
-    const isl = mapIslands.find(i => i.x === x && i.y === y);
-    if (isl) showIslandPopup(isl);
+    openIslandPopup(x, y);
   }
 
   // ── RIEPILOGO ALLEANZA ────────────────────────
@@ -1065,6 +1074,8 @@
             <span class="ikp-ally-summary-name">${r.name}</span>
             <span class="ikp-ally-summary-coords">[${r.x}:${r.y}]</span>
             <span class="ikp-ally-summary-ratio">${r.allyCount}/${r.totalCount} <small>(${pct}%)</small></span>
+            <button class="ikp-ally-summary-open" title="Apri isola"
+              onclick="event.stopPropagation();window.IkApp.openIslandPopup(${r.x},${r.y})">🏝</button>
           </div>`;
         }).join('')}
       </div>`;
@@ -4880,7 +4891,7 @@
 
   window.IkApp = {
     init, toggle, toast, drawMap, mapReset, mapZoom,
-    applyFilters, clearFilters, goToMe, goToIsland, renderAllySummary,
+    applyFilters, clearFilters, goToMe, goToIsland, openIslandPopup, renderAllySummary,
     closePopup, saveMyId, askNotifPerm, pruneOld, saveRetention,
     toggleSaveAllRaw,
     clearDB, clearDbSection, clearChanges, importFiles, importLog,
