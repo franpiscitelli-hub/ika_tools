@@ -4990,9 +4990,20 @@
 
   function startTgPoll() {
     if (tgPollInterval) return;
-    tgPollInterval = setInterval(checkTgNotifications, 30000);
+    tgPollInterval = setInterval(checkTgNotifications, 20000);
     checkTgNotifications(); // check immediato
+
+    // Il tab in background viene throttlato dal browser (setInterval può saltare
+    // minuti interi); forza un check appena il tab torna visibile, così le
+    // notifiche "scadute nel frattempo" partono subito invece di perdersi.
+    if (!tgVisibilityHandlerAttached) {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkTgNotifications();
+      });
+      tgVisibilityHandlerAttached = true;
+    }
   }
+  let tgVisibilityHandlerAttached = false;
 
   async function checkTgNotifications() {
     const { token, chatId } = getTgConfig();
@@ -5009,9 +5020,10 @@
 
       const msLeft     = timer.msLeft;
       const msBefore   = minutesBefore * 60 * 1000;
-      const tolerance  = 45 * 1000; // 45 secondi di tolleranza
-
-      if (msLeft <= msBefore + tolerance && msLeft > 0) {
+      // Tolleranza ampia: il poll può saltare dei giri se il tab è in background
+      // (throttling del browser), quindi basta che siamo scesi sotto la soglia
+      // e il timer non sia ancora del tutto scaduto.
+      if (msLeft <= msBefore && msLeft > 0) {
         const icons = {
           building:'🏗', research:'🔬', fleet_enemy:'⚔️', shrine:'⛩',
           transport:'🚛', deploy:'🪖', deployfleet:'⛴',
