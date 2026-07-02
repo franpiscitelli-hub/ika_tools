@@ -5,7 +5,7 @@
   'use strict';
 
   const DB_NAME    = 'IkariamCompanion';
-  const DB_VERSION = 18;
+  const DB_VERSION = 19;
   let db = null;
 
   function open() {
@@ -249,6 +249,15 @@
         if (!d.objectStoreNames.contains('cultural_treaties')) {
           d.createObjectStore('cultural_treaties', { keyPath: 'cityId' });
         }
+
+        // building_targets — livello target impostato manualmente per un
+        // edificio in una polis (colonna "🎯 Target" nella tabella città).
+        // keyPath: id stringa "cityId_building"
+        // { id, cityId, building, targetLevel, updated }
+        if (!d.objectStoreNames.contains('building_targets')) {
+          const s = d.createObjectStore('building_targets', { keyPath: 'id' });
+          s.createIndex('cityId', 'cityId', { unique: false });
+        }
       };
 
       req.onsuccess = e => {
@@ -430,7 +439,7 @@
       'alliances', 'state_changes', 'buildings', 'combat_reports',
       'my_cities', 'enemy_buildings', 'account_summary', 'building_data',
       'completed_timers', 'unit_data', 'city_military', 'building_training',
-      'score_changes', 'town_hall_data',
+      'score_changes', 'town_hall_data', 'building_targets',
     ];
     const result = {};
     for (const s of stores) {

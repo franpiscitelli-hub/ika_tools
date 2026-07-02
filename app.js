@@ -27,6 +27,46 @@
   let timerInterval = null;
   let popupIsland   = null;
 
+  // ── ICONE EDIFICI (condivise tra tabella città e HUD in-page) ─
+  const BICONS = {
+    townHall:'🏛', warehouse:'🏪', tavern:'🍺', academy:'🎓',
+    shipyard:'⚓', barracks:'⚔️', wall:'🏰', museum:'🖼',
+    palace:'👑', palaceColony:'👑', branchOffice:'🏢', temple:'⛩', beautification:'🌸',
+    luxuryResidence:'🏠', embassy:'📜', carpentering:'🪚',
+    optician:'🫙', glassblowing:'💎', alchemistTower:'⚗️', fireworker:'💣',
+    workshop:'🔧', forester:'🌲', vineyard:'🍇', winegrower:'🍇', stonemason:'⛏',
+    port:'⚓', dump:'🗑', architect:'📐', safehouse:'🕵️',
+  };
+
+  // ── TARGET LIVELLO EDIFICI (obiettivi impostati manualmente per polis) ─
+  // Store: 'building_targets' — { id:"cityId_building", cityId, building, targetLevel, updated }
+  async function setBuildingTarget(cityId, building, rawValue) {
+    if (!window.IkDB) return;
+    const id  = `${cityId}_${building}`;
+    const lvl = parseInt(rawValue, 10);
+    try {
+      if (!rawValue || isNaN(lvl) || lvl <= 0) {
+        await window.IkDB.deleteRecord('building_targets', id);
+      } else {
+        await window.IkDB.put('building_targets', { id, cityId, building, targetLevel: lvl, updated: Date.now() });
+      }
+    } catch (e) { console.error('[IkApp] Errore salvataggio target edificio', e); }
+
+    // Aggiorna il pannello "Info Polis" (FAB 🏛) se aperto su questa città
+    if (cityHudOpen) {
+      const select = document.getElementById('ikp-city-hud-select');
+      if (select && Number(select.value) === cityId) {
+        const body = document.getElementById('ikp-city-panel-body');
+        if (body) body.innerHTML = await buildHudContent(cityId);
+      }
+    }
+    // Aggiorna l'HUD a scomparsa iniettato in-page se aperto su questa città
+    if (hudCurrentCityId === cityId) {
+      const hudBody = document.getElementById('ikp-city-hud-body');
+      if (hudBody) hudBody.innerHTML = await buildHudContent(cityId);
+    }
+  }
+
   // ── SISTEMA LOG IN-APP ───────────────────────
   const logBuffer = [];
   const LOG_MAX   = 200;
@@ -705,6 +745,7 @@
                 <option value="ally_changes">🏰 Cambi alleanza</option>
                 <option value="combat_reports">⚔️ Rapporti combattimento</option>
                 <option value="player_units">🪖 Truppe player</option>
+                <option value="building_targets">🎯 Target edifici</option>
                 <option value="entries">📋 JSON raw</option>
               </select>
               <input class="ikp-input" id="ikp-db-q" placeholder="Cerca..."
@@ -2067,15 +2108,10 @@
 
     let totalWine = 0;
 
-    const BICONS = {
-      townHall:'🏛', warehouse:'🏪', tavern:'🍺', academy:'🎓',
-      shipyard:'⚓', barracks:'⚔️', wall:'🏰', museum:'🖼',
-      palace:'👑', palaceColony:'👑', branchOffice:'🏢', temple:'⛩', beautification:'🌸',
-      luxuryResidence:'🏠', embassy:'📜', carpentering:'🪚',
-      optician:'🫙', glassblowing:'💎', alchemistTower:'⚗️', fireworker:'💣',
-      workshop:'🔧', forester:'🌲', vineyard:'🍇', winegrower:'🍇', stonemason:'⛏',
-      port:'⚓', dump:'🗑', architect:'📐', safehouse:'🕵️',
-    };
+    // Target livelli impostati per gli edifici di tutte le polis
+    let allTargets = [];
+    try { allTargets = await window.IkDB.getAll('building_targets'); } catch {}
+    const targetMap = new Map(allTargets.map(t => [t.id, t.targetLevel]));
 
     const rows = cities.map((c, idx) => {
       const coords  = (c.islandX != null && c.islandY != null) ? `${c.islandX}:${c.islandY}` : '—';
@@ -2186,9 +2222,20 @@
               }
             }
 
+            const targetId  = `${c.cityId}_${b.building}`;
+            const targetVal = targetMap.get(targetId);
+            const targetInputHtml = `
+              <input type="number" min="1" max="99" step="1"
+                value="${targetVal ?? ''}" placeholder="—"
+                style="width:46px;text-align:center;padding:2px 4px;border:1px solid var(--border);
+                  border-radius:4px;background:var(--bg);color:var(--text);font-size:12px"
+                onclick="event.stopPropagation()"
+                onchange="window.IkApp.setBuildingTarget(${c.cityId}, '${b.building}', this.value)">`;
+
             return `<tr style="${rowHighlight}">
               <td style="padding-left:28px">${dot}${icon} ${b.name || b.building}</td>
               <td style="text-align:center;font-weight:700">${b.level}</td>
+              <td style="text-align:center">${targetInputHtml}</td>
               <td style="font-size:12px">${costHtml}</td>
             </tr>`;
           }),
@@ -2196,6 +2243,7 @@
             `<tr style="color:var(--text-muted)">
               <td style="padding-left:28px">⬜ Slot vuoto</td>
               <td style="text-align:center">—</td>
+              <td></td>
               <td></td>
             </tr>`
           ),
@@ -2212,6 +2260,7 @@
             <thead><tr style="background:var(--bg)">
               <th>Edificio</th>
               <th style="text-align:center">Lv</th>
+              <th style="text-align:center" title="Livello target da raggiungere">🎯 Target</th>
               <th>Costo prossimo livello${redNote ? ` <span style="color:#4caf50;font-weight:400;font-size:10px">(${redNote})</span>` : ''}</th>
             </tr></thead>
             <tbody>${bRows}</tbody>
@@ -2364,45 +2413,51 @@
 
     return `
       <div class="ikp-card" style="margin-top:12px">
-        <div class="ikp-card-title">🤝 Accordi Culturali
-          <span style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:8px">
-            ${partners.length} partner · aggiornato ${savedStr}
+        <div class="ikp-card-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center"
+          onclick="var b=document.getElementById('ikp-cultural-treaties-body');b.style.display=b.style.display==='none'?'block':'none';this.querySelector('.ikp-chev').textContent=b.style.display==='none'?'▸':'▾'">
+          <span>🤝 Accordi Culturali
+            <span style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:8px">
+              ${partners.length} partner · aggiornato ${savedStr}
+            </span>
           </span>
+          <span class="ikp-chev" style="font-size:11px;color:var(--text-muted)">▾</span>
         </div>
 
-        ${(allyPartners.length || otherPartners.length) ? `
-        <div style="overflow-x:auto">
-          <table class="ikp-db-table" style="font-size:12px">
-            <thead><tr>
-              <th>Giocatore</th>
-              <th>Alleanza</th>
-              <th>Capitale</th>
-              <th>Città accordo</th>
-            </tr></thead>
-            <tbody>
-              ${allyPartners.map(p => partnerRow(p, true)).join('')}
-              ${otherPartners.map(p => partnerRow(p, false)).join('')}
-            </tbody>
-          </table>
-        </div>` : ''}
-
-        ${missingPartners.length ? `
-        <div style="margin-top:10px">
-          <div style="font-size:12px;font-weight:700;color:#c62828;margin-bottom:6px">
-            ⚠️ Alleati ${myAllyTag} senza accordo (${missingPartners.length})
-          </div>
+        <div id="ikp-cultural-treaties-body">
+          ${(allyPartners.length || otherPartners.length) ? `
           <div style="overflow-x:auto">
             <table class="ikp-db-table" style="font-size:12px">
               <thead><tr>
-                <th>Giocatore</th><th>Alleanza</th><th colspan="2">Stato</th>
+                <th>Giocatore</th>
+                <th>Alleanza</th>
+                <th>Capitale</th>
+                <th>Città accordo</th>
               </tr></thead>
-              <tbody>${missingPartners.map(missingRow).join('')}</tbody>
+              <tbody>
+                ${allyPartners.map(p => partnerRow(p, true)).join('')}
+                ${otherPartners.map(p => partnerRow(p, false)).join('')}
+              </tbody>
             </table>
-          </div>
-        </div>` : myAllyTag && allyMembers.length ? `
-        <div style="margin-top:8px;font-size:12px;color:#2e7d32">
-          ✅ Tutti gli alleati ${myAllyTag} hanno un accordo culturale con te!
-        </div>` : ''}
+          </div>` : ''}
+
+          ${missingPartners.length ? `
+          <div style="margin-top:10px">
+            <div style="font-size:12px;font-weight:700;color:#c62828;margin-bottom:6px">
+              ⚠️ Alleati ${myAllyTag} senza accordo (${missingPartners.length})
+            </div>
+            <div style="overflow-x:auto">
+              <table class="ikp-db-table" style="font-size:12px">
+                <thead><tr>
+                  <th>Giocatore</th><th>Alleanza</th><th colspan="2">Stato</th>
+                </tr></thead>
+                <tbody>${missingPartners.map(missingRow).join('')}</tbody>
+              </table>
+            </div>
+          </div>` : myAllyTag && allyMembers.length ? `
+          <div style="margin-top:8px;font-size:12px;color:#2e7d32">
+            ✅ Tutti gli alleati ${myAllyTag} hanno un accordo culturale con te!
+          </div>` : ''}
+        </div>
       </div>`;
   }
 
@@ -4436,7 +4491,7 @@
   // ── CLEAR DB ─────────────────────────────────
   async function clearDB() {
     if (!confirm('Eliminare tutti i dati?')) return;
-    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military','score_changes','ally_changes','combat_reports','player_units'];
+    const stores = ['entries','islands','players','state_changes','my_cities','enemy_buildings','account_summary','building_data','unit_data','city_military','score_changes','ally_changes','combat_reports','player_units','building_targets'];
     await Promise.all(stores.map(s => window.IkDB.clear(s).catch(()=>{})));
     sessionCount = 0; mapIslands = []; mapCities = []; mapPlayers = new Map();
     updateBadge(); refreshActiveTab(); updateStatusBar();
@@ -4458,6 +4513,7 @@
     ally_changes:    '🏰 Cambi alleanza',
     combat_reports:  '⚔️ Rapporti combattimento',
     player_units:    '🪖 Truppe player',
+    building_targets:'🎯 Target edifici',
     entries:         '📋 JSON raw',
   };
 
@@ -4917,6 +4973,7 @@
     },
     saveTelegramConfig, testTelegram, toggleTgTimer, editTgTimer, saveTgTimer,
     showPlayerDetail, showPlayerUnits, toggleCityHUD, toggleMiraclePanel,
+    setBuildingTarget,
   };
   log('Modulo caricato');
 
@@ -5482,22 +5539,31 @@
       }
     }
 
-    // ── Edifici chiave ──
-    if (city?.buildings?.length) {
-      const byType = new Map(city.buildings.map(b => [b.building, b]));
-      const kv = [
-        ['🏛','Municipio',    byType.get('townHall')?.level],
-        ['🏯','Mura',         byType.get('wall')?.level],
-        ['⚔️','Caserma',     byType.get('barracks')?.level],
-        ['⚓','Cantiere',     byType.get('shipyard')?.level],
-        ['🕵️','Nascondiglio',byType.get('safehouse')?.level],
-        ['🎓','Accademia',    byType.get('academy')?.level],
-        ['🍺','Taverna',      byType.get('tavern')?.level],
-      ].filter(([,,v]) => v != null);
-      if (kv.length) {
-        html += section('🏗 Edifici chiave');
-        kv.forEach(([icon, label, val]) => { html += row(icon, label, 'Lv ' + val); });
+    // ── Edifici con target impostato ──
+    // Mostra solo gli edifici per cui è stato impostato un livello target
+    // (impostabile dalla colonna "🎯 Target" nella tabella "Le mie città").
+    let cityTargets = [];
+    try {
+      const allT = await window.IkDB.getAll('building_targets');
+      cityTargets = allT.filter(t => t.cityId === cityId);
+    } catch {}
+
+    html += section('🎯 Target edifici');
+    if (cityTargets.length) {
+      const byType = new Map((city?.buildings || []).map(b => [b.building, b]));
+      for (const t of cityTargets) {
+        const b        = byType.get(t.building);
+        const icon     = BICONS[t.building] || '🏗';
+        const label    = b?.name || t.building;
+        const curLevel = b?.level ?? '—';
+        const reached  = b != null && b.level >= t.targetLevel;
+        const valHtml  = `<span style="${reached ? 'color:#2e7d32;font-weight:700' : ''}">${curLevel} → ${t.targetLevel}${reached ? ' ✅' : ''}</span>`;
+        html += row(icon, label, valHtml);
       }
+    } else {
+      html += `<p style="color:#9e8060;font-size:11px;padding:4px 0 8px">
+        Nessun target impostato.<br>Imposta i livelli target dalla colonna 🎯 nella tabella "Le mie città".
+      </p>`;
     }
 
     return html;
